@@ -54,6 +54,11 @@ interface PortalSectionsWorkspaceProps {
   onUpdateTawsila: (ride: TawsilaRideItem) => void;
   onDeleteTawsila: (id: string) => void;
   onAddCommunityPost: (post: CommunityPostItem) => void;
+  onEditCommunityPost?: (
+    postId: string,
+    updatedContent: string,
+    updatedPostType?: 'استفسار' | 'اقتراح' | 'بيع'
+  ) => void;
   onUpdatePostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeletePost: (postId: string) => void;
   onTogglePostLike: (postId: string) => void;
@@ -161,6 +166,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onUpdateTawsila,
   onDeleteTawsila,
   onAddCommunityPost,
+  onEditCommunityPost,
   onUpdatePostStatus,
   onDeletePost,
   onTogglePostLike,
@@ -275,6 +281,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         privateChatReports={state.privateChatReports || []}
         onOpenAuthModal={onOpenAuthModal}
         onAddCommunityPost={onAddCommunityPost}
+        onEditCommunityPost={onEditCommunityPost}
         onUpdatePostStatus={onUpdatePostStatus}
         onDeletePost={onDeletePost}
         onTogglePostLike={onTogglePostLike}

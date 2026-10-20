@@ -20,6 +20,10 @@ import {
   AlertTriangle,
   Sparkles,
   Radio,
+  MoreHorizontal,
+  Bookmark,
+  Edit3,
+  ChevronDown,
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
@@ -36,7 +40,7 @@ import {
   PrivateChatStatus,
   UserAccount,
 } from '../types';
-import { FluentButton, FluentCard } from './FluentUI';
+import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import { LiveCommunityChatModal } from './LiveCommunityChatModal';
 import {
   ABUSIVE_CONTENT_WARNING_MESSAGE,
@@ -58,6 +62,11 @@ interface CommunityHubViewProps {
   privateChatReports?: PrivateChatReportItem[];
   onOpenAuthModal: () => void;
   onAddCommunityPost: (post: CommunityPostItem) => void;
+  onEditCommunityPost?: (
+    postId: string,
+    updatedContent: string,
+    updatedPostType?: CommunityPostType
+  ) => void;
   onUpdatePostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeletePost: (postId: string) => void;
   onTogglePostLike: (postId: string) => void;
@@ -231,6 +240,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   privateChatReports = [],
   onOpenAuthModal,
   onAddCommunityPost,
+  onEditCommunityPost,
   onUpdatePostStatus,
   onDeletePost,
   onTogglePostLike,
@@ -290,9 +300,59 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     'الكل' | CommunityPostType
   >('الكل');
 
-  // Infinite Scroll Pagination State: Initial 10 posts, auto-load more on scroll to bottom
-  const [visiblePostCount, setVisiblePostCount] = useState<number>(10);
+  // Infinite Scroll Pagination State: Initial 4 posts, auto-load 4 more on scroll to bottom
+  const [visiblePostCount, setVisiblePostCount] = useState<number>(4);
   const infiniteScrollSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Saved Posts State ("المنشورات المحفوظة") per user
+  const savedPostsStorageKey = `fluent_saved_posts_v1_${visitorId}`;
+  const [savedPostIds, setSavedPostIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`fluent_saved_posts_v1_${visitorId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+  const [isSavedPostsModalOpen, setIsSavedPostsModalOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(savedPostsStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setSavedPostIds(parsed);
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    setSavedPostIds([]);
+  }, [savedPostsStorageKey]);
+
+  const toggleSavePost = (postId: string) => {
+    setSavedPostIds((prev) => {
+      const exists = prev.includes(postId);
+      const next = exists ? prev.filter((id) => id !== postId) : [postId, ...prev];
+      try {
+        localStorage.setItem(savedPostsStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      setReportFeedbackBanner(
+        exists
+          ? 'تمت إزالة المنشور من قائمة المنشورات المحفوظة.'
+          : 'تم حفظ المنشور في قائمة المنشورات المحفوظة بنجاح!'
+      );
+      return next;
+    });
+  };
 
   // Facebook-style Post Composer States
   const [composerText, setComposerText] = useState<string>('');
@@ -303,7 +363,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [submissionNotice, setSubmissionNotice] = useState<string>('');
   const [profanityAlert, setProfanityAlert] = useState<string>('');
 
-  // Per-Post Interactive UI States
+  // Per-Post Interactive UI States ("المزيد" menu, inline editing, reporting)
+  const [openMoreMenuPostId, setOpenMoreMenuPostId] = useState<string | null>(null);
+  const [openReportSubMenuPostId, setOpenReportSubMenuPostId] = useState<string | null>(null);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingPostContent, setEditingPostContent] = useState<string>('');
+  const [editingPostType, setEditingPostType] = useState<CommunityPostType>('استفسار');
   const [openReportMenuId, setOpenReportMenuId] = useState<string | null>(null);
   const [openCommentInputForPost, setOpenCommentInputForPost] = useState<
     Record<string, boolean>
@@ -335,12 +400,14 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     selectedPostTypeFilter === 'الكل' ? true : p.postType === selectedPostTypeFilter
   );
 
-  // Reset pagination to 10 when filter changes
+  const savedPostsList = approvedPosts.filter((p) => savedPostIds.includes(p.id));
+
+  // Reset pagination to 4 when filter changes
   useEffect(() => {
-    setVisiblePostCount(10);
+    setVisiblePostCount(4);
   }, [selectedPostTypeFilter]);
 
-  // Automatic Infinite Scroll Observer: Loads remaining posts when scrolling to the bottom
+  // Automatic Infinite Scroll Observer: Loads 4 more posts each time when scrolling to the bottom
   useEffect(() => {
     const sentinel = infiniteScrollSentinelRef.current;
     if (!sentinel) return;
@@ -353,7 +420,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           visiblePostCount < filteredApprovedPosts.length
         ) {
           setVisiblePostCount((prev) =>
-            Math.min(filteredApprovedPosts.length, prev + 10)
+            Math.min(filteredApprovedPosts.length, prev + 4)
           );
         }
       },
@@ -800,27 +867,40 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const visiblePostsSlice = filteredApprovedPosts.slice(0, visiblePostCount);
 
   return (
-    <div className="space-y-6 w-full max-w-4xl mx-auto overflow-x-hidden">
-      {/* 1. Top Bar: Title + Filter Dropdown & "محادثة لايف" & Admin "إدارة" Button in 1 line without clipping any button on mobile */}
-      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-[#112240]/95 border border-[#334155] rounded-2xl p-2.5 sm:p-5 shadow-lg">
+    <div className="space-y-4 w-full max-w-4xl mx-auto overflow-x-hidden">
+      {/* 1. Top Bar: Title + "المنشورات المحفوظة" + Filter Dropdown + "محادثة لايف" + Admin "إدارة" */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#112240]/95 border border-[#334155] rounded-2xl p-2.5 sm:p-4 shadow-lg">
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
-            <Users className="w-4 h-4 sm:w-6 sm:h-6" />
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
+            <Users className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div>
-            <h1 className="text-xs sm:text-xl font-extrabold text-[#F8FAFC] whitespace-nowrap">
+            <h1 className="text-xs sm:text-lg font-extrabold text-[#F8FAFC] whitespace-nowrap">
               مجتمع
             </h1>
-            <p className="text-xs text-[#94A3B8] hidden sm:block">
+            <p className="text-[11px] text-[#94A3B8] hidden sm:block">
               شارك استفساراتك، اقتراحاتك، وإعلانات البيع والشراء مع أهالي المنطقة
             </p>
           </div>
         </div>
 
-        {/* Left Side Controls in 1 single line: Post Type Filter Dropdown + "محادثة لايف" Button + Admin "إدارة" Button */}
-        <div className="flex items-center gap-1 sm:gap-2.5 flex-wrap sm:flex-nowrap justify-end">
+        {/* Left Controls: المنشورات المحفوظة + فلتر الأقسام + محادثة لايف + إدارة */}
+        <div className="flex items-center gap-1 sm:gap-2 flex-wrap justify-end">
+          {/* خانة المنشورات المحفوظة في الأعلى */}
+          <button
+            type="button"
+            onClick={() => setIsSavedPostsModalOpen(true)}
+            className="fluent-reveal px-2 sm:px-3 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-[11px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <Bookmark className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+            <span>المنشورات المحفوظة</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-200 text-[10px] font-mono-tabular">
+              {savedPostsList.length}
+            </span>
+          </button>
+
           <div className="flex items-center gap-1 shrink-0">
-            <Filter className="w-4 h-4 text-sky-400 shrink-0 hidden sm:block" />
+            <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
             <select
               value={selectedPostTypeFilter}
               onChange={(e) =>
@@ -828,7 +908,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   e.target.value as 'الكل' | CommunityPostType
                 )
               }
-              className="rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-2 sm:px-3.5 py-1.5 sm:py-2 text-[11px] sm:text-sm text-[#F8FAFC] font-extrabold outline-none"
+              className="rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs text-[#F8FAFC] font-extrabold outline-none"
             >
               <option value="الكل">الكل ({approvedPosts.length})</option>
               <option value="استفسار">
@@ -847,11 +927,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           <button
             type="button"
             onClick={() => setIsLiveChatOpen(true)}
-            className="fluent-reveal px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-sm font-extrabold flex items-center gap-1 sm:gap-1.5 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap shrink-0"
+            className="fluent-reveal px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-extrabold flex items-center gap-1 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap shrink-0"
           >
-            <Radio className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-pulse relative z-10 shrink-0" />
+            <Radio className="w-3.5 h-3.5 animate-pulse relative z-10 shrink-0" />
             <span className="relative z-10">محادثة لايف</span>
-            <span className="relative z-10 px-1.5 py-0.5 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[10px] font-mono-tabular">
+            <span className="relative z-10 px-1.5 py-0.2 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[10px] font-mono-tabular">
               {liveChatMessages.length}
             </span>
           </button>
@@ -860,12 +940,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             <button
               type="button"
               onClick={() => setIsAdminManagementView(true)}
-              className="fluent-reveal px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[11px] sm:text-sm font-extrabold flex items-center gap-1 sm:gap-1.5 cursor-pointer shadow-lg whitespace-nowrap shrink-0"
+              className="fluent-reveal px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[11px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow-lg whitespace-nowrap shrink-0"
             >
-              <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
               <span>إدارة</span>
               {totalAdminAlertsCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-[#0A192F] text-amber-300 text-[10px] sm:text-xs font-mono-tabular">
+                <span className="px-1.5 py-0.2 rounded-full bg-[#0A192F] text-amber-300 text-[10px] font-mono-tabular">
                   {totalAdminAlertsCount}
                 </span>
               )}
@@ -876,7 +956,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
       {/* Profanity Warning Banner */}
       {profanityAlert && (
-        <div className="p-3.5 rounded-xl bg-rose-500/20 border border-rose-400 text-rose-200 text-xs font-extrabold flex items-center justify-between gap-2">
+        <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-400 text-rose-200 text-xs font-extrabold flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>{profanityAlert}</span>
@@ -891,9 +971,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         </div>
       )}
 
-      {/* Report Feedback Banner */}
+      {/* Report / Save Feedback Banner */}
       {reportFeedbackBanner && (
-        <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-400/50 text-emerald-200 text-xs font-bold flex items-center justify-between">
+        <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-400/50 text-emerald-200 text-xs font-bold flex items-center justify-between">
           <span>{reportFeedbackBanner}</span>
           <button
             type="button"
@@ -905,32 +985,29 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         </div>
       )}
 
-      {/* 2. Facebook-Style New Post Composer Box */}
-      <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between border-b border-[#334155]/80 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-sky-500/20 border border-sky-400/50 flex items-center justify-center text-sky-300 font-extrabold text-sm">
+      {/* 2. Compact New Post Composer Box (بحجم مناسب صغير: الاسم في سطر واحد وعلى أقصى اليسار نوع المنشور) */}
+      <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl p-3 sm:p-4 space-y-2.5 shadow-xl">
+        <div className="flex items-center justify-between gap-2 border-b border-[#334155]/80 pb-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-sky-500/20 border border-sky-400/50 flex items-center justify-center text-sky-300 font-extrabold text-xs shrink-0">
               {visitorName.slice(0, 1)}
             </div>
-            <div>
-              <div className="text-sm font-extrabold text-[#F8FAFC]">
-                {visitorName}
-              </div>
-              <div className="text-[11px] text-[#94A3B8]">
-                اكتب منشوراً جديداً في المجتمع
-              </div>
+            <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+              {visitorName}
             </div>
           </div>
 
-          {/* Post Type Selector Dropdown ("استفسار، اقتراح، بيع") */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-bold text-[#94A3B8]">نوع المنشور:</label>
+          {/* على أقصى اليسار نوع المنشور */}
+          <div className="flex items-center gap-1.5 shrink-0 mr-auto">
+            <label className="text-[11px] font-bold text-[#94A3B8] whitespace-nowrap">
+              نوع المنشور:
+            </label>
             <select
               value={composerPostType}
               onChange={(e) =>
                 setComposerPostType(e.target.value as CommunityPostType)
               }
-              className="rounded-xl bg-[#0A192F] border border-sky-400/50 px-3 py-1.5 text-xs sm:text-sm text-sky-300 font-extrabold outline-none"
+              className="rounded-xl bg-[#0A192F] border border-sky-400/50 px-2.5 py-1 text-xs text-sky-300 font-extrabold outline-none"
             >
               <option value="استفسار">استفسار</option>
               <option value="اقتراح">اقتراح</option>
@@ -940,40 +1017,40 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         </div>
 
         {!currentUser ? (
-          <div className="p-4 rounded-xl bg-[#0A192F] border border-amber-400/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="text-xs sm:text-sm font-extrabold text-amber-300">
+          <div className="p-3 rounded-xl bg-[#0A192F] border border-amber-400/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="text-xs font-extrabold text-amber-300">
               لا يمكن النشر في المجتمع إلا في حالة تسجيل الدخول لحسابك.
             </div>
             <FluentButton
               type="button"
               variant="primary"
-              size="md"
+              size="sm"
               onClick={onOpenAuthModal}
             >
               <span>تسجيل الدخول / إنشاء حساب للنشر</span>
             </FluentButton>
           </div>
         ) : (
-          <form onSubmit={handlePublishPostSubmit} className="space-y-3">
+          <form onSubmit={handlePublishPostSubmit} className="space-y-2">
             <textarea
-              rows={3}
+              rows={2}
               value={composerText}
               onChange={(e) => setComposerText(e.target.value)}
-              placeholder={`بم تفكر يا ${visitorName}؟ اكتب استفسارك أو اقتراحك أو إعلان البيع بكافة الحروف والرموز العربية والإنجليزية...`}
-              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 p-3.5 text-[#F8FAFC] leading-relaxed outline-none"
+              placeholder={`بم تفكر يا ${visitorName}؟ اكتب منشورك هنا...`}
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 p-2.5 text-xs sm:text-sm text-[#F8FAFC] leading-relaxed outline-none"
             />
 
             {/* Rich WhatsApp-Style Emoji Picker Panel */}
             {isEmojiPickerOpen && (
-              <div className="p-3.5 rounded-xl bg-[#0A192F] border border-sky-400/40 space-y-3">
-                <div className="flex items-center justify-between border-b border-[#334155] pb-2">
-                  <div className="flex items-center gap-1.5 overflow-x-auto">
+              <div className="p-2.5 rounded-xl bg-[#0A192F] border border-sky-400/40 space-y-2">
+                <div className="flex items-center justify-between border-b border-[#334155] pb-1.5">
+                  <div className="flex items-center gap-1 overflow-x-auto">
                     {WHATSAPP_EMOJI_GROUPS.map((grp, idx) => (
                       <button
                         key={grp.category}
                         type="button"
                         onClick={() => setActiveEmojiGroupIdx(idx)}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer whitespace-nowrap ${
                           activeEmojiGroupIdx === idx
                             ? 'bg-sky-600 text-white'
                             : 'bg-[#112240] text-[#94A3B8] hover:text-white'
@@ -988,19 +1065,19 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsEmojiPickerOpen(false)}
-                    className="text-xs text-[#94A3B8] hover:text-white cursor-pointer"
+                    className="text-[11px] text-[#94A3B8] hover:text-white cursor-pointer"
                   >
                     إغلاق
                   </button>
                 </div>
 
-                <div className="grid grid-cols-8 sm:grid-cols-10 gap-1.5 max-h-40 overflow-y-auto p-1">
+                <div className="grid grid-cols-8 sm:grid-cols-10 gap-1 max-h-32 overflow-y-auto p-1">
                   {WHATSAPP_EMOJI_GROUPS[activeEmojiGroupIdx].emojis.map((emj) => (
                     <button
                       key={emj}
                       type="button"
                       onClick={() => setComposerText((prev) => prev + emj)}
-                      className="h-9 rounded-lg hover:bg-[#1E293B] flex items-center justify-center text-xl cursor-pointer transition-transform hover:scale-110"
+                      className="h-8 rounded-lg hover:bg-[#1E293B] flex items-center justify-center text-lg cursor-pointer transition-transform hover:scale-110"
                     >
                       {emj}
                     </button>
@@ -1010,18 +1087,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             )}
 
             {/* Composer Action Bar: Emoji Picker Toggle + "انشر" Button */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div className="flex items-center justify-between gap-2 pt-0.5">
               <button
                 type="button"
                 onClick={() => setIsEmojiPickerOpen((prev) => !prev)}
-                className="fluent-reveal px-3.5 py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] text-amber-300 text-xs font-bold flex items-center gap-2 cursor-pointer"
+                className="fluent-reveal px-2.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
-                <Smile className="w-4 h-4 text-amber-400" />
-                <span>قائمة الإيموشنات 😊</span>
+                <Smile className="w-3.5 h-3.5 text-amber-400" />
+                <span>الإيموشنات 😊</span>
               </button>
 
-              <FluentButton type="submit" variant="primary" size="md">
-                <Send className="w-4 h-4" />
+              <FluentButton type="submit" variant="primary" size="sm">
+                <Send className="w-3.5 h-3.5" />
                 <span>انشر</span>
               </FluentButton>
             </div>
@@ -1030,9 +1107,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
         {/* Publisher Pending Approval Notice ("يتم عرض المنشور للموافقة عليه من المسؤول") */}
         {(submissionNotice || myPendingPosts.length > 0) && (
-          <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-400/50 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-extrabold text-amber-300">
-              <Clock className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+          <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-400/50 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-extrabold text-amber-300">
+              <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-pulse" />
               <span>
                 يتم عرض المنشور للموافقة عليه من المسؤول
                 {myPendingPosts.length > 0 && ` (${myPendingPosts.length} منشور قيد المراجعة)`}
@@ -1045,7 +1122,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   setIsAdminManagementView(true);
                   setAdminActiveTab('approvals');
                 }}
-                className="px-3 py-1 rounded-lg bg-amber-500 text-[#0A192F] text-xs font-extrabold cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-amber-500 text-[#0A192F] text-[11px] font-extrabold cursor-pointer"
               >
                 مراجعة واعتماد الآن
               </button>
@@ -1055,14 +1132,14 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
         {/* Publisher Rejected Post Notice ("تم رفض المنشور") */}
         {myRejectedPosts.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {myRejectedPosts.map((rej) => (
               <div
                 key={rej.id}
-                className="p-3.5 rounded-xl bg-rose-500/20 border border-rose-400/50 flex flex-wrap items-center justify-between gap-2"
+                className="p-2.5 rounded-xl bg-rose-500/20 border border-rose-400/50 flex flex-wrap items-center justify-between gap-2"
               >
-                <div className="flex items-center gap-2 text-xs sm:text-sm font-extrabold text-rose-300">
-                  <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <div className="flex items-center gap-1.5 text-xs font-extrabold text-rose-300">
+                  <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                   <span>
                     تم رفض المنشور: &quot;{rej.content.slice(0, 60)}...&quot;
                   </span>
@@ -1080,12 +1157,21 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         )}
       </div>
 
-      {/* 3. Approved Community Posts Feed (10 Initial + Auto Infinite Scroll) */}
-      <div className="space-y-5">
+      {/* 3. Approved Community Posts Feed (4 Initial + Load 4 More on Scroll, Medium Compact Template) */}
+      <div className="space-y-3">
         {visiblePostsSlice.map((post) => {
           const isPostLiked = post.likes.includes(visitorId);
           const isPostDisliked = post.dislikes.includes(visitorId);
-          const isReportDropdownOpen = openReportMenuId === `post-${post.id}`;
+          const isPostSaved = savedPostIds.includes(post.id);
+          const isPostOwner = Boolean(
+            currentUser &&
+              (post.authorId === currentUser.id ||
+                post.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+          const isMoreMenuOpen = openMoreMenuPostId === post.id;
+          const isReportSubMenuOpen = openReportSubMenuPostId === post.id;
+          const isEditingThisPost = editingPostId === post.id;
 
           // Comments: Pinned comment or First comment shown directly below the post
           const pinnedOrFirstComment =
@@ -1102,135 +1188,254 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           return (
             <FluentCard
               key={post.id}
-              className="p-5 space-y-4 border-[#334155] hover:border-sky-400/60"
+              noPadding
+              className={`p-3 sm:p-3.5 space-y-2 border-[#334155] hover:border-sky-400/60 overflow-visible ${
+                isMoreMenuOpen ? 'z-40 relative' : 'relative'
+              }`}
             >
-              {/* Post Top Header: Author + Textual Elapsed Time + Date on Right | Type Badge + 4-Option Report Menu on Left */}
-              <div className="flex items-start justify-between gap-3 border-b border-[#334155]/80 pb-3.5">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#0A192F] border border-sky-400/40 flex items-center justify-center text-sky-400 font-extrabold text-sm shrink-0">
+              {/* السطر الأول: الاسم في سطر واحد على اليمين | وعلى أقصى اليسار نوع المنشور + زر المزيد */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-[#0A192F] border border-sky-400/40 flex items-center justify-center text-sky-400 font-extrabold text-xs shrink-0">
                     {post.authorUsername.slice(0, 1)}
                   </div>
-                  <div>
-                    <div className="text-base font-extrabold text-[#F8FAFC]">
-                      {post.authorUsername}
-                    </div>
-                    {/* Medium font elapsed time in pure Arabic words (no numeric day counter) + Date */}
-                    <div className="text-sm font-medium text-[#94A3B8] flex flex-wrap items-center gap-2 mt-0.5">
-                      <span className="text-sky-300 font-semibold">
-                        {formatTextualArabicElapsedTime(
-                          post.createdAt,
-                          liveTimeTick
-                        )}
-                      </span>
-                      <span>·</span>
-                      <span className="text-xs text-[#94A3B8]">
-                        {formatArabicPostDate(post.createdAt)}
-                      </span>
-                    </div>
+                  <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                    {post.authorUsername}
                   </div>
                 </div>
 
-                {/* Top Left: Post Type Badge + "إبلاغ" Dropdown (4 Options) */}
-                <div className="flex items-center gap-2 relative">
+                {/* على أقصى اليسار: نوع المنشور + زر "المزيد" */}
+                <div className="flex items-center gap-1.5 shrink-0 relative">
                   <span
-                    className={`px-3 py-1 rounded-xl text-xs font-extrabold border ${getPostTypeBadgeStyle(
+                    className={`px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold border whitespace-nowrap ${getPostTypeBadgeStyle(
                       post.postType
                     )}`}
                   >
                     {post.postType}
                   </span>
 
+                  {/* زر "المزيد" على يسار المنشور في الأعلى */}
                   <div className="relative">
                     <button
                       type="button"
-                      onClick={() =>
-                        setOpenReportMenuId(
-                          isReportDropdownOpen ? null : `post-${post.id}`
-                        )
-                      }
-                      className="fluent-reveal px-2.5 py-1 rounded-xl bg-[#0A192F] hover:bg-rose-600/20 text-[#94A3B8] hover:text-rose-300 border border-[#334155] text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      onClick={() => {
+                        setOpenMoreMenuPostId(isMoreMenuOpen ? null : post.id);
+                        setOpenReportSubMenuPostId(null);
+                      }}
+                      className="fluent-reveal px-2 py-1 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-[#E2E8F0] border border-[#334155] text-[11px] font-extrabold flex items-center gap-1 cursor-pointer whitespace-nowrap"
                     >
-                      <Flag className="w-3.5 h-3.5" />
-                      <span>إبلاغ</span>
+                      <MoreHorizontal className="w-3.5 h-3.5 text-sky-400" />
+                      <span>المزيد</span>
+                      <ChevronDown className="w-3 h-3 text-[#94A3B8]" />
                     </button>
 
-                    {isReportDropdownOpen && (
-                      <div className="absolute left-0 top-full mt-1.5 w-56 rounded-xl bg-[#0A192F] border border-rose-400/50 shadow-2xl z-30 py-1.5 overflow-hidden">
-                        <div className="px-3 py-1.5 text-[11px] font-extrabold text-rose-300 border-b border-[#334155]">
-                          اختر سبب الإبلاغ عن المنشور:
-                        </div>
-                        {REPORT_REASONS.map((reason) => (
-                          <button
-                            key={reason}
-                            type="button"
-                            onClick={() => {
-                              onReportPost(post.id, reason);
-                              setOpenReportMenuId(null);
-                              setReportFeedbackBanner(
-                                `تم إرسال البلاغ ("${reason}") إلى إدارة المجتمع للمراجعة.`
-                              );
-                            }}
-                            className="w-full text-right px-3.5 py-2 text-xs font-bold text-[#F8FAFC] hover:bg-rose-600/25 hover:text-rose-200 transition-colors cursor-pointer block"
-                          >
-                            {reason}
-                          </button>
-                        ))}
+                    {/* القائمة المنسدلة لزر "المزيد": تظهر بالكامل ولا يختفي منها أي جزء في نسخة الهاتف */}
+                    {isMoreMenuOpen && (
+                      <div className="absolute left-0 top-full mt-1.5 w-52 max-w-[calc(100vw-2rem)] rounded-xl bg-[#0A192F] border border-sky-400/60 shadow-2xl z-50 py-1.5 overflow-hidden">
+                        {isPostOwner ? (
+                          /* لصاحب المنشور فقط: تعديل + حذف */
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPostId(post.id);
+                                setEditingPostContent(post.content);
+                                setEditingPostType(post.postType);
+                                setOpenMoreMenuPostId(null);
+                              }}
+                              className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-sky-300 hover:bg-sky-500/20 flex items-center gap-2 cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                              <span>تعديل</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onDeletePost(post.id);
+                                setOpenMoreMenuPostId(null);
+                              }}
+                              className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-rose-300 hover:bg-rose-600/25 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                              <span>حذف</span>
+                            </button>
+                          </>
+                        ) : (
+                          /* لباقي المستخدمين: حفظ + الإبلاغ */
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                toggleSavePost(post.id);
+                                setOpenMoreMenuPostId(null);
+                              }}
+                              className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-sky-300 hover:bg-sky-500/20 flex items-center gap-2 cursor-pointer"
+                            >
+                              <Bookmark className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                              <span>{isPostSaved ? 'إلغاء الحفظ ✓' : 'حفظ'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenReportSubMenuPostId(
+                                  isReportSubMenuOpen ? null : post.id
+                                )
+                              }
+                              className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-rose-300 hover:bg-rose-600/25 flex items-center justify-between gap-2 cursor-pointer border-t border-[#334155]/60"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Flag className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                <span>الإبلاغ</span>
+                              </span>
+                              <ChevronDown className="w-3.5 h-3.5 text-rose-300" />
+                            </button>
+
+                            {isReportSubMenuOpen && (
+                              <div className="bg-[#112240] border-t border-rose-400/40 py-1">
+                                {REPORT_REASONS.map((reason) => (
+                                  <button
+                                    key={reason}
+                                    type="button"
+                                    onClick={() => {
+                                      onReportPost(post.id, reason);
+                                      setOpenReportSubMenuPostId(null);
+                                      setOpenMoreMenuPostId(null);
+                                      setReportFeedbackBanner(
+                                        `تم إرسال البلاغ ("${reason}") إلى إدارة المجتمع للمراجعة.`
+                                      );
+                                    }}
+                                    className="w-full text-right px-4 py-1.5 text-[11px] font-bold text-[#F8FAFC] hover:bg-rose-600/25 hover:text-rose-200 transition-colors cursor-pointer block"
+                                  >
+                                    • {reason}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* صلاحيات Admin فقط: إمكانية حذف أي منشور */}
+                            {isStrictAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onDeletePost(post.id);
+                                  setOpenMoreMenuPostId(null);
+                                }}
+                                className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-rose-400 hover:bg-rose-600/25 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>حذف المنشور (Admin)</span>
+                              </button>
+                            )}
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
-
-                  {/* صلاحيات Admin فقط: حذف أي منشور في مجتمع */}
-                  {isStrictAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => onDeletePost(post.id)}
-                      title="حذف المنشور (صلاحية Admin فقط)"
-                      className="fluent-reveal px-2.5 py-1 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/40 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>حذف</span>
-                    </button>
-                  )}
                 </div>
               </div>
 
-              {/* Post Body Content */}
-              <p className="text-sm sm:text-base text-[#F8FAFC] leading-relaxed whitespace-pre-line">
-                {post.content}
-              </p>
+              {/* السطر الثاني أسفله مباشرة: وقت النشر في سطر واحد */}
+              <div className="text-[11px] font-medium text-[#94A3B8] flex items-center gap-1.5 whitespace-nowrap overflow-hidden border-b border-[#334155]/60 pb-1.5">
+                <Clock className="w-3 h-3 text-sky-400 shrink-0" />
+                <span className="text-sky-300 font-bold">
+                  {formatTextualArabicElapsedTime(post.createdAt, liveTimeTick)}
+                </span>
+                <span>·</span>
+                <span className="text-[11px] text-[#94A3B8] truncate">
+                  {formatArabicPostDate(post.createdAt)}
+                </span>
+              </div>
 
-              {/* Post Interaction Buttons: Like (👍), Dislike (👎), and "أضف تعليق" */}
-              <div className="pt-3 border-t border-[#334155]/80 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* زر لايك */}
+              {/* السطر الثالث أسفله: المنشور (أو نافذة التعديل لصاحب المنشور) */}
+              {isEditingThisPost ? (
+                <div className="p-2.5 rounded-xl bg-[#0A192F] border border-sky-400/50 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-extrabold text-sky-300">
+                      تعديل المنشور:
+                    </span>
+                    <select
+                      value={editingPostType}
+                      onChange={(e) =>
+                        setEditingPostType(e.target.value as CommunityPostType)
+                      }
+                      className="rounded-lg bg-[#112240] border border-sky-400/40 px-2 py-1 text-xs text-sky-300 font-bold outline-none"
+                    >
+                      <option value="استفسار">استفسار</option>
+                      <option value="اقتراح">اقتراح</option>
+                      <option value="بيع">بيع</option>
+                    </select>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={editingPostContent}
+                    onChange={(e) => setEditingPostContent(e.target.value)}
+                    className="w-full rounded-lg bg-[#112240] border border-[#334155] p-2 text-xs sm:text-sm text-[#F8FAFC] outline-none"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingPostId(null)}
+                      className="px-3 py-1 rounded-lg bg-[#1E293B] text-xs font-bold text-[#94A3B8] cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const clean = editingPostContent.trim();
+                        if (!clean) return;
+                        if (containsAbusiveWords(clean)) {
+                          setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                          return;
+                        }
+                        onEditCommunityPost?.(post.id, clean, editingPostType);
+                        setEditingPostId(null);
+                      }}
+                      className="px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-extrabold text-white cursor-pointer"
+                    >
+                      حفظ التعديل
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs sm:text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line">
+                  {post.content}
+                </p>
+              )}
+
+              {/* أزرار التفاعل الـ 3 بحجم صغير وفي سطر واحد: لايك + ديس لايك + تعليق */}
+              <div className="pt-2 border-t border-[#334155]/80 flex flex-row flex-nowrap items-center justify-between gap-1.5 overflow-x-auto">
+                <div className="flex flex-row flex-nowrap items-center gap-1.5 shrink-0">
+                  {/* 1. زر لايك بحجم صغير */}
                   <button
                     type="button"
                     onClick={() => onTogglePostLike(post.id)}
-                    className={`fluent-reveal px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border cursor-pointer transition-all ${
+                    className={`fluent-reveal px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold flex items-center gap-1 border cursor-pointer transition-all whitespace-nowrap ${
                       isPostLiked
-                        ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-[0_0_12px_rgba(24,119,242,0.5)]'
+                        ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-[0_0_10px_rgba(24,119,242,0.5)]'
                         : 'bg-[#0A192F] text-[#E2E8F0] hover:bg-[#1877F2]/20 border-[#334155]'
                     }`}
                   >
-                    <ThumbsUp className="w-3.5 h-3.5" />
+                    <ThumbsUp className="w-3 h-3 shrink-0" />
                     <span>لايك ({post.likes.length})</span>
                   </button>
 
-                  {/* زر ديس لايك */}
+                  {/* 2. زر ديس لايك بحجم صغير */}
                   <button
                     type="button"
                     onClick={() => onTogglePostDislike(post.id)}
-                    className={`fluent-reveal px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border cursor-pointer transition-all ${
+                    className={`fluent-reveal px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold flex items-center gap-1 border cursor-pointer transition-all whitespace-nowrap ${
                       isPostDisliked
-                        ? 'bg-rose-600 text-white border-rose-500 shadow-[0_0_12px_rgba(225,29,72,0.4)]'
+                        ? 'bg-rose-600 text-white border-rose-500 shadow-[0_0_10px_rgba(225,29,72,0.4)]'
                         : 'bg-[#0A192F] text-[#94A3B8] hover:bg-rose-600/20 border-[#334155]'
                     }`}
                   >
-                    <ThumbsDown className="w-3.5 h-3.5" />
+                    <ThumbsDown className="w-3 h-3 shrink-0" />
                     <span>ديس لايك ({post.dislikes.length})</span>
                   </button>
 
-                  {/* زر أضف تعليق */}
+                  {/* 3. زر "تعليق" (بدلاً من أضف تعليق) بحجم صغير وفي نفس السطر */}
                   <button
                     type="button"
                     onClick={() =>
@@ -1239,10 +1444,10 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         [post.id]: !prev[post.id],
                       }))
                     }
-                    className="fluent-reveal px-3.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-[#334155] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                    className="fluent-reveal px-2.5 py-1 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-[#334155] text-[11px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer whitespace-nowrap"
                   >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>أضف تعليق ({post.comments.length})</span>
+                    <MessageSquare className="w-3 h-3 shrink-0" />
+                    <span>تعليق ({post.comments.length})</span>
                   </button>
                 </div>
 
@@ -1255,11 +1460,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         [post.id]: !prev[post.id],
                       }))
                     }
-                    className="text-xs font-bold text-sky-400 hover:text-sky-300 cursor-pointer"
+                    className="text-[11px] font-bold text-sky-400 hover:text-sky-300 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     {isAllCommentsExpanded
-                      ? 'إخفاء باقي التعليقات'
-                      : `عرض كل التعليقات (${post.comments.length})`}
+                      ? 'إخفاء'
+                      : `الكل (${post.comments.length})`}
                   </button>
                 )}
               </div>
@@ -1277,7 +1482,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       }))
                     }
                     placeholder="اكتب تعليقك على المنشور..."
-                    className="flex-1 rounded-xl bg-[#0A192F] border border-sky-400/50 px-3.5 py-2 text-xs sm:text-sm text-[#F8FAFC] outline-none"
+                    className="flex-1 rounded-xl bg-[#0A192F] border border-sky-400/50 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
                   />
                   <FluentButton
                     variant="primary"
@@ -1313,7 +1518,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
               {/* Comments Section (Shows First or Pinned Comment immediately below Post) */}
               {commentsToRender.length > 0 && (
-                <div className="space-y-3 pt-2">
+                <div className="space-y-2 pt-1.5">
                   {commentsToRender.map((cmt) => {
                     const hasLikedCmt = cmt.likes.includes(visitorId);
                     const hasHeart = cmt.reactions.heart.includes(visitorId);
@@ -1327,7 +1532,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     return (
                       <div
                         key={cmt.id}
-                        className="p-3.5 rounded-xl bg-[#0A192F]/90 border border-[#334155] space-y-2.5"
+                        className="p-2.5 rounded-xl bg-[#0A192F]/90 border border-[#334155] space-y-2"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1389,7 +1594,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             )}
 
                             {isCmtReportOpen && (
-                              <div className="absolute left-0 top-full mt-1 w-52 rounded-xl bg-[#112240] border border-rose-400/50 shadow-2xl z-30 py-1">
+                              <div className="absolute left-0 top-full mt-1 w-52 max-w-[calc(100vw-2rem)] rounded-xl bg-[#112240] border border-rose-400/50 shadow-2xl z-50 py-1">
                                 {REPORT_REASONS.map((reason) => (
                                   <button
                                     key={reason}
@@ -1415,20 +1620,20 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                           </div>
                         </div>
 
-                        <p className="text-xs sm:text-sm text-[#F8FAFC] leading-relaxed">
+                        <p className="text-xs text-[#F8FAFC] leading-relaxed">
                           {cmt.text}
                         </p>
 
                         {/* Comment Actions: Like Button + 3 Specific Emoji Reactions (❤️, 😂, 😢) + Reply */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                          <div className="flex flex-wrap items-center gap-1">
                             {/* زر لايك على التعليق */}
                             <button
                               type="button"
                               onClick={() =>
                                 onToggleCommentLike(post.id, cmt.id)
                               }
-                              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border cursor-pointer transition-colors ${
+                              className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-colors ${
                                 hasLikedCmt
                                   ? 'bg-sky-600 text-white border-sky-400'
                                   : 'bg-[#112240] text-[#94A3B8] hover:text-white border-[#334155]'
@@ -1444,7 +1649,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onClick={() =>
                                 onToggleCommentEmoji(post.id, cmt.id, 'heart')
                               }
-                              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                              className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
                                 hasHeart
                                   ? 'bg-rose-500/25 border-rose-400 text-rose-200'
                                   : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
@@ -1460,7 +1665,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onClick={() =>
                                 onToggleCommentEmoji(post.id, cmt.id, 'laugh')
                               }
-                              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                              className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
                                 hasLaugh
                                   ? 'bg-amber-500/25 border-amber-400 text-amber-200'
                                   : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
@@ -1476,7 +1681,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onClick={() =>
                                 onToggleCommentEmoji(post.id, cmt.id, 'sad')
                               }
-                              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                              className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
                                 hasSad
                                   ? 'bg-indigo-500/25 border-indigo-400 text-indigo-200'
                                   : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
@@ -1495,20 +1700,20 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                                 isReplyingToThis ? null : replyKey
                               )
                             }
-                            className="text-xs font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
+                            className="text-[11px] font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
                           >
-                            <CornerDownLeft className="w-3.5 h-3.5" />
-                            <span>رد على التعليق ({cmt.replies.length})</span>
+                            <CornerDownLeft className="w-3 h-3" />
+                            <span>رد ({cmt.replies.length})</span>
                           </button>
                         </div>
 
                         {/* Nested Replies to Comment */}
                         {cmt.replies.length > 0 && (
-                          <div className="mr-4 pr-3 border-r-2 border-[#334155] space-y-2 pt-1">
+                          <div className="mr-3 pr-2.5 border-r-2 border-[#334155] space-y-1.5 pt-1">
                             {cmt.replies.map((rep) => (
                               <div
                                 key={rep.id}
-                                className="p-2.5 rounded-lg bg-[#112240] border border-[#334155]/80 text-xs space-y-1"
+                                className="p-2 rounded-lg bg-[#112240] border border-[#334155]/80 text-xs space-y-0.5"
                               >
                                 <div className="flex items-center justify-between">
                                   <span className="font-extrabold text-amber-300">
@@ -1529,7 +1734,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
                         {/* Reply Input */}
                         {isReplyingToThis && (
-                          <div className="flex items-center gap-2 pt-1.5">
+                          <div className="flex items-center gap-2 pt-1">
                             <input
                               type="text"
                               value={replyDrafts[replyKey] || ''}
@@ -1580,19 +1785,27 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           );
         })}
 
-        {/* Infinite Scroll Sentinel at Bottom of Screen */}
+        {/* Infinite Scroll Sentinel at Bottom of Screen (Loads 4 more posts each time) */}
         <div
           ref={infiniteScrollSentinelRef}
-          className="py-4 text-center text-xs text-[#94A3B8]"
+          className="py-3 text-center text-xs text-[#94A3B8]"
         >
           {visiblePostCount < filteredApprovedPosts.length ? (
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#112240] border border-[#334155] text-sky-300 font-bold">
+            <button
+              type="button"
+              onClick={() =>
+                setVisiblePostCount((prev) =>
+                  Math.min(filteredApprovedPosts.length, prev + 4)
+                )
+              }
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#112240] hover:bg-[#1E293B] border border-sky-400/40 text-sky-300 font-bold cursor-pointer"
+            >
               <Sparkles className="w-4 h-4 animate-spin" />
               <span>
-                جاري تحميل باقي المنشورات تلقائياً ({visiblePostCount} من{' '}
+                عرض 4 منشورات إضافية ({visiblePostCount} من{' '}
                 {filteredApprovedPosts.length})...
               </span>
-            </div>
+            </button>
           ) : (
             <span>
               تم عرض جميع المنشورات المعتمدة ({filteredApprovedPosts.length} منشور)
@@ -1600,6 +1813,73 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* شاشة المنشورات المحفوظة ("عند الضغط عليها يظهر شاشة بها المنشورات التي تم حفظها") */}
+      {isSavedPostsModalOpen && (
+        <FluentModal
+          isOpen={isSavedPostsModalOpen}
+          onClose={() => setIsSavedPostsModalOpen(false)}
+          title="المنشورات المحفوظة"
+          subtitle={`المنشورات التي قمت بحفظها للرجوع إليها (${savedPostsList.length} منشور)`}
+          maxWidth="2xl"
+        >
+          {savedPostsList.length === 0 ? (
+            <div className="p-8 text-center space-y-2">
+              <Bookmark className="w-10 h-10 text-sky-400 mx-auto opacity-80" />
+              <div className="text-sm font-extrabold text-[#F8FAFC]">
+                لا توجد منشورات محفوظة حالياً
+              </div>
+              <p className="text-xs text-[#94A3B8]">
+                يمكنك حفظ أي منشور بالضغط على زر &quot;المزيد&quot; أعلى يسار المنشور ثم اختيار &quot;حفظ&quot;.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+              {savedPostsList.map((savedPost) => (
+                <div
+                  key={savedPost.id}
+                  className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                      {savedPost.authorUsername}
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${getPostTypeBadgeStyle(
+                          savedPost.postType
+                        )}`}
+                      >
+                        {savedPost.postType}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleSavePost(savedPost.id)}
+                        className="px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[11px] font-bold cursor-pointer"
+                      >
+                        إزالة من المحفوظات
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-[#94A3B8] flex items-center gap-1.5">
+                    <span className="text-sky-300 font-bold">
+                      {formatTextualArabicElapsedTime(
+                        savedPost.createdAt,
+                        liveTimeTick
+                      )}
+                    </span>
+                    <span>·</span>
+                    <span>{formatArabicPostDate(savedPost.createdAt)}</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line">
+                    {savedPost.content}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </FluentModal>
+      )}
 
       {/* Live Chat Modal ("محادثة لايف") */}
       <LiveCommunityChatModal

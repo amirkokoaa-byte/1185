@@ -480,6 +480,25 @@ export default function App() {
     }));
   };
 
+  const handleEditCommunityPost = (
+    postId: string,
+    updatedContent: string,
+    updatedPostType?: 'استفسار' | 'اقتراح' | 'بيع'
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      communityPosts: prev.communityPosts.map((p) =>
+        p.id === postId
+          ? {
+              ...p,
+              content: updatedContent,
+              postType: updatedPostType || p.postType,
+            }
+          : p
+      ),
+    }));
+  };
+
   const handleDeletePost = (postId: string) => {
     updateAndPersist((prev) => ({
       ...prev,
@@ -1586,6 +1605,7 @@ export default function App() {
             onUpdateTawsila={handleUpdateTawsila}
             onDeleteTawsila={handleDeleteTawsila}
             onAddCommunityPost={handleAddCommunityPost}
+            onEditCommunityPost={handleEditCommunityPost}
             onUpdatePostStatus={handleUpdatePostStatus}
             onDeletePost={handleDeletePost}
             onTogglePostLike={handleTogglePostLike}
@@ -1676,6 +1696,7 @@ export default function App() {
       <FooterAndContactModal
         settings={dbState.settings}
         currentUser={currentUser}
+        onlineCount={onlineStats.totalOnline}
         onSendMessageToAdmin={handleSendMessageToAdmin}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />

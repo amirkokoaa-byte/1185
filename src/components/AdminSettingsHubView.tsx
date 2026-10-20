@@ -1230,7 +1230,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                       الباقة الأولى (1)
                     </div>
                     <div className="text-sm font-extrabold text-[#F8FAFC] mt-0.5">
-                      الإعلانات المربعة المتحركة ({state.squareAds.length})
+                      لوحة الإعلانات والخصومات ({state.squareAds.length})
                     </div>
                   </button>
 
@@ -1286,8 +1286,8 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                       <span>
                         {activeAdPackageTab === 'moving_square' &&
                           (editingAdId
-                            ? 'تعديل إعلان في القائمة المتحركة'
-                            : 'قالب إضافة إعلان جديد — القائمة المربعة المتحركة')}
+                            ? 'تعديل إعلان في لوحة الإعلانات والخصومات'
+                            : 'قالب إضافة إعلان جديد — لوحة الإعلانات والخصومات')}
                         {activeAdPackageTab === 'top_banner' &&
                           (editingAdId
                             ? 'تعديل إعلان البانر العلوي'
@@ -2307,7 +2307,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
               >
                 <option value="user">مستخدم عادي (User)</option>
                 <option value="moderator">
-                  مشرف (مراجعة المنشورات وتعديل الأقسام ما عدا الإعدادات)
+                  مشرف (له نفس وظائف Admin من إضافة وتحميل وتصدير ومراقبة الشات الحي بدون حذف نهائي)
                 </option>
                 <option value="admin">مدير النظام (Admin)</option>
               </select>

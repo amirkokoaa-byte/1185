@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
+  ChatTypingEntry,
   CommentEmojiReactionType,
   CommunityCommentItem,
   CommunityCommentReply,
@@ -63,6 +64,7 @@ interface CommunityHubViewProps {
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];
   privateChatStatuses?: Record<string, PrivateChatStatus>;
+  chatTypingMap?: Record<string, ChatTypingEntry>;
   userBlockedMap?: Record<string, string[]>;
   privateChatReports?: PrivateChatReportItem[];
   onOpenAuthModal: () => void;
@@ -122,6 +124,8 @@ interface CommunityHubViewProps {
     text: string,
     textColor?: string
   ) => void;
+  onMarkPrivateMessagesRead?: (partnerUsername: string) => void;
+  onSetChatTypingStatus?: (targetKey: string, isTyping: boolean) => void;
   onRespondPrivateChatRequest?: (
     senderKey: string,
     status: PrivateChatStatus
@@ -246,6 +250,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   chatPenalties = [],
   privateChatMessages = [],
   privateChatStatuses = {},
+  chatTypingMap = {},
   userBlockedMap = {},
   privateChatReports = [],
   onOpenAuthModal,
@@ -274,6 +279,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   onClearPrivateChatSession,
   onApplyChatPenalty,
   onSendPrivateMessage,
+  onMarkPrivateMessagesRead,
+  onSetChatTypingStatus,
   onRespondPrivateChatRequest,
   onBlockUserInChat,
   onDeleteUserAccountFromChat,
@@ -878,38 +885,72 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
   return (
     <div className="space-y-4 w-full max-w-4xl mx-auto overflow-x-hidden">
-      {/* 1. Top Bar: Title + "المنشورات المحفوظة" + Filter Dropdown + "محادثة لايف" + Admin "إدارة" */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#112240]/95 border border-[#334155] rounded-2xl p-2.5 sm:p-4 shadow-lg">
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
-            <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+      {/* 1. Top Bar: Title + Single-Row Controls on Mobile ("المنشورات المحفوظة" ثم "محادثة لايف" ثم "قائمة منسدلة الفلترة" في سطر واحد بدون مسطرة تحريك يمين أو يسار) */}
+      <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl p-2 sm:p-4 shadow-lg space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 overflow-hidden">
+        <div className="flex items-center justify-between gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xs sm:text-lg font-extrabold text-[#F8FAFC] truncate">
+                {sectionTitle}
+              </h1>
+              <p className="text-[11px] text-[#94A3B8] hidden sm:block">
+                {sectionSubtitle}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xs sm:text-lg font-extrabold text-[#F8FAFC] whitespace-nowrap">
-              {sectionTitle}
-            </h1>
-            <p className="text-[11px] text-[#94A3B8] hidden sm:block">
-              {sectionSubtitle}
-            </p>
-          </div>
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsAdminManagementView(true)}
+              className="fluent-reveal sm:hidden px-2 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[10px] font-extrabold flex items-center gap-1 cursor-pointer shadow shrink-0"
+            >
+              <ShieldCheck className="w-3 h-3 shrink-0" />
+              <span>إدارة</span>
+              {totalAdminAlertsCount > 0 && (
+                <span className="px-1 py-0.2 rounded-full bg-[#0A192F] text-amber-300 text-[9px] font-mono-tabular">
+                  {totalAdminAlertsCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
 
-        {/* Left Controls: المنشورات المحفوظة + فلتر الأقسام + محادثة لايف + إدارة */}
-        <div className="flex items-center gap-1 sm:gap-2 flex-wrap justify-end">
-          {/* خانة المنشورات المحفوظة في الأعلى */}
+        {/* Single-Row Controls on Mobile: 1) المنشورات المحفوظة -> 2) محادثة لايف -> 3) قائمة منسدلة الفلترة (No horizontal scrollbar) */}
+        <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-1 sm:gap-2 flex-nowrap overflow-hidden">
+          {/* 1. زر المنشورات المحفوظة */}
           <button
             type="button"
             onClick={() => setIsSavedPostsModalOpen(true)}
-            className="fluent-reveal px-2 sm:px-3 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-[11px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+            className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
           >
-            <Bookmark className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-            <span>المنشورات المحفوظة</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-200 text-[10px] font-mono-tabular">
+            <Bookmark className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-sky-400 shrink-0" />
+            <span className="truncate">المنشورات المحفوظة</span>
+            <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-200 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
               {savedPostsList.length}
             </span>
           </button>
 
-          <div className="flex items-center gap-1 shrink-0">
+          {/* 2. ثم محادثة لايف */}
+          {!hideLiveChatButton && (
+            <button
+              type="button"
+              onClick={() => setIsLiveChatOpen(true)}
+              className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap"
+            >
+              <Radio className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-pulse relative z-10 shrink-0" />
+              <span className="relative z-10 truncate">محادثة لايف</span>
+              <span className="relative z-10 px-1 sm:px-1.5 py-0.2 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
+                {liveChatMessages.length}
+              </span>
+            </button>
+          )}
+
+          {/* 3. ثم قائمة منسدلة الفلترة */}
+          <div className="flex-1 sm:flex-initial min-w-0 flex items-center gap-1">
             <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
             <select
               value={selectedPostTypeFilter}
@@ -918,7 +959,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   e.target.value as 'الكل' | CommunityPostType
                 )
               }
-              className="rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs text-[#F8FAFC] font-extrabold outline-none"
+              className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs text-[#F8FAFC] font-extrabold outline-none truncate"
             >
               <option value="الكل">الكل ({approvedPosts.length})</option>
               <option value="استفسار">
@@ -933,26 +974,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             </select>
           </div>
 
-          {/* زر على اليسار يظهر في قسم المجتمع فقط باسم "محادثة لايف" بشكل كامل وواضح على الهاتف */}
-          {!hideLiveChatButton && (
-            <button
-              type="button"
-              onClick={() => setIsLiveChatOpen(true)}
-              className="fluent-reveal px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-extrabold flex items-center gap-1 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap shrink-0"
-            >
-              <Radio className="w-3.5 h-3.5 animate-pulse relative z-10 shrink-0" />
-              <span className="relative z-10">محادثة لايف</span>
-              <span className="relative z-10 px-1.5 py-0.2 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[10px] font-mono-tabular">
-                {liveChatMessages.length}
-              </span>
-            </button>
-          )}
-
           {isAdmin && (
             <button
               type="button"
               onClick={() => setIsAdminManagementView(true)}
-              className="fluent-reveal px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[11px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow-lg whitespace-nowrap shrink-0"
+              className="fluent-reveal hidden sm:flex px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[11px] sm:text-xs font-extrabold items-center gap-1 cursor-pointer shadow-lg whitespace-nowrap shrink-0"
             >
               <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
               <span>إدارة</span>
@@ -1907,6 +1933,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         chatPenalties={chatPenalties}
         privateChatMessages={privateChatMessages}
         privateChatStatuses={privateChatStatuses}
+        chatTypingMap={chatTypingMap}
         userBlockedMap={userBlockedMap}
         privateChatReports={privateChatReports}
         onOpenAuthModal={onOpenAuthModal}
@@ -1919,6 +1946,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         onClearPrivateChatSession={onClearPrivateChatSession}
         onApplyChatPenalty={onApplyChatPenalty}
         onSendPrivateMessage={onSendPrivateMessage}
+        onMarkPrivateMessagesRead={onMarkPrivateMessagesRead}
+        onSetChatTypingStatus={onSetChatTypingStatus}
         onRespondPrivateChatRequest={onRespondPrivateChatRequest}
         onBlockUserInChat={onBlockUserInChat}
         onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}

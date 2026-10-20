@@ -2,6 +2,71 @@
 <html lang="ar" dir="rtl" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            var reason = event && event.reason;
+            var msg = reason && (reason.message || String(reason));
+            if (typeof msg === 'string' && msg.indexOf('WebSocket closed without opened') !== -1) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+        window.addEventListener(
+          'error',
+          function (event) {
+            var msg = (event && event.message) || '';
+            if (typeof msg === 'string' && msg.indexOf('WebSocket closed without opened') !== -1) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+        var NativeWebSocket = window.WebSocket;
+        if (NativeWebSocket) {
+          var WrappedWebSocket = function (url, protocols) {
+            var isViteHmr =
+              protocols === 'vite-hmr' ||
+              (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1);
+            var ws =
+              arguments.length > 1
+                ? new NativeWebSocket(url, protocols)
+                : new NativeWebSocket(url);
+            if (isViteHmr) {
+              var origAddEventListener = ws.addEventListener.bind(ws);
+              var opened = false;
+              origAddEventListener('open', function () {
+                opened = true;
+              });
+              ws.addEventListener = function (type, listener, options) {
+                if (type === 'close' && typeof listener === 'function') {
+                  var wrappedClose = function (ev) {
+                    if (!opened) {
+                      return;
+                    }
+                    return listener.call(this, ev);
+                  };
+                  return origAddEventListener(type, wrappedClose, options);
+                }
+                return origAddEventListener(type, listener, options);
+              };
+            }
+            return ws;
+          };
+          WrappedWebSocket.prototype = NativeWebSocket.prototype;
+          WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+          WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
+          WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
+          WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
+          window.WebSocket = WrappedWebSocket;
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0" />
     <meta name="theme-color" content="#0A192F" />
     <meta name="mobile-web-app-capable" content="yes" />

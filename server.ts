@@ -1,5 +1,6 @@
 import express from 'express';
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 
@@ -83,6 +84,7 @@ function broadcastSseEvent(eventType: string, payload: unknown) {
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
   app.use(express.json({ limit: '50mb' }));
 
   // 1. Live SSE Stream for instant real-time updates (Public Chat, Private Chat, Settings, Utilities, Posts)
@@ -167,7 +169,7 @@ async function startServer() {
         (authoritativeState.settings as Record<string, unknown>) || {};
       const patchSettings =
         (chatPatch.settings as Record<string, unknown>) || {};
-      authoritativeState = {
+      const nextState: Record<string, unknown> = {
         ...authoritativeState,
         ...chatPatch,
         settings: {
@@ -175,7 +177,8 @@ async function startServer() {
           ...patchSettings,
         },
       };
-      saveStateToDisk(authoritativeState);
+      authoritativeState = nextState;
+      saveStateToDisk(nextState);
     }
 
     stateVersion = Date.now();
@@ -212,7 +215,11 @@ async function startServer() {
   // Mount Vite in development or static dist in production
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -224,7 +231,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Real-time server listening on http://0.0.0.0:${PORT}`);
   });
 }

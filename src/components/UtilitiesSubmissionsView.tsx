@@ -194,8 +194,9 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   onBlockUserInChat,
   onDeleteUserAccountFromChat,
 }) => {
-  // Strictly Admin only for adding utility types and adding/updating utility submissions ("و زر اضف لا يظهر الا ل صلاحيات admin فقط")
   const isStrictAdmin = currentUser?.role === 'admin';
+  const canManage =
+    currentUser?.role === 'admin' || currentUser?.role === 'moderator';
 
   const availableTypes =
     Array.isArray(utilityTypes) && utilityTypes.length > 0
@@ -252,7 +253,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
 
   const handleConfirmAddNewUtilityType = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isStrictAdmin) return;
+    if (!canManage) return;
     const clean = newUtilityTypeName.trim();
     if (!clean) return;
     onAddUtilityType(clean);
@@ -283,7 +284,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
 
   const handleAdminSubmitUtility = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isStrictAdmin) return;
+    if (!canManage) return;
 
     const existing = utilitySubmissions.find(
       (u) => u.utilityName === selectedUtility
@@ -344,8 +345,8 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
               ))}
             </select>
 
-            {/* زر أضف مرفق بجوار القائمة المنسدلة ويكون عبارة عن زر + فقط (لصلاحيات Admin فقط) */}
-            {isStrictAdmin && (
+            {/* زر أضف مرفق بجوار القائمة المنسدلة ويكون عبارة عن زر + فقط */}
+            {canManage && (
               <button
                 type="button"
                 onClick={() => setIsAddUtilityTypeOpen((v) => !v)}
@@ -359,8 +360,8 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
           </div>
         </div>
 
-        {/* نافذة مصغرة لإضافة مرفق جديد للقائمة المنسدلة عند الضغط على زر + (للـ Admin فقط) */}
-        {isStrictAdmin && isAddUtilityTypeOpen && (
+        {/* نافذة مصغرة لإضافة مرفق جديد للقائمة المنسدلة عند الضغط على زر + */}
+        {canManage && isAddUtilityTypeOpen && (
           <form
             onSubmit={handleConfirmAddNewUtilityType}
             className="p-3 rounded-xl bg-[#0A192F] border border-sky-400/50 flex items-center gap-2"
@@ -385,8 +386,8 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
           </form>
         )}
 
-        {/* 2. Admin Input Form when selecting any option from the dropdown ("و زر اضف لا يظهر الا ل صلاحيات admin فقط") */}
-        {isStrictAdmin && (
+        {/* 2. Admin / Moderator Input Form when selecting any option from the dropdown */}
+        {canManage && (
           <form
             onSubmit={handleAdminSubmitUtility}
             className="p-3.5 sm:p-4 rounded-2xl bg-[#0A192F]/90 border border-sky-400/40 space-y-3.5"
@@ -499,7 +500,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
                     <span>آخر تحديث: {formatUtilityUpdateDate(item.updatedAt)}</span>
                   </div>
 
-                  {isStrictAdmin && (
+                  {canManage && (
                     <div
                       className="flex items-center gap-1"
                       onClick={(e) => e.stopPropagation()}
@@ -520,14 +521,16 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteUtilitySubmission(item.id)}
-                        title="حذف المرفق"
-                        className="w-8 h-8 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 flex items-center justify-center cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isStrictAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteUtilitySubmission(item.id)}
+                          title="حذف المرفق"
+                          className="w-8 h-8 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 flex items-center justify-center cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

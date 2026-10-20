@@ -19,9 +19,11 @@ import {
   UserX,
   Eye,
   Check,
+  CheckCheck,
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
+  ChatTypingEntry,
   CommunityReportReason,
   LiveChatMessageItem,
   PrivateChatMessageItem,
@@ -47,6 +49,7 @@ interface LiveCommunityChatModalProps {
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];
   privateChatStatuses?: Record<string, PrivateChatStatus>;
+  chatTypingMap?: Record<string, ChatTypingEntry>;
   userBlockedMap?: Record<string, string[]>;
   privateChatReports?: PrivateChatReportItem[];
   onOpenAuthModal: () => void;
@@ -74,6 +77,8 @@ interface LiveCommunityChatModalProps {
     text: string,
     textColor?: string
   ) => void;
+  onMarkPrivateMessagesRead?: (partnerUsername: string) => void;
+  onSetChatTypingStatus?: (targetKey: string, isTyping: boolean) => void;
   onRespondPrivateChatRequest?: (
     senderKey: string,
     status: PrivateChatStatus
@@ -384,6 +389,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   chatPenalties = [],
   privateChatMessages = [],
   privateChatStatuses = {},
+  chatTypingMap = {},
   userBlockedMap = {},
   privateChatReports = [],
   onOpenAuthModal,
@@ -396,14 +402,19 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   onClearPrivateChatSession,
   onApplyChatPenalty,
   onSendPrivateMessage,
+  onMarkPrivateMessagesRead,
+  onSetChatTypingStatus,
   onRespondPrivateChatRequest,
   onBlockUserInChat,
   onDeleteUserAccountFromChat,
 }) => {
-  const canModerate = currentUser?.role === 'admin';
+  const isStrictAdmin = currentUser?.role === 'admin';
+  const canModerate =
+    currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   const myUserId = currentUser?.id || 'guest';
   const myUsername = currentUser?.username || 'زائر';
   const myUsernameNorm = myUsername.trim().toLowerCase();
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Top Switcher: 'public' (الشات العام) vs 'private' (الشات الخاص)
   const [activeChatTab, setActiveChatTab] = useState<'public' | 'private'>(
@@ -715,6 +726,108 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     [messages]
   );
 
+  // Automatically mark incoming private messages from activePrivatePartner as read when viewing Private Chat
+  useEffect(() => {
+    if (!isOpen || activeChatTab !== 'private' || !activePrivatePartner) return;
+    const partnerNorm = activePrivatePartner.username.trim().toLowerCase();
+    const hasUnreadFromPartner = activePartnerMessages.some(
+      (pm) =>
+        pm.senderUsername.trim().toLowerCase() === partnerNorm &&
+        !pm.isRead
+    );
+    if (hasUnreadFromPartner) {
+      onMarkPrivateMessagesRead?.(activePrivatePartner.username);
+    }
+  }, [
+    isOpen,
+    activeChatTab,
+    activePrivatePartner,
+    activePartnerMessages,
+    onMarkPrivateMessagesRead,
+  ]);
+
+  // Determine whether a user is currently online or offline
+  const isUserOnlineNow = (userId?: string, username?: string): boolean => {
+    if (!username && !userId) return false;
+    const uNorm = (username || '').trim().toLowerCase();
+    if (uNorm === myUsernameNorm && Boolean(currentUser)) return true;
+
+    // Check active typing within last 60 seconds
+    const typingEntry = chatTypingMap[uNorm];
+    if (typingEntry && nowMs - typingEntry.updatedAt < 60000) {
+      return true;
+    }
+
+    // Check registered user account isOnline flag
+    const foundUser = users.find(
+      (u) =>
+        (userId && u.id === userId) ||
+        u.username.trim().toLowerCase() === uNorm
+    );
+    if (foundUser && typeof foundUser.isOnline === 'boolean') {
+      return foundUser.isOnline;
+    }
+
+    // Check recent message activity within last 10 minutes
+    const recentPublic = messages.some(
+      (m) =>
+        m.authorUsername.trim().toLowerCase() === uNorm &&
+        nowMs - new Date(m.createdAt).getTime() < 10 * 60 * 1000
+    );
+    const recentPrivate = privateChatMessages.some(
+      (pm) =>
+        pm.senderUsername.trim().toLowerCase() === uNorm &&
+        nowMs - new Date(pm.createdAt).getTime() < 10 * 60 * 1000
+    );
+    return recentPublic || recentPrivate;
+  };
+
+  // Compute active typing indicator text (within last 6 seconds or local draft typing)
+  const activeTypingBannerText = useMemo(() => {
+    const TYPING_TTL_MS = 6000;
+
+    if (activeChatTab === 'private' && activePrivatePartner) {
+      const partnerNorm = activePrivatePartner.username.trim().toLowerCase();
+      const partnerTyping = chatTypingMap[partnerNorm];
+      if (
+        partnerTyping &&
+        nowMs - partnerTyping.updatedAt < TYPING_TTL_MS &&
+        (partnerTyping.targetKey === myUsernameNorm ||
+          partnerTyping.targetKey === 'private' ||
+          partnerTyping.targetKey === partnerNorm)
+      ) {
+        return `${activePrivatePartner.username} يكتب الآن...`;
+      }
+      if (draftText.trim().length > 0) {
+        return `${myUsername} يكتب الآن...`;
+      }
+      return null;
+    }
+
+    // Public chat typing check
+    const activePublicTypers = Object.values(chatTypingMap).filter(
+      (entry) =>
+        nowMs - entry.updatedAt < TYPING_TTL_MS &&
+        entry.targetKey === 'public' &&
+        entry.username.trim().toLowerCase() !== myUsernameNorm
+    );
+    if (activePublicTypers.length > 0) {
+      return `${activePublicTypers[0].username} يكتب الآن...`;
+    }
+    if (draftText.trim().length > 0) {
+      return `${myUsername} يكتب الآن...`;
+    }
+    return null;
+  }, [
+    activeChatTab,
+    activePrivatePartner,
+    chatTypingMap,
+    nowMs,
+    myUsernameNorm,
+    myUsername,
+    draftText,
+  ]);
+
   // Smooth scroll to bottom when new messages arrive
   useEffect(() => {
     if (!isOpen) return;
@@ -732,7 +845,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Enforce up to 2 lines in mobile size (max 1 newline and max 140 characters)
+  // Enforce up to 2 lines in mobile size (max 1 newline and max 140 characters) + broadcast live typing status
   const handleDraftChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     let val = e.target.value;
     const lines = val.split('\n');
@@ -743,6 +856,24 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
       val = val.slice(0, 140);
     }
     setDraftText(val);
+
+    const targetKey =
+      activeChatTab === 'private' && activePrivatePartner
+        ? activePrivatePartner.username.trim().toLowerCase()
+        : 'public';
+
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+    }
+
+    if (val.trim().length > 0) {
+      onSetChatTypingStatus?.(targetKey, true);
+      typingStopTimerRef.current = setTimeout(() => {
+        onSetChatTypingStatus?.(targetKey, false);
+      }, 3500);
+    } else {
+      onSetChatTypingStatus?.(targetKey, false);
+    }
   };
 
   // Open Private Chat with a user: strictly 1 private chat allowed at a time; opening another deletes the previously open private chat!
@@ -839,6 +970,10 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
         clean,
         selectedColor
       );
+      onSetChatTypingStatus?.(
+        activePrivatePartner.username.trim().toLowerCase(),
+        false
+      );
       setDraftText('');
       setShowEmojiPicker(false);
       setShowColorPicker(false);
@@ -877,6 +1012,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     }
 
     onSendChatMessage(clean, selectedColor);
+    onSetChatTypingStatus?.('public', false);
     lastSentNormalizedRef.current = normalized;
     setDraftText('');
     setShowEmojiPicker(false);
@@ -1002,10 +1138,29 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0 shadow-[0_0_8px_#34d399]" />
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="text-sm sm:text-base font-extrabold text-[#F8FAFC] truncate">
                   محادثة لايف
                 </h3>
+
+                {/* عرض اسم المستخدم وبجانبه الحالة متصل أو أوف لاين بالأعلى */}
+                <span className="px-2 py-0.5 rounded-full bg-[#112240] border border-[#334155] text-[10px] font-extrabold flex items-center gap-1">
+                  <span className="text-sky-300 truncate max-w-[90px]">
+                    {myUsername}
+                  </span>
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      currentUser ? 'bg-emerald-400' : 'bg-slate-400'
+                    }`}
+                  />
+                  <span
+                    className={
+                      currentUser ? 'text-emerald-400' : 'text-slate-400'
+                    }
+                  >
+                    {currentUser ? 'متصل' : 'أوف لاين'}
+                  </span>
+                </span>
 
                 {/* Small Gear Button for Admin Only ("ترس صغير يظهر لـ admin فقط") */}
                 {canModerate && (
@@ -1131,13 +1286,16 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                 </span>
                 <button
                   type="button"
-                  onClick={() =>
-                    setPreviewRequestPartner(
+                  onClick={() => {
+                    const nextPreview =
                       previewRequestPartner === req.username
                         ? null
-                        : req.username
-                    )
-                  }
+                        : req.username;
+                    setPreviewRequestPartner(nextPreview);
+                    if (nextPreview) {
+                      onMarkPrivateMessagesRead?.(req.username);
+                    }
+                  }}
                   className="px-2 py-0.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-400/40 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
                 >
                   <Eye className="w-3 h-3" />
@@ -1158,6 +1316,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                     // Delete any previously open private chat with another user before opening this one
                     onClearPrivateChatSession?.(req.username);
                     onRespondPrivateChatRequest?.(req.username, 'accepted');
+                    onMarkPrivateMessagesRead?.(req.username);
                     setActivePrivatePartner({
                       userId: req.userId,
                       username: req.username,
@@ -1572,12 +1731,40 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
              PRIVATE SIDE-CHAT VIEW ("الشات الخاص — محادثة واحدة فقط وزر X للإغلاق والعودة للعام")
              ==================================================================== */
           <div className="flex-1 flex flex-col overflow-hidden bg-[#0A192F]/60">
-            {/* Active Partner Header with Block Button & X Close Private Chat Button */}
+            {/* Active Partner Header with Online/Offline Status beside Name, Block Button & X Close Private Chat Button */}
             <div className="px-3.5 py-2 bg-[#112240] border-b border-[#334155] flex items-center justify-between gap-2 shrink-0">
-              <div className="text-xs font-extrabold text-emerald-300 truncate">
-                {activePrivatePartner
-                  ? `محادثة خاصة مع: ${activePrivatePartner.username}`
-                  : 'الشات الخاص (محادثة واحدة فقط في نفس الوقت)'}
+              <div className="flex items-center gap-1.5 min-w-0">
+                <div className="text-xs font-extrabold text-emerald-300 truncate">
+                  {activePrivatePartner
+                    ? activePrivatePartner.username
+                    : 'الشات الخاص (محادثة واحدة فقط)'}
+                </div>
+
+                {/* يظهر بجانب الاسم بالأعلى الحالة سواء متصل أو أوف لاين */}
+                {activePrivatePartner && (() => {
+                  const partnerOnline = isUserOnlineNow(
+                    activePrivatePartner.userId,
+                    activePrivatePartner.username
+                  );
+                  return (
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 shrink-0 border ${
+                        partnerOnline
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50'
+                          : 'bg-slate-700/40 text-slate-300 border-slate-500/50'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          partnerOnline
+                            ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399]'
+                            : 'bg-slate-400'
+                        }`}
+                      />
+                      <span>{partnerOnline ? 'متصل' : 'أوف لاين'}</span>
+                    </span>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
@@ -1640,7 +1827,10 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                 </div>
               ) : (
                 activePartnerMessages.map((pm) => {
-                  const isMe = pm.senderUsername === myUsername;
+                  const isMe =
+                    pm.senderUsername.trim().toLowerCase() === myUsernameNorm ||
+                    Boolean(currentUser && pm.senderId === currentUser.id);
+                  const isSeen = Boolean(pm.isRead);
                   return (
                     <div
                       key={pm.id}
@@ -1661,12 +1851,30 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                           <span className="font-extrabold text-emerald-300">
                             {pm.senderUsername}
                           </span>
-                          <span>
-                            {new Date(pm.createdAt).toLocaleTimeString('ar-EG', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span>
+                              {new Date(pm.createdAt).toLocaleTimeString('ar-EG', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+
+                            {/* علامتين صح مثل الواتساب: زرقاء عند المشاهدة، وغير زرقاء (رمادية) عندما لم يرها بعد */}
+                            <span
+                              title={
+                                isSeen
+                                  ? 'تمت المشاهدة (قرأ المستقبل الرسالة)'
+                                  : 'لم تتم المشاهدة بعد'
+                              }
+                              className={`inline-flex items-center gap-0.5 font-extrabold transition-colors ${
+                                isSeen
+                                  ? 'text-[#38BDF8] drop-shadow-[0_0_5px_rgba(56,189,248,0.85)]'
+                                  : 'text-[#94A3B8]'
+                              }`}
+                            >
+                              <CheckCheck className="w-4 h-4 stroke-[2.6]" />
+                            </span>
+                          </div>
                         </div>
                         <p
                           style={{ color: pm.textColor || '#F8FAFC' }}
@@ -1797,6 +2005,18 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
             onSubmit={handleSend}
             className="p-3 bg-[#0A192F] border-t border-[#334155] space-y-2 shrink-0"
           >
+            {/* أعلى خانة تلوين النص: يظهر "يكتب الآن..." لحظياً عند كتابة المرسل أو المستقبل أي رسالة */}
+            {activeTypingBannerText && (
+              <div className="px-3 py-1 rounded-xl bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[11px] font-extrabold flex items-center gap-2 animate-pulse">
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:300ms]" />
+                </span>
+                <span>{activeTypingBannerText}</span>
+              </div>
+            )}
+
             {/* Formatting Toolbar: Color Picker + Emoji Picker + Cooldown Indicator */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">

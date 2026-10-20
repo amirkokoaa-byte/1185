@@ -111,6 +111,8 @@ interface PortalSectionsWorkspaceProps {
     text: string,
     textColor?: string
   ) => void;
+  onMarkPrivateMessagesRead?: (partnerUsername: string) => void;
+  onSetChatTypingStatus?: (targetKey: string, isTyping: boolean) => void;
   onRespondPrivateChatRequest?: (
     senderKey: string,
     status: 'pending' | 'accepted' | 'rejected'
@@ -227,6 +229,8 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onClearPrivateChatSession,
   onApplyChatPenalty,
   onSendPrivateMessage,
+  onMarkPrivateMessagesRead,
+  onSetChatTypingStatus,
   onRespondPrivateChatRequest,
   onBlockUserInChat,
   onDeleteUserAccountFromChat,
@@ -296,6 +300,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
     return (
       <ServiceNumbersView
         serviceNumbers={state.serviceNumbers}
+        settings={state.settings}
         currentUser={currentUser}
         onAddServiceNumber={onAddServiceNumber}
         onUpdateServiceNumber={onUpdateServiceNumber}
@@ -334,6 +339,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         chatPenalties={state.chatPenalties || []}
         privateChatMessages={state.privateChatMessages || []}
         privateChatStatuses={state.privateChatStatuses || {}}
+        chatTypingMap={state.chatTypingMap || {}}
         userBlockedMap={state.userBlockedMap || {}}
         privateChatReports={state.privateChatReports || []}
         onOpenAuthModal={onOpenAuthModal}
@@ -362,6 +368,8 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onClearPrivateChatSession={onClearPrivateChatSession}
         onApplyChatPenalty={onApplyChatPenalty}
         onSendPrivateMessage={onSendPrivateMessage}
+        onMarkPrivateMessagesRead={onMarkPrivateMessagesRead}
+        onSetChatTypingStatus={onSetChatTypingStatus}
         onRespondPrivateChatRequest={onRespondPrivateChatRequest}
         onBlockUserInChat={onBlockUserInChat}
         onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}

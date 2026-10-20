@@ -16,6 +16,7 @@ export interface UserAccount {
   phone?: string;
   createdAt: string;
   isBanned?: boolean;
+  isOnline?: boolean;
 }
 
 export interface TopBannerAd {
@@ -127,11 +128,13 @@ export interface StoreListingItem {
 export interface ServicePhoneEntry {
   id: string;
   title: string; // اسم مقدم الخدمة
+  profession?: string; // المهنة
   phone: string; // رقم الهاتف
   locationUrl: string; // خانة اللوكيشن (Google Maps)
+  imageUrl?: string; // صورة مقدم الخدمة (رابط أو رفع)
   category?: string;
   secondaryPhone?: string;
-  notes?: string;
+  notes?: string; // تفاصيل
   isEmergency?: boolean;
   createdAt: string;
 }
@@ -247,7 +250,18 @@ export interface PrivateChatMessageItem {
   receiverUsername: string;
   text: string;
   textColor?: string;
+  isRead?: boolean;
+  readAt?: string;
   createdAt: string;
+}
+
+export interface ChatTypingEntry {
+  userId: string;
+  username: string;
+  targetKey: string;
+  chatType?: 'public' | 'private';
+  targetUsername?: string;
+  updatedAt: number;
 }
 
 export type PrivateChatStatus = 'pending' | 'accepted' | 'rejected';
@@ -324,6 +338,7 @@ export interface PlatformDatabaseState {
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];
   privateChatStatuses?: Record<string, PrivateChatStatus>;
+  chatTypingMap?: Record<string, ChatTypingEntry>;
   userBlockedMap?: Record<string, string[]>;
   privateChatReports?: PrivateChatReportItem[];
   settings: PlatformSettings;

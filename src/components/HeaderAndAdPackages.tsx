@@ -107,17 +107,17 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
         </div>
 
         {/* 2. Main Header Row */}
-        <div className="max-w-[1600px] mx-auto px-2 sm:px-6 py-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-          {/* Row 1 on Mobile / Right Side on Desktop: Mobile Drawer Button + Brand + Auth + Crown "للإعلانات" + PWA Install (100% visible, no clipping) */}
-          <div className="flex items-center justify-between lg:justify-start gap-1 sm:gap-3 flex-wrap sm:flex-nowrap w-full lg:w-auto">
+        <div className="max-w-[1600px] mx-auto px-1.5 sm:px-6 py-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 overflow-x-hidden">
+          {/* Row 1 on Mobile / Right Side on Desktop: Mobile Drawer Button + Brand + Auth (Account & Logout) + Crown "للإعلانات" + PWA Install in 1 single line */}
+          <div className="flex items-center justify-between lg:justify-start gap-1 sm:gap-2.5 flex-nowrap w-full lg:w-auto min-w-0">
             {/* Mobile Sidebar Trigger */}
             <button
               type="button"
               onClick={onOpenMobileSidebar}
               aria-label="فتح القائمة الجانبية"
-              className="lg:hidden fluent-reveal w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#1E293B] border border-[#334155] flex items-center justify-center text-[#F8FAFC] cursor-pointer shrink-0"
+              className="lg:hidden fluent-reveal w-7 h-7 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-[#1E293B] border border-[#334155] flex items-center justify-center text-[#F8FAFC] cursor-pointer shrink-0"
             >
-              <Menu className="w-4 h-4 sm:w-5 sm:h-5 relative z-10" />
+              <Menu className="w-3.5 h-3.5 sm:w-5 sm:h-5 relative z-10" />
             </button>
 
             {/* Site Brand Title */}
@@ -130,14 +130,14 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
               </span>
             </div>
 
-            {/* Auth Button (Register/Login OR Logged-in Username + Logout) */}
+            {/* Auth Button (Register/Login OR Logged-in Username + Logout in 1 compact group) */}
             {currentUser ? (
-              <div className="flex items-center gap-1 sm:gap-2 bg-[#0A192F]/90 border border-[#334155] rounded-xl px-2 sm:px-3 py-1 sm:py-1.5 shrink-0">
-                <div className="flex items-center gap-1">
-                  {currentUser.role === 'admin' && (
-                    <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+              <div className="flex items-center gap-1 sm:gap-2 bg-[#0A192F]/90 border border-[#334155] rounded-lg sm:rounded-xl px-1.5 sm:px-3 py-1 sm:py-1.5 min-w-0 shrink">
+                <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
+                  {(currentUser.role === 'admin' || currentUser.role === 'moderator') && (
+                    <ShieldCheck className="w-3 h-3 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
                   )}
-                  <span className="text-[11px] sm:text-sm font-bold text-sky-300 truncate max-w-[68px] sm:max-w-none">
+                  <span className="text-[10px] sm:text-sm font-bold text-sky-300 truncate max-w-[55px] sm:max-w-none">
                     {currentUser.username}
                   </span>
                 </div>
@@ -145,9 +145,9 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                   type="button"
                   onClick={onLogout}
                   title="تسجيل الخروج"
-                  className="fluent-reveal px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-rose-600/85 hover:bg-rose-500 text-white text-[10px] sm:text-xs font-bold flex items-center gap-0.5 cursor-pointer shrink-0"
+                  className="fluent-reveal px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md sm:rounded-lg bg-rose-600/85 hover:bg-rose-500 text-white text-[10px] sm:text-xs font-bold flex items-center gap-0.5 cursor-pointer shrink-0"
                 >
-                  <LogOut className="w-3 h-3 sm:w-3.5 sm:h-3.5 relative z-10" />
+                  <LogOut className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 relative z-10 shrink-0" />
                   <span className="relative z-10">خروج</span>
                 </button>
               </div>
@@ -156,9 +156,9 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                 variant="primary"
                 size="sm"
                 onClick={onOpenAuthModal}
-                className="rounded-xl px-2 sm:px-3.5 py-1.5 text-[11px] sm:text-xs whitespace-nowrap shrink-0"
+                className="rounded-lg sm:rounded-xl !px-1.5 sm:!px-3.5 !py-1 sm:!py-1.5 !text-[10px] sm:!text-xs whitespace-nowrap shrink-0 !gap-1 sm:!gap-2"
               >
-                <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <UserPlus className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
                 <span>تسجيل الدخول</span>
               </FluentButton>
             )}
@@ -167,11 +167,11 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
             <button
               type="button"
               onClick={() => setIsAdModalOpen(true)}
-              className="fluent-reveal flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-xl bg-gradient-to-b from-amber-500/20 to-[#1E293B] border border-amber-400/50 hover:border-amber-300 text-amber-300 cursor-pointer shrink-0 whitespace-nowrap"
+              className="fluent-reveal flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-gradient-to-b from-amber-500/20 to-[#1E293B] border border-amber-400/50 hover:border-amber-300 text-amber-300 cursor-pointer shrink-0 whitespace-nowrap"
             >
-              <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 fill-amber-400/30 relative z-10 shrink-0" />
-              <span className="relative z-10 text-[11px] sm:text-xs font-extrabold text-amber-200 whitespace-nowrap">
-                👑 للإعلانات
+              <Crown className="w-3 h-3 sm:w-4 sm:h-4 text-amber-400 fill-amber-400/30 relative z-10 shrink-0" />
+              <span className="relative z-10 text-[10px] sm:text-xs font-extrabold text-amber-200 whitespace-nowrap">
+                للإعلانات
               </span>
             </button>
 

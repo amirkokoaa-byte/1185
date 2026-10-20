@@ -219,20 +219,28 @@ export function exportServiceNumbersToExcel(numbers: ServicePhoneEntry[]) {
   const rows = numbers.map((n, idx) => ({
     'م': idx + 1,
     'اسم مقدم الخدمة': n.title,
+    'المهنة': n.profession || n.category || '-',
     'رقم الهاتف': n.phone,
-    'اللوكيشن (Google Maps)': n.locationUrl || '-',
-    'التصنيف / ملاحظات': n.notes || n.category || '-',
+    'تفاصيل': n.notes || '-',
+    'اللوكيشن (Google Maps)':
+      n.locationUrl && n.locationUrl !== 'https://maps.google.com'
+        ? n.locationUrl
+        : '-',
   }));
   exportToExcelSheet(rows, 'أرقام الخدمات', 'Service_Numbers');
 }
 
 export function exportServiceNumbersToPDF(numbers: ServicePhoneEntry[]) {
-  const columns = ['م', 'اسم مقدم الخدمة', 'رقم الهاتف', 'اللوكيشن (خرائط جوجل)'];
+  const columns = ['م', 'اسم مقدم الخدمة', 'المهنة', 'رقم الهاتف', 'تفاصيل', 'اللوكيشن'];
   const rows = numbers.map((n, idx) => [
     String(idx + 1),
     n.title,
+    n.profession || n.category || '-',
     n.phone,
-    n.locationUrl || 'https://maps.google.com',
+    n.notes || '-',
+    n.locationUrl && n.locationUrl !== 'https://maps.google.com'
+      ? n.locationUrl
+      : '-',
   ]);
   exportStrictA4TablePDF(
     'كشف أرقام الخدمات ومقدمي الخدمة المسجلين',

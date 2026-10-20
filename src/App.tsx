@@ -308,6 +308,7 @@ export default function App() {
   };
 
   const handleDeleteStore = (id: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       stores: prev.stores.filter((s) => s.id !== id),
@@ -369,6 +370,7 @@ export default function App() {
   };
 
   const handleDeleteStoreComment = (storeId: string, commentId: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       stores: prev.stores.map((s) =>
@@ -438,6 +440,7 @@ export default function App() {
   };
 
   const handleDeleteServiceNumber = (id: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       serviceNumbers: prev.serviceNumbers.filter((n) => n.id !== id),
@@ -461,6 +464,7 @@ export default function App() {
   };
 
   const handleDeleteTawsila = (id: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       tawsilaRides: prev.tawsilaRides.filter((r) => r.id !== id),
@@ -504,6 +508,7 @@ export default function App() {
   };
 
   const handleDeletePost = (postId: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.filter((p) => p.id !== postId),
@@ -692,6 +697,7 @@ export default function App() {
   };
 
   const handleDeleteCommunityComment = (postId: string, commentId: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) =>
@@ -756,10 +762,17 @@ export default function App() {
       ...(isSystemNotification ? { isSystemNotification: true } : {}),
       ...(targetUsername ? { targetUsername } : {}),
     };
-    updateAndPersist((prev) => ({
-      ...prev,
-      liveChatMessages: [...(prev.liveChatMessages || []).slice(-49), newMsg],
-    }));
+    updateAndPersist((prev) => {
+      const nextTyping = { ...(prev.chatTypingMap || {}) };
+      const myNorm = (currentUser?.username || 'زائر').trim().toLowerCase();
+      delete nextTyping[visitorId];
+      delete nextTyping[myNorm];
+      return {
+        ...prev,
+        liveChatMessages: [...(prev.liveChatMessages || []).slice(-49), newMsg],
+        chatTypingMap: nextTyping,
+      };
+    });
   };
 
   const handleReportChatMessage = (
@@ -994,6 +1007,7 @@ export default function App() {
       receiverUsername,
       text,
       textColor: textColor || '#F8FAFC',
+      isRead: false,
       createdAt: new Date().toISOString(),
     };
 
@@ -1021,6 +1035,10 @@ export default function App() {
         nextStatuses[recKey2] = 'pending';
       }
 
+      const nextTyping = { ...(prev.chatTypingMap || {}) };
+      delete nextTyping[senderKeyId];
+      delete nextTyping[senderKeyName];
+
       return {
         ...prev,
         privateChatMessages: [
@@ -1028,6 +1046,76 @@ export default function App() {
           newPrivMsg,
         ],
         privateChatStatuses: nextStatuses,
+        chatTypingMap: nextTyping,
+      };
+    });
+  };
+
+  const handleMarkPrivateMessagesRead = (partnerUsername: string) => {
+    if (!partnerUsername) return;
+    const partnerNorm = partnerUsername.trim().toLowerCase();
+    const myNorm = (currentUser?.username || 'زائر').trim().toLowerCase();
+    const nowIso = new Date().toISOString();
+    updateAndPersist((prev) => {
+      const currentList = prev.privateChatMessages || [];
+      const hasUnreadFromPartner = currentList.some((m) => {
+        const sNorm = m.senderUsername.trim().toLowerCase();
+        const rNorm = m.receiverUsername.trim().toLowerCase();
+        return (
+          sNorm === partnerNorm &&
+          (rNorm === myNorm || m.receiverId === visitorId) &&
+          !m.isRead
+        );
+      });
+      if (!hasUnreadFromPartner) return prev;
+      return {
+        ...prev,
+        privateChatMessages: currentList.map((m) => {
+          const sNorm = m.senderUsername.trim().toLowerCase();
+          const rNorm = m.receiverUsername.trim().toLowerCase();
+          if (
+            sNorm === partnerNorm &&
+            (rNorm === myNorm || m.receiverId === visitorId) &&
+            !m.isRead
+          ) {
+            return { ...m, isRead: true, readAt: nowIso };
+          }
+          return m;
+        }),
+      };
+    });
+  };
+
+  const handleSetChatTypingStatus = (targetKey: string, isTyping: boolean) => {
+    const senderName = currentUser?.username || 'زائر';
+    const senderNorm = senderName.trim().toLowerCase();
+    const nowMs = Date.now();
+    updateAndPersist((prev) => {
+      const nextMap = { ...(prev.chatTypingMap || {}) };
+      Object.keys(nextMap).forEach((k) => {
+        if (nowMs - nextMap[k].updatedAt > 6000) {
+          delete nextMap[k];
+        }
+      });
+
+      if (!isTyping) {
+        if (!nextMap[senderNorm] && !nextMap[visitorId]) return prev;
+        delete nextMap[senderNorm];
+        delete nextMap[visitorId];
+      } else {
+        nextMap[senderNorm] = {
+          userId: visitorId,
+          username: senderName,
+          targetKey,
+          chatType: targetKey === 'public' ? 'public' : 'private',
+          targetUsername: targetKey === 'public' ? undefined : targetKey,
+          updatedAt: nowMs,
+        };
+      }
+
+      return {
+        ...prev,
+        chatTypingMap: nextMap,
       };
     });
   };
@@ -1174,6 +1262,7 @@ export default function App() {
   };
 
   const handleDeleteUtilitySubmission = (id: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       utilitySubmissions: (prev.utilitySubmissions || []).filter(
@@ -1221,6 +1310,7 @@ export default function App() {
   };
 
   const handleDeleteUtilityPost = (postId: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).filter((p) => p.id !== postId),
@@ -1418,6 +1508,7 @@ export default function App() {
   };
 
   const handleDeleteUtilityComment = (postId: string, commentId: string) => {
+    if (currentUser?.role === 'moderator') return;
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) =>
@@ -1966,6 +2057,8 @@ export default function App() {
             onClearPrivateChatSession={handleClearPrivateChatSession}
             onApplyChatPenalty={handleApplyChatPenalty}
             onSendPrivateMessage={handleSendPrivateMessage}
+            onMarkPrivateMessagesRead={handleMarkPrivateMessagesRead}
+            onSetChatTypingStatus={handleSetChatTypingStatus}
             onRespondPrivateChatRequest={handleRespondPrivateChatRequest}
             onBlockUserInChat={handleBlockUserInChat}
             onDeleteUserAccountFromChat={handleDeleteUserAccountFromChat}

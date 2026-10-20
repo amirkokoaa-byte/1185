@@ -20,6 +20,18 @@ import {
   TopBannerAd,
 } from '../types';
 import { FluentButton, FluentModal } from './FluentUI';
+import { createSquareAdSvg } from '../services/storageService';
+
+const normalizeWhiteAdSvg = (imgUrl: string | undefined, title: string, category: string) => {
+  if (!imgUrl) return createSquareAdSvg(title, category, '#0284C7');
+  if (
+    imgUrl.startsWith('data:image/svg+xml') &&
+    (imgUrl.includes('%230A192F') || imgUrl.includes('#0A192F'))
+  ) {
+    return createSquareAdSvg(title, category, '#0284C7');
+  }
+  return imgUrl;
+};
 
 interface TopBannersAndSquareAdsProps {
   topBanners: TopBannerAd[];
@@ -136,11 +148,16 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
   // 2. Moving Square Ads Logic
   const displayedSquareAds = useMemo(() => {
-    const validAds = squareAds.filter((ad) => {
-      if (!ad.active) return false;
-      if (ad.expiresAt && new Date(ad.expiresAt).getTime() < nowTick) return false;
-      return true;
-    });
+    const validAds = squareAds
+      .filter((ad) => {
+        if (!ad.active) return false;
+        if (ad.expiresAt && new Date(ad.expiresAt).getTime() < nowTick) return false;
+        return true;
+      })
+      .map((ad) => ({
+        ...ad,
+        imageUrl: normalizeWhiteAdSvg(ad.imageUrl, ad.title, ad.category),
+      }));
 
     const storeDerivedAds: SquareMovingAd[] = stores
       .filter((s) => s.approved)
@@ -148,10 +165,12 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         id: `store-sq-${s.id}`,
         title: s.name,
         category: s.category,
-        imageUrl: s.menuImages?.[0] || '',
+        imageUrl: normalizeWhiteAdSvg(s.menuImages?.[0], s.name, s.category),
         locationUrl: s.locationUrl,
         phone: s.phone,
-        menuImages: s.menuImages,
+        menuImages: (s.menuImages || []).map((img) =>
+          normalizeWhiteAdSvg(img, s.name, s.category)
+        ),
         description: s.details,
         isAdminPinned: Boolean(s.featuredInMarquee),
         active: true,
@@ -221,12 +240,24 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     }
   };
 
+  const cleanAdDescription = (title: string, category?: string, desc?: string) => {
+    if (!desc) return '';
+    if (
+      desc.trim() === 'محل مسجل بالدليل التجاري' &&
+      !title.includes('محل') &&
+      !(category || '').includes('محل')
+    ) {
+      return '';
+    }
+    return desc;
+  };
+
   return (
     <section className="w-full space-y-4 overflow-x-hidden">
-      {/* 1. Main Top Banner Carousel (Full uncropped image via object-contain + full text visibility) */}
+      {/* 1. Main Top Banner Carousel (White background + Black text + Full uncropped image via object-contain) */}
       {showBannersAndSquareAds && currentBanner && (
         <div
-          className="fluent-reveal relative w-full rounded-2xl bg-[#112240] border-2 border-sky-400/50 shadow-[0_0_25px_-5px_rgba(56,189,248,0.35)] overflow-hidden select-none"
+          className="fluent-reveal relative w-full rounded-2xl bg-white text-black border-2 border-sky-500/60 shadow-lg overflow-hidden select-none"
           onMouseEnter={() => setIsBannerPaused(true)}
           onMouseLeave={() => setIsBannerPaused(false)}
           onTouchStart={handleTouchStart}
@@ -237,13 +268,13 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
             {isAdmin && isBulkSelectMode && (
               <label
                 onClick={(e) => e.stopPropagation()}
-                className="absolute top-3 right-3 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#0A192F]/95 border border-rose-400 text-xs font-extrabold text-white cursor-pointer shadow-lg"
+                className="absolute top-3 right-3 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/95 border-2 border-rose-500 text-xs font-extrabold text-black cursor-pointer shadow-lg"
               >
                 <input
                   type="checkbox"
                   checked={selectedAdKeys.includes(`tb:${currentBanner.id}`)}
                   onChange={() => toggleSelectAdKey(`tb:${currentBanner.id}`)}
-                  className="w-4 h-4 accent-rose-500"
+                  className="w-4 h-4 accent-rose-600"
                 />
                 <span>تحديد هذا البنر للحذف</span>
               </label>
@@ -252,27 +283,27 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
             {/* Full Uncropped Banner Image Container */}
             <div
               onClick={() => setSelectedTopBanner(currentBanner)}
-              className="relative w-full bg-[#0A192F] flex items-center justify-center cursor-pointer overflow-hidden"
+              className="relative w-full bg-white flex items-center justify-center cursor-pointer overflow-hidden"
             >
               <img
                 src={currentBanner.imageUrl}
                 alt={currentBanner.title}
                 referrerPolicy="no-referrer"
-                className="w-full max-h-[320px] sm:max-h-[380px] object-contain mx-auto block"
+                className="w-full max-h-[300px] sm:max-h-[360px] object-contain mx-auto block"
               />
             </div>
 
-            {/* Banner Full Text & Action Bar Below Image (Nothing hidden or cropped) */}
+            {/* Banner Full Text & Action Bar Below Image (White background + Black text) */}
             <div
               onClick={() => setSelectedTopBanner(currentBanner)}
-              className="p-3.5 sm:p-4 bg-[#112240] border-t border-[#334155] flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
+              className="p-3 sm:p-4 bg-white border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 cursor-pointer"
             >
-              <div className="space-y-1 flex-1 min-w-0">
-                <h2 className="text-base sm:text-xl font-extrabold text-[#F8FAFC] break-words whitespace-normal leading-snug">
+              <div className="space-y-0.5 flex-1 min-w-0">
+                <h2 className="text-sm sm:text-lg font-extrabold text-black break-words whitespace-normal leading-snug">
                   {currentBanner.title}
                 </h2>
                 {currentBanner.subtitle && (
-                  <p className="text-xs sm:text-sm text-[#E2E8F0] break-words whitespace-normal leading-relaxed">
+                  <p className="text-xs sm:text-sm font-semibold text-slate-800 break-words whitespace-normal leading-relaxed">
                     {currentBanner.subtitle}
                   </p>
                 )}
@@ -285,7 +316,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                 {currentBanner.phone && (
                   <a
                     href={`tel:${currentBanner.phone}`}
-                    className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600/95 hover:bg-sky-500 text-white text-xs font-bold shadow-lg"
+                    className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow"
                   >
                     <Phone className="w-3.5 h-3.5" />
                     <span>اتصال</span>
@@ -298,7 +329,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600/95 hover:bg-emerald-500 text-white text-xs font-bold border border-emerald-400/50 shadow-lg"
+                    className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
                     <span>مراسلة</span>
@@ -309,7 +340,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                     href={currentBanner.locationUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/95 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg"
+                    className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                     <span>فتح اللوكيشن</span>
@@ -329,7 +360,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                     )
                   }
                   aria-label="البانر السابق"
-                  className="hidden sm:flex absolute right-3 top-1/3 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-[#0A192F]/85 hover:bg-sky-600 text-white border border-[#334155] items-center justify-center cursor-pointer transition-colors"
+                  className="hidden sm:flex absolute right-3 top-1/3 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-sky-600 text-black hover:text-white border border-slate-300 items-center justify-center cursor-pointer transition-colors shadow"
                 >
                   <ChevronRight className="w-5 h-5" />
                 </button>
@@ -339,7 +370,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                     setCurrentBannerIndex((prev) => (prev + 1) % activeBanners.length)
                   }
                   aria-label="البانر التالي"
-                  className="hidden sm:flex absolute left-3 top-1/3 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-[#0A192F]/85 hover:bg-sky-600 text-white border border-[#334155] items-center justify-center cursor-pointer transition-colors"
+                  className="hidden sm:flex absolute left-3 top-1/3 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-sky-600 text-black hover:text-white border border-slate-300 items-center justify-center cursor-pointer transition-colors shadow"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
@@ -348,7 +379,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
             {/* Indicator Dots */}
             {activeBanners.length > 1 && (
-              <div className="py-2 bg-[#0A192F]/90 border-t border-[#334155]/60 flex items-center justify-center gap-2">
+              <div className="py-1.5 bg-slate-100 border-t border-slate-200 flex items-center justify-center gap-2">
                 {activeBanners.map((b, idx) => {
                   const isSelected = idx === currentBannerIndex;
                   return (
@@ -357,10 +388,10 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       type="button"
                       aria-label={`الانتقال إلى البنر ${idx + 1}`}
                       onClick={() => setCurrentBannerIndex(idx)}
-                      className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
+                      className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
                         isSelected
-                          ? 'w-7 bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.9)]'
-                          : 'w-2.5 bg-[#94A3B8]/50 hover:bg-[#F8FAFC]'
+                          ? 'w-6 bg-sky-600'
+                          : 'w-2 bg-slate-400 hover:bg-slate-600'
                       }`}
                     />
                   );
@@ -371,20 +402,20 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         </div>
       )}
 
-      {/* 2. Moving Square Ads Strip Below Top Banner (Full image + Full text + Admin Bulk Delete) */}
+      {/* 2. لوحة الإعلانات والخصومات (Medium Size Strip + White Background + Black Text + Clear Image + Only Registered Name outside) */}
       {showBannersAndSquareAds && displayedSquareAds.length > 0 && (
-        <div className="fluent-reveal w-full rounded-2xl bg-[#112240]/90 border border-sky-400/40 p-3.5 shadow-lg overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1 relative z-10">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-              <h3 className="text-xs sm:text-sm font-extrabold text-[#F8FAFC]">
-                قائمة الإعلانات المربعة المتحركة
+        <div className="fluent-reveal w-full rounded-2xl bg-white text-black border-2 border-slate-300 p-2.5 sm:p-3 shadow-md overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 px-1 relative z-10">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+              <h3 className="text-xs sm:text-sm font-extrabold text-black">
+                لوحة الإعلانات والخصومات
               </h3>
             </div>
 
             {/* Admin Only: Multi-Select & Bulk Delete Ads with Confirmation Button */}
             {isAdmin && (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {!isBulkSelectMode ? (
                   <button
                     type="button"
@@ -393,9 +424,9 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       setSelectedAdKeys([]);
                       setConfirmingBulkDelete(false);
                     }}
-                    className="px-3 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-black border border-slate-300 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
                   >
-                    <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+                    <CheckSquare className="w-3.5 h-3.5 text-sky-600" />
                     <span>تحديد إعلانات للحذف</span>
                   </button>
                 ) : (
@@ -414,7 +445,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                         }
                         setConfirmingBulkDelete(false);
                       }}
-                      className="px-2.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-amber-300 border border-amber-400/40 text-xs font-bold cursor-pointer"
+                      className="px-2.5 py-1 rounded-xl bg-amber-100 hover:bg-amber-200 text-black border border-amber-400 text-[11px] font-extrabold cursor-pointer"
                     >
                       تحديد الكل ({selectedAdKeys.length})
                     </button>
@@ -423,7 +454,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       <button
                         type="button"
                         onClick={() => setConfirmingBulkDelete(true)}
-                        className="px-3 py-1.5 rounded-xl bg-rose-600/85 hover:bg-rose-600 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow"
+                        className="px-2.5 py-1 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-extrabold flex items-center gap-1 cursor-pointer shadow"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>حذف المحدد ({selectedAdKeys.length})</span>
@@ -434,7 +465,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       <button
                         type="button"
                         onClick={handleConfirmExecuteBulkDelete}
-                        className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border-2 border-white/60 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer animate-pulse shadow-lg"
+                        className="px-3 py-1 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border-2 border-black/30 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer animate-pulse shadow-lg"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>تأكيد الحذف ({selectedAdKeys.length})</span>
@@ -448,7 +479,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                         setSelectedAdKeys([]);
                         setConfirmingBulkDelete(false);
                       }}
-                      className="px-2.5 py-1.5 rounded-xl bg-[#1E293B] text-[#94A3B8] hover:text-white text-xs font-bold cursor-pointer"
+                      className="px-2.5 py-1 rounded-xl bg-slate-200 text-black hover:bg-slate-300 text-[11px] font-extrabold cursor-pointer"
                     >
                       إلغاء
                     </button>
@@ -458,13 +489,13 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
             )}
           </div>
 
-          {/* Continuous Slow Moving Square Cards Track (Paused during Admin Bulk Select Mode for easy selection) */}
-          <div className="w-full overflow-x-auto sm:overflow-hidden py-1 relative z-10">
+          {/* Medium-Sized Moving Square Cards Track: Clear Image + Only Registered Name outside; click opens full details */}
+          <div className="w-full overflow-x-auto sm:overflow-hidden py-0.5 relative z-10">
             <div
               className={
                 isBulkSelectMode
-                  ? 'flex flex-wrap gap-3.5 items-stretch'
-                  : 'animate-square-ads gap-3.5 items-stretch'
+                  ? 'flex flex-wrap gap-2.5 items-stretch'
+                  : 'animate-square-ads gap-2.5 items-stretch'
               }
             >
               {(isBulkSelectMode
@@ -473,6 +504,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
               ).map((ad, idx) => {
                 const adKey = `sq:${ad.id}`;
                 const isSelectedForDelete = selectedAdKeys.includes(adKey);
+                const outsideLabel = ad.title?.trim() || ad.category || '';
                 return (
                   <div
                     key={`${ad.id}-${idx}`}
@@ -483,35 +515,36 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                         setSelectedSquareAd(ad);
                       }
                     }}
-                    className={`fluent-reveal w-48 sm:w-56 shrink-0 rounded-xl bg-[#0A192F] border overflow-hidden cursor-pointer flex flex-col justify-between ${
+                    title="اضغط لعرض كافة البيانات والتفاصيل"
+                    className={`fluent-reveal w-32 sm:w-36 shrink-0 rounded-xl bg-white text-black border overflow-hidden cursor-pointer flex flex-col justify-between shadow-sm transition-transform hover:scale-[1.02] ${
                       isSelectedForDelete
-                        ? 'border-2 border-rose-500 ring-2 ring-rose-500/40'
-                        : 'border-[#334155] hover:border-sky-400'
+                        ? 'border-2 border-rose-600 ring-2 ring-rose-500/40'
+                        : 'border-slate-300 hover:border-sky-500'
                     }`}
                   >
-                    {/* Full Uncropped Ad Image */}
-                    <div className="relative w-full h-36 sm:h-40 bg-[#0A192F] border-b border-[#334155]/70 flex items-center justify-center overflow-hidden p-1">
+                    {/* Clear Uploaded Ad Image in Medium Square */}
+                    <div className="relative w-full h-24 sm:h-28 bg-white flex items-center justify-center overflow-hidden p-1">
                       <img
                         src={ad.imageUrl}
-                        alt={ad.title}
+                        alt={outsideLabel}
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-contain"
                       />
                       {isAdmin && isBulkSelectMode && (
-                        <div className="absolute top-1.5 left-1.5 z-20 bg-[#0A192F]/90 p-1 rounded-lg border border-rose-400">
+                        <div className="absolute top-1 left-1 z-20 bg-white/95 p-1 rounded-lg border border-rose-500 shadow">
                           <input
                             type="checkbox"
                             checked={isSelectedForDelete}
                             onChange={() => toggleSelectAdKey(adKey)}
                             onClick={(e) => e.stopPropagation()}
-                            className="w-4 h-4 accent-rose-500 cursor-pointer block"
+                            className="w-3.5 h-3.5 accent-rose-600 cursor-pointer block"
                           />
                         </div>
                       )}
                       {ad.isAdminPinned && (
                         <div
                           title="إعلان مثبت من الإدارة"
-                          className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-amber-500/90 text-[#0A192F] text-[10px] font-extrabold flex items-center gap-0.5 shadow"
+                          className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-amber-400 text-black text-[9px] font-extrabold flex items-center gap-0.5 shadow"
                         >
                           <Pin className="w-2.5 h-2.5" />
                           <span>مثبت</span>
@@ -519,19 +552,11 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       )}
                     </div>
 
-                    {/* Full Uncut Written Text (No truncate or ellipsis) */}
-                    <div className="p-3 space-y-1 text-right relative z-10 flex-1 flex flex-col justify-center">
-                      <div className="text-[11px] text-sky-400 font-bold break-words whitespace-normal leading-snug">
-                        {ad.category}
+                    {/* Outside Label: ONLY the registered store/place name (e.g., صيدلية / عيادة / مركز / اسم المسجل فقط) */}
+                    <div className="px-2 py-1.5 bg-white border-t border-slate-200 text-center relative z-10">
+                      <div className="text-[11px] sm:text-xs font-extrabold text-black truncate">
+                        {outsideLabel}
                       </div>
-                      <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] break-words whitespace-normal leading-snug">
-                        {ad.title}
-                      </div>
-                      {ad.description && (
-                        <div className="text-[11px] text-[#94A3B8] break-words whitespace-normal leading-relaxed pt-0.5">
-                          {ad.description}
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -541,7 +566,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         </div>
       )}
 
-      {/* Modal when user clicks a Top Banner (Full uncropped image + full text) */}
+      {/* Modal when user clicks a Top Banner (White background + Black text + Full details) */}
       {selectedTopBanner && (
         <FluentModal
           isOpen={!!selectedTopBanner}
@@ -549,11 +574,12 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
           title={selectedTopBanner.title}
           subtitle={selectedTopBanner.subtitle || 'تفاصيل الإعلان والمنيو واللوكيشن'}
           maxWidth="3xl"
+          theme="light"
         >
-          <div className="space-y-4">
+          <div className="space-y-4 text-black">
             <div
               onClick={() => setFullImagePreviewUrl(selectedTopBanner.imageUrl)}
-              className="w-full rounded-xl overflow-hidden bg-[#0A192F] border border-[#334155] flex items-center justify-center p-2 cursor-zoom-in"
+              className="w-full rounded-xl overflow-hidden bg-white border border-slate-300 flex items-center justify-center p-2 cursor-zoom-in"
             >
               <img
                 src={selectedTopBanner.imageUrl}
@@ -564,16 +590,16 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
             </div>
 
             {selectedTopBanner.subtitle && (
-              <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] text-sm text-[#F8FAFC] whitespace-pre-wrap break-words leading-relaxed">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 text-sm font-bold text-black whitespace-pre-wrap break-words leading-relaxed">
                 {selectedTopBanner.subtitle}
               </div>
             )}
 
             {selectedTopBanner.phone && (
-              <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-[#94A3B8]">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-800">
                   رقم الهاتف:{' '}
-                  <strong className="text-sky-400 font-mono-tabular text-sm">
+                  <strong className="text-black font-mono-tabular text-sm font-extrabold">
                     {selectedTopBanner.phone}
                   </strong>
                 </span>
@@ -599,8 +625,8 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
             )}
 
             {selectedTopBanner.locationUrl && (
-              <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2">
-                <span className="text-xs text-[#94A3B8] break-all">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-800 break-all">
                   لوكيشن المكان: {selectedTopBanner.locationUrl}
                 </span>
                 <a
@@ -617,7 +643,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
             {selectedTopBanner.menuImages && selectedTopBanner.menuImages.length > 0 && (
               <div className="space-y-2">
-                <div className="text-xs font-bold text-sky-400">
+                <div className="text-xs font-extrabold text-black">
                   صور إضافية / منيو المكان (اضغط على أي صورة لعرضها بالحجم الكامل):
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -625,7 +651,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                     <div
                       key={i}
                       onClick={() => setFullImagePreviewUrl(img)}
-                      className="w-full rounded-xl bg-[#0A192F] border border-[#334155] p-1.5 flex items-center justify-center cursor-zoom-in"
+                      className="w-full rounded-xl bg-white border border-slate-300 p-1.5 flex items-center justify-center cursor-zoom-in"
                     >
                       <img
                         src={img}
@@ -656,19 +682,20 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         </FluentModal>
       )}
 
-      {/* Modal when user clicks a Square Moving Ad (Full uncropped image + full text) */}
+      {/* Modal when user clicks a Square Moving Ad (White background + Black text + All Details visible) */}
       {selectedSquareAd && (
         <FluentModal
           isOpen={!!selectedSquareAd}
           onClose={() => setSelectedSquareAd(null)}
           title={selectedSquareAd.title}
-          subtitle={`القسم: ${selectedSquareAd.category}`}
+          subtitle={selectedSquareAd.category ? `القسم: ${selectedSquareAd.category}` : undefined}
           maxWidth="2xl"
+          theme="light"
         >
-          <div className="space-y-4">
+          <div className="space-y-4 text-black">
             <div
               onClick={() => setFullImagePreviewUrl(selectedSquareAd.imageUrl)}
-              className="w-full rounded-xl overflow-hidden bg-[#0A192F] border border-[#334155] flex items-center justify-center p-2 cursor-zoom-in"
+              className="w-full rounded-xl overflow-hidden bg-white border border-slate-300 flex items-center justify-center p-2 cursor-zoom-in"
             >
               <img
                 src={selectedSquareAd.imageUrl}
@@ -678,25 +705,35 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
               />
             </div>
 
-            <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-1.5">
-              <div className="text-xs font-bold text-sky-400 break-words whitespace-normal">
-                {selectedSquareAd.category}
-              </div>
-              <div className="text-base font-extrabold text-[#F8FAFC] break-words whitespace-normal">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 space-y-1.5">
+              {selectedSquareAd.category && (
+                <div className="text-xs font-extrabold text-sky-800 break-words whitespace-normal">
+                  {selectedSquareAd.category}
+                </div>
+              )}
+              <div className="text-base font-extrabold text-black break-words whitespace-normal">
                 {selectedSquareAd.title}
               </div>
-              {selectedSquareAd.description && (
-                <p className="text-sm text-[#E2E8F0] whitespace-pre-wrap break-words leading-relaxed pt-1">
-                  {selectedSquareAd.description}
+              {cleanAdDescription(
+                selectedSquareAd.title,
+                selectedSquareAd.category,
+                selectedSquareAd.description
+              ) && (
+                <p className="text-sm font-semibold text-black whitespace-pre-wrap break-words leading-relaxed pt-1">
+                  {cleanAdDescription(
+                    selectedSquareAd.title,
+                    selectedSquareAd.category,
+                    selectedSquareAd.description
+                  )}
                 </p>
               )}
             </div>
 
             {selectedSquareAd.phone && (
-              <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-xl bg-[#0A192F] border border-[#334155]">
-                <span className="text-xs text-[#94A3B8]">
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-xl bg-slate-50 border border-slate-300">
+                <span className="text-xs font-bold text-slate-800">
                   رقم الهاتف:{' '}
-                  <strong className="text-sky-400 font-mono-tabular">
+                  <strong className="text-black font-mono-tabular text-sm font-extrabold">
                     {selectedSquareAd.phone}
                   </strong>
                 </span>
@@ -721,26 +758,28 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
               </div>
             )}
 
-            {selectedSquareAd.locationUrl && (
-              <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2">
-                <span className="text-xs text-[#94A3B8] break-all">
-                  لوكيشن المكان: {selectedSquareAd.locationUrl}
-                </span>
-                <a
-                  href={selectedSquareAd.locationUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center gap-1 shrink-0"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>فتح</span>
-                </a>
-              </div>
-            )}
+            {selectedSquareAd.locationUrl &&
+              selectedSquareAd.locationUrl.trim() !== '' &&
+              selectedSquareAd.locationUrl.trim() !== 'https://maps.google.com' && (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800 break-all">
+                    اللوكيشن: {selectedSquareAd.locationUrl}
+                  </span>
+                  <a
+                    href={selectedSquareAd.locationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center gap-1 shrink-0"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>فتح</span>
+                  </a>
+                </div>
+              )}
 
             {selectedSquareAd.menuImages && selectedSquareAd.menuImages.length > 0 && (
               <div className="space-y-2">
-                <div className="text-xs font-bold text-sky-400">
+                <div className="text-xs font-extrabold text-black">
                   صور المنيو / الإعلان (اضغط على أي صورة لعرضها كاملة):
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -748,7 +787,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                     <div
                       key={i}
                       onClick={() => setFullImagePreviewUrl(img)}
-                      className="w-full rounded-xl bg-[#0A192F] border border-[#334155] p-1.5 flex items-center justify-center cursor-zoom-in"
+                      className="w-full rounded-xl bg-white border border-slate-300 p-1.5 flex items-center justify-center cursor-zoom-in"
                     >
                       <img
                         src={img}

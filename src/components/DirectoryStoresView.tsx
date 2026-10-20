@@ -84,11 +84,38 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   onToggleCommentLike,
   onAddCommentReply,
 }) => {
-  const isAdmin =
+  const canManage =
     currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+  const isStrictAdmin = currentUser?.role === 'admin';
+  const isAdmin = canManage;
   const currentVisitorId = currentUser?.id || 'guest-visitor';
-  const siteCopyrightUrl =
-    typeof window !== 'undefined' ? window.location.origin : 'https://fluent-hub.app';
+
+  const getCleanStoreDetails = (store: StoreListingItem): string => {
+    const raw = (store.details || '').trim();
+    if (!raw) return '';
+    if (
+      raw === 'محل مسجل بالدليل التجاري' &&
+      !store.name.includes('محل') &&
+      !store.category.includes('محل')
+    ) {
+      return '';
+    }
+    return raw;
+  };
+
+  const getStoreCoverPhoto = (store: StoreListingItem): string => {
+    const first = store.menuImages?.[0];
+    if (!first) {
+      return createSquareAdSvg(store.name, store.category, '#0284C7');
+    }
+    if (
+      first.startsWith('data:image/svg+xml') &&
+      (first.includes('%230A192F') || first.includes('#0A192F'))
+    ) {
+      return createSquareAdSvg(store.name, store.category, '#0284C7');
+    }
+    return first;
+  };
 
   // Search, Category Filter & View Layout Mode ('grid' = 2 per row on mobile, 'horizontal' = image on right + details beside it)
   const [searchQuery, setSearchQuery] = useState('');
@@ -116,7 +143,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     setStoreName(target.name);
     setStoreLocationUrl(target.locationUrl || '');
     setStorePhone(target.phone);
-    setStoreDetails(target.details || '');
+    setStoreDetails(getCleanStoreDetails(target));
     setMenuImages(target.menuImages || []);
     setUploadStatusMsg('');
     setIsAddModalOpen(true);
@@ -146,7 +173,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     const fileList = e.target.files;
     if (!fileList || fileList.length === 0) return;
     setUploadingMenu(true);
-    setUploadStatusMsg('جاري رفع صور المنيو عبر API التحميل...');
+    setUploadStatusMsg('جاري رفع الصور عبر API التحميل...');
     try {
       const uploadedUrls: string[] = [];
       for (let i = 0; i < fileList.length; i++) {
@@ -154,7 +181,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         uploadedUrls.push(res.url);
       }
       setMenuImages((prev) => [...prev, ...uploadedUrls]);
-      setUploadStatusMsg(`تم رفع ${uploadedUrls.length} صورة للمنيو بنجاح!`);
+      setUploadStatusMsg(`تم رفع ${uploadedUrls.length} صورة بنجاح!`);
     } catch {
       setUploadStatusMsg('تعذر رفع بعض الصور، يرجى المحاولة مجدداً.');
     } finally {
@@ -167,20 +194,27 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     e.preventDefault();
     if (!storeName.trim() || !storePhone.trim()) return;
 
+    const cleanName = storeName.trim();
     const finalMenuImages =
       menuImages.length > 0
         ? menuImages
-        : [createSquareAdSvg(storeName.trim(), storeCategory, '#38BDF8')];
+        : [createSquareAdSvg(cleanName, storeCategory, '#0284C7')];
+
+    // في حالة تسجيل صيدلية أو غيره لا يُكتب "محل" إلا في حالة كتابة "محل" فقط
+    const fallbackDetails =
+      cleanName.includes('محل') || storeCategory.includes('محل')
+        ? 'محل مسجل بالدليل التجاري'
+        : '';
 
     if (editingStoreObj && onUpdateStore) {
       onUpdateStore({
         ...editingStoreObj,
-        name: storeName.trim(),
+        name: cleanName,
         category: storeCategory,
         locationUrl: storeLocationUrl.trim(),
         phone: storePhone.trim(),
         whatsapp: storePhone.trim().replace(/[^0-9]/g, ''),
-        details: storeDetails.trim() || 'محل مسجل بالدليل التجاري',
+        details: storeDetails.trim() || fallbackDetails,
         menuImages: finalMenuImages,
       });
     } else {
@@ -188,12 +222,12 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         id: `st-${Date.now()}`,
         ownerId: currentUser?.id || 'guest',
         ownerUsername: currentUser?.username || 'زائر',
-        name: storeName.trim(),
+        name: cleanName,
         category: storeCategory,
         locationUrl: storeLocationUrl.trim(),
         phone: storePhone.trim(),
         whatsapp: storePhone.trim().replace(/[^0-9]/g, ''),
-        details: storeDetails.trim() || 'محل مسجل بالدليل التجاري',
+        details: storeDetails.trim() || fallbackDetails,
         menuImages: finalMenuImages,
         likes: [],
         dislikes: [],
@@ -228,7 +262,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
       );
       if (imported.length > 0) {
         onImportStoresBatch(imported);
-        setImportNotice(`تم استيراد وتسجيل ${imported.length} محل من ملف الإكسيل بنجاح!`);
+        setImportNotice(`تم استيراد وتسجيل ${imported.length} عنصر من ملف الإكسيل بنجاح!`);
         setTimeout(() => setImportNotice(''), 4500);
       }
     } catch {
@@ -249,7 +283,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
       );
       if (imported.length > 0) {
         onImportStoresBatch(imported);
-        setImportNotice(`تم استخراج وتسجيل ${imported.length} محل من ملف PDF بنجاح!`);
+        setImportNotice(`تم استخراج وتسجيل ${imported.length} عنصر من ملف PDF بنجاح!`);
         setTimeout(() => setImportNotice(''), 4500);
       }
     } catch {
@@ -258,7 +292,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     e.target.value = '';
   };
 
-  // Download Menu Image with Site Link Watermark
+  // Download Menu Image
   const handleDownloadMenuImage = (imageUrl: string, storeTitle: string, pageNum: number) => {
     const a = document.createElement('a');
     a.href = imageUrl;
@@ -293,7 +327,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     return matchesCategory && matchesSearch;
   });
 
-  // Render single comment item (used in both main modal and sub-modal)
+  // Render single comment item (White background & black text for high visibility inside light modal)
   const renderCommentBlock = (store: StoreListingItem, comment: StoreCommentItem) => {
     const hasLikedComment = comment.likes.includes(currentVisitorId);
     const isReplyingHere = replyingToCommentId === comment.id;
@@ -301,12 +335,12 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     return (
       <div
         key={comment.id}
-        className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-2.5"
+        className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 space-y-2.5 text-black"
       >
         <div className="flex items-start justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold text-sky-300">
+              <span className="text-xs font-extrabold text-black">
                 {comment.authorUsername}
               </span>
               <div className="flex items-center gap-0.5">
@@ -315,25 +349,25 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     key={i}
                     className={`w-3 h-3 ${
                       i < comment.rating
-                        ? 'text-amber-400 fill-amber-400'
-                        : 'text-[#475569]'
+                        ? 'text-amber-500 fill-amber-500'
+                        : 'text-slate-300'
                     }`}
                   />
                 ))}
               </div>
             </div>
-            <div className="text-[10px] text-[#94A3B8]">
+            <div className="text-[10px] font-semibold text-slate-600">
               {new Date(comment.createdAt).toLocaleString('ar-EG')}
             </div>
           </div>
 
-          {/* Delete Comment Button: Visible to Admin Only */}
-          {isAdmin && (
+          {/* Delete Comment Button: Visible to Strict Admin Only */}
+          {isStrictAdmin && (
             <button
               type="button"
               onClick={() => onDeleteStoreComment(store.id, comment.id)}
               title="حذف التعليق (صلاحية Admin)"
-              className="px-2 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+              className="px-2 py-1 rounded-lg bg-rose-100 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
             >
               <Trash2 className="w-3 h-3" />
               <span>حذف التعليق</span>
@@ -341,7 +375,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           )}
         </div>
 
-        <p className="text-xs sm:text-sm text-[#F8FAFC] leading-relaxed">
+        <p className="text-xs sm:text-sm font-bold text-black leading-relaxed">
           {comment.text}
         </p>
 
@@ -350,8 +384,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           <button
             type="button"
             onClick={() => onToggleCommentLike(store.id, comment.id)}
-            className={`inline-flex items-center gap-1 font-bold cursor-pointer transition-colors ${
-              hasLikedComment ? 'text-blue-400' : 'text-[#94A3B8] hover:text-white'
+            className={`inline-flex items-center gap-1 font-extrabold cursor-pointer transition-colors ${
+              hasLikedComment ? 'text-blue-600' : 'text-slate-700 hover:text-black'
             }`}
           >
             <ThumbsUp className="w-3.5 h-3.5" />
@@ -364,7 +398,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               setReplyingToCommentId(isReplyingHere ? null : comment.id);
               setReplyDraftText('');
             }}
-            className="inline-flex items-center gap-1 font-bold text-sky-400 hover:text-sky-300 cursor-pointer"
+            className="inline-flex items-center gap-1 font-extrabold text-sky-700 hover:text-sky-900 cursor-pointer"
           >
             <CornerDownLeft className="w-3.5 h-3.5" />
             <span>رد ({comment.replies.length})</span>
@@ -373,22 +407,22 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
         {/* Nested Replies List */}
         {comment.replies.length > 0 && (
-          <div className="mr-4 pr-3 border-r-2 border-[#334155] space-y-2 pt-1">
+          <div className="mr-4 pr-3 border-r-2 border-slate-300 space-y-2 pt-1">
             {comment.replies.map((rep) => (
               <div
                 key={rep.id}
-                className="p-2.5 rounded-lg bg-[#112240]/90 border border-[#334155]/80 text-xs space-y-1"
+                className="p-2.5 rounded-lg bg-white border border-slate-200 text-xs space-y-1 text-black"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-amber-300">{rep.authorUsername}</span>
-                  <span className="text-[10px] text-[#94A3B8]">
+                  <span className="font-extrabold text-black">{rep.authorUsername}</span>
+                  <span className="text-[10px] font-semibold text-slate-600">
                     {new Date(rep.createdAt).toLocaleTimeString('ar-EG', {
                       hour: '2-digit',
                       minute: '2-digit',
                     })}
                   </span>
                 </div>
-                <p className="text-[#F8FAFC]">{rep.text}</p>
+                <p className="font-bold text-black">{rep.text}</p>
               </div>
             ))}
           </div>
@@ -402,7 +436,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               value={replyDraftText}
               onChange={(e) => setReplyDraftText(e.target.value)}
               placeholder={`اكتب رداً على ${comment.authorUsername}...`}
-              className="flex-1 rounded-lg bg-[#112240] border border-sky-400/50 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
+              className="flex-1 rounded-lg bg-white border-2 border-slate-300 focus:border-sky-600 px-3 py-1.5 text-xs text-black font-bold outline-none"
             />
             <FluentButton
               variant="primary"
@@ -436,7 +470,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
   return (
     <div className="space-y-6 w-full overflow-x-hidden">
-      {/* 1. Top Action Bar: "أضف محل / الدليل التجاري" + "أضف محل" Button on 1 line + Admin Only Excel/PDF Import & Export */}
+      {/* 1. Top Action Bar: "أضف منتج / الدليل التجاري" + Button on 1 line + Admin/Moderator Excel/PDF Import & Export */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#112240]/95 border border-[#334155] rounded-2xl p-3.5 sm:p-5 shadow-lg">
         <div className="flex items-center justify-between sm:justify-start gap-2.5 flex-nowrap w-full lg:w-auto">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -444,27 +478,28 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               <Store className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <h1 className="text-sm sm:text-xl font-extrabold text-[#F8FAFC] truncate">
-              أضف محل / الدليل التجاري
+              أضف منتج / الدليل التجاري
             </h1>
           </div>
 
-          {/* Primary "أضف محل" Button right beside the title on the same line */}
+          {/* Primary Button right beside the title on the same line */}
           <FluentButton
             variant="primary"
             size="sm"
             onClick={() => {
+              setEditingStoreObj(null);
               setStoreCategory(settings.storeCategories[0] || 'سوبر ماركت');
               setIsAddModalOpen(true);
             }}
             className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
           >
             <Plus className="w-4 h-4 shrink-0" />
-            <span>أضف محل</span>
+            <span>أضف منتج / محل</span>
           </FluentButton>
         </div>
 
-        {/* Import & Export Toolbar: Strictly Admin Only ("زر اضف اكسيل او بي دي اف صلاحيات admin فقط") */}
-        {currentUser?.role === 'admin' && (
+        {/* Import & Export Toolbar: Admin & Moderator */}
+        {canManage && (
           <div className="flex flex-wrap items-center gap-2">
             {/* أضف إكسيل */}
             <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-emerald-300 border border-emerald-500/40 cursor-pointer">
@@ -518,8 +553,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         </div>
       )}
 
-      {/* 3. Instant Search Bar & Category Filter Dropdown in a Single Row */}
-      <div className="bg-[#112240]/80 border border-[#334155] rounded-2xl p-3 sm:p-4 space-y-2.5">
+      {/* 3. Instant Search Bar & Category Filter Dropdown + Single-Row (الكل + شبكي + عرضي) on Mobile */}
+      <div className="bg-[#112240]/80 border border-[#334155] rounded-2xl p-3 sm:p-4 space-y-2.5 overflow-x-hidden">
         <div className="flex flex-row items-center gap-2 sm:gap-3 flex-nowrap">
           {/* Search Input */}
           <div className="relative flex-1 min-w-0 flex items-center gap-1.5">
@@ -529,7 +564,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="ابحث عن محل أو قسم..."
+                placeholder="ابحث بالاسم أو القسم أو الرقم..."
                 className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-9 pl-2.5 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] outline-none"
               />
             </div>
@@ -553,71 +588,68 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           </div>
         </div>
 
-        {/* Only "الكل" Button + Layout Toggle (Grid 2-col on mobile vs Horizontal Image-on-Right) */}
-        <div className="flex items-center justify-between gap-2 pt-0.5 flex-wrap">
+        {/* في نسخة الهاتف: يظهر زر الكل و شبكي و عرضي في سطر واحد بدون مسطرة أفقية */}
+        <div className="grid grid-cols-3 sm:flex sm:items-center sm:justify-between gap-1.5 sm:gap-2 pt-0.5 w-full overflow-x-hidden">
           <button
             type="button"
             onClick={() => setSelectedCategory('all')}
-            className={`fluent-reveal px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer ${
+            className={`fluent-reveal px-2 sm:px-4 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold whitespace-nowrap flex items-center justify-center gap-1 cursor-pointer transition-all ${
               selectedCategory === 'all'
-                ? 'bg-sky-600 text-white'
+                ? 'bg-sky-600 text-white shadow'
                 : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
             }`}
           >
-            الكل ({stores.length})
+            <span>الكل ({stores.length})</span>
           </button>
 
-          {/* طريقة العرض: شبكي (2 بجانب بعض) أو عرض عرضي (الصورة يمين وبجانبها التفاصيل) */}
-          <div className="flex items-center gap-1.5 bg-[#0A192F] border border-[#334155] rounded-xl p-1">
-            <button
-              type="button"
-              onClick={() => setStoreLayoutMode('grid')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition-all ${
-                storeLayoutMode === 'grid'
-                  ? 'bg-sky-600 text-white shadow'
-                  : 'text-[#94A3B8] hover:text-white'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>شبكي (2 بجانب بعض)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setStoreLayoutMode('horizontal')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition-all ${
-                storeLayoutMode === 'horizontal'
-                  ? 'bg-sky-600 text-white shadow'
-                  : 'text-[#94A3B8] hover:text-white'
-              }`}
-            >
-              <LayoutList className="w-3.5 h-3.5" />
-              <span>عرض عرضي</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setStoreLayoutMode('grid')}
+            className={`fluent-reveal px-2 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold whitespace-nowrap flex items-center justify-center gap-1 cursor-pointer transition-all ${
+              storeLayoutMode === 'grid'
+                ? 'bg-sky-600 text-white shadow'
+                : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
+            }`}
+          >
+            <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
+            <span>شبكي</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStoreLayoutMode('horizontal')}
+            className={`fluent-reveal px-2 sm:px-3.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold whitespace-nowrap flex items-center justify-center gap-1 cursor-pointer transition-all ${
+              storeLayoutMode === 'horizontal'
+                ? 'bg-sky-600 text-white shadow'
+                : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
+            }`}
+          >
+            <LayoutList className="w-3.5 h-3.5 shrink-0" />
+            <span>عرضي</span>
+          </button>
         </div>
       </div>
 
-      {/* Store Cards: Grid (2 side-by-side on mobile) OR Horizontal (Image on Right + Details beside it) */}
+      {/* Store Cards: White background + Black text + Single-line (Like + Dislike + Views) */}
       {filteredStores.length === 0 ? (
         <FluentCard className="p-12 text-center space-y-3">
           <Store className="w-10 h-10 text-sky-400 mx-auto opacity-80" />
           <div className="text-base font-bold text-[#F8FAFC]">
-            لا توجد محلات مطابقة لبحثك في هذا القسم حالياً
+            لا توجد عناصر مطابقة لبحثك في هذا القسم حالياً
           </div>
           <p className="text-xs text-[#94A3B8]">
-            اضغط على زر &quot;أضف محل&quot; بالأعلى لإضافة أول محل في هذا القسم
+            اضغط على زر &quot;أضف منتج / محل&quot; بالأعلى للإضافة في هذا القسم
           </p>
         </FluentCard>
       ) : storeLayoutMode === 'horizontal' ? (
-        /* ================= HORIZONTAL VIEW: صورة المحل على اليمين وبجانبه التفاصيل ================= */
+        /* ================= HORIZONTAL VIEW: خلفية بيضاء وخط أسود واضح ================= */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
           {filteredStores.map((store) => {
-            const firstMenuPhoto =
-              store.menuImages[0] ||
-              createSquareAdSvg(store.name, store.category, '#38BDF8');
+            const firstMenuPhoto = getStoreCoverPhoto(store);
             const isLiked = store.likes.includes(currentVisitorId);
             const isDisliked = store.dislikes.includes(currentVisitorId);
             const ratingInfo = getStoreRatingSummary(store);
+            const cleanDetails = getCleanStoreDetails(store);
 
             return (
               <div
@@ -631,96 +663,105 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   setMenuPanOffsetX(0);
                   setRatingOnlySavedNotice('');
                 }}
-                className="fluent-reveal group rounded-2xl bg-[#112240] border border-[#334155] hover:border-sky-400/70 overflow-hidden flex flex-row items-stretch cursor-pointer shadow-lg"
+                className="fluent-reveal group rounded-2xl bg-white text-black border-2 border-slate-300 hover:border-sky-500 overflow-hidden flex flex-row items-stretch cursor-pointer shadow-lg transition-all"
               >
-                {/* Right Side (RTL First Child): صورة المحل على اليمين */}
-                <div className="relative w-28 sm:w-40 shrink-0 bg-[#0A192F] border-l border-[#334155] overflow-hidden">
+                {/* Right Side (RTL First Child): الصورة على اليمين */}
+                <div className="relative w-28 sm:w-40 shrink-0 bg-white border-l border-slate-200 overflow-hidden flex items-center justify-center">
                   <img
                     src={firstMenuPhoto}
                     alt={store.name}
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
-                  <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-[#0A192F]/90 border border-amber-400/40 text-amber-300 font-mono-tabular text-[10px] font-bold flex items-center gap-0.5">
-                    <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                  <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-white/95 border border-amber-400 text-black font-mono-tabular text-[10px] font-extrabold flex items-center gap-0.5 shadow-sm">
+                    <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
                     {ratingInfo.avg}
                   </span>
+
+                  {/* Admin / Moderator Edit & Delete quick icons on image corner */}
+                  {canManage && (
+                    <div
+                      className="absolute bottom-1.5 right-1.5 flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openEditStoreModal(store)}
+                        title="تعديل"
+                        className="p-1 rounded-md bg-white/95 hover:bg-sky-600 text-sky-700 hover:text-white border border-slate-300 shadow cursor-pointer"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                      {isStrictAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteStore(store.id)}
+                          title="حذف"
+                          className="p-1 rounded-md bg-white/95 hover:bg-rose-600 text-rose-600 hover:text-white border border-slate-300 shadow cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {/* Left Side (RTL Second Child): التفاصيل بجانبه */}
-                <div className="p-2.5 sm:p-4 flex-1 min-w-0 flex flex-col justify-between space-y-2 relative z-10">
+                {/* Left Side (RTL Second Child): الاسم المسجل والتفاصيل بخط أسود */}
+                <div className="p-2.5 sm:p-4 flex-1 min-w-0 flex flex-col justify-between space-y-2 relative z-10 bg-white text-black">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between gap-1.5">
-                      <h3 className="text-xs sm:text-base font-extrabold text-[#F8FAFC] group-hover:text-sky-300 transition-colors truncate">
+                      <h3 className="text-xs sm:text-base font-extrabold text-black truncate">
                         {store.name}
                       </h3>
-                      <span className="px-2 py-0.5 rounded-lg bg-[#0A192F] border border-sky-400/40 text-sky-300 text-[10px] font-bold shrink-0">
+                      <span className="px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-300 text-black text-[10px] font-extrabold shrink-0">
                         {store.category}
                       </span>
                     </div>
-                    <p className="text-[11px] sm:text-xs text-[#94A3B8] line-clamp-2 leading-relaxed">
-                      {store.details}
-                    </p>
+                    {cleanDetails && (
+                      <p className="text-[11px] sm:text-xs text-slate-800 font-semibold line-clamp-2 leading-relaxed">
+                        {cleanDetails}
+                      </p>
+                    )}
                   </div>
 
+                  {/* زر لايك و ديس لايك وعدد المشاهدات في سطر واحد */}
                   <div
-                    className="pt-2 border-t border-[#334155]/80 flex items-center justify-between gap-1.5 flex-wrap"
+                    className="pt-2 border-t border-slate-200 flex items-center justify-between gap-1 flex-nowrap w-full overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onToggleStoreLike(store.id)}
-                        className={`px-2 py-1 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1 border cursor-pointer ${
-                          isLiked
-                            ? 'bg-[#1877F2] text-white border-[#1877F2]'
-                            : 'bg-[#0A192F] text-[#E2E8F0] border-[#334155]'
-                        }`}
-                      >
-                        <span>👍</span>
-                        <span className="font-mono-tabular">({store.likes.length})</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onToggleStoreDislike(store.id)}
-                        className={`px-2 py-1 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1 border cursor-pointer ${
-                          isDisliked
-                            ? 'bg-rose-600 text-white border-rose-500'
-                            : 'bg-[#0A192F] text-[#94A3B8] border-[#334155]'
-                        }`}
-                      >
-                        <span>👎</span>
-                        <span className="font-mono-tabular">({store.dislikes.length})</span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onToggleStoreLike(store.id)}
+                      className={`px-2 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border cursor-pointer shrink-0 ${
+                        isLiked
+                          ? 'bg-[#1877F2] text-white border-[#1877F2]'
+                          : 'bg-slate-100 text-black hover:bg-slate-200 border-slate-300'
+                      }`}
+                    >
+                      <span>👍</span>
+                      <span className="font-mono-tabular">{store.likes.length}</span>
+                    </button>
 
-                    <div className="flex items-center gap-1 mr-auto">
-                      <span
-                        title="عدد المشاهدات لجميع المستخدمين"
-                        className="px-2 py-0.5 rounded-lg bg-[#0A192F] border border-[#334155] text-[10px] font-bold text-sky-300 flex items-center gap-1 font-mono-tabular"
-                      >
-                        <Eye className="w-3 h-3 text-sky-400" />
-                        <span>{store.viewsCount || 0}</span>
-                      </span>
-                      {isAdmin && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => openEditStoreModal(store)}
-                            className="p-1 rounded-lg bg-sky-600/20 hover:bg-sky-600 text-sky-400 hover:text-white border border-sky-500/30 cursor-pointer"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDeleteStore(store.id)}
-                            className="p-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/30 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onToggleStoreDislike(store.id)}
+                      className={`px-2 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border cursor-pointer shrink-0 ${
+                        isDisliked
+                          ? 'bg-rose-600 text-white border-rose-500'
+                          : 'bg-slate-100 text-black hover:bg-slate-200 border-slate-300'
+                      }`}
+                    >
+                      <span>👎</span>
+                      <span className="font-mono-tabular">{store.dislikes.length}</span>
+                    </button>
+
+                    <span
+                      title="عدد المشاهدات"
+                      className="px-2 py-1 rounded-lg bg-slate-100 border border-slate-300 text-[10px] sm:text-xs font-extrabold text-black flex items-center justify-center gap-1 font-mono-tabular shrink-0"
+                    >
+                      <Eye className="w-3 h-3 text-sky-700 shrink-0" />
+                      <span>{store.viewsCount || 0}</span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -728,15 +769,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           })}
         </div>
       ) : (
-        /* ================= GRID VIEW: يظهر في نسخة الهاتف 2 محل بجانب بعض ================= */
+        /* ================= GRID VIEW: يظهر في نسخة الهاتف 2 بجانب بعض بخلفية بيضاء وخط أسود ================= */
         <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-5">
           {filteredStores.map((store) => {
-            const firstMenuPhoto =
-              store.menuImages[0] ||
-              createSquareAdSvg(store.name, store.category, '#38BDF8');
+            const firstMenuPhoto = getStoreCoverPhoto(store);
             const isLiked = store.likes.includes(currentVisitorId);
             const isDisliked = store.dislikes.includes(currentVisitorId);
             const ratingInfo = getStoreRatingSummary(store);
+            const cleanDetails = getCleanStoreDetails(store);
 
             return (
               <div
@@ -750,114 +790,116 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   setMenuPanOffsetX(0);
                   setRatingOnlySavedNotice('');
                 }}
-                className="fluent-reveal group rounded-2xl bg-[#112240] border border-[#334155] hover:border-sky-400/70 overflow-hidden flex flex-col justify-between cursor-pointer shadow-lg"
+                className="fluent-reveal group rounded-2xl bg-white text-black border-2 border-slate-300 hover:border-sky-500 overflow-hidden flex flex-col justify-between cursor-pointer shadow-lg transition-all"
               >
-                {/* Top Square Image: First Page of Store Menu */}
-                <div className="relative w-full aspect-square bg-[#0A192F] border-b border-[#334155] overflow-hidden">
+                {/* Top Square Image */}
+                <div className="relative w-full aspect-square bg-white border-b border-slate-200 overflow-hidden">
                   <img
                     src={firstMenuPhoto}
                     alt={store.name}
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0A192F] via-transparent to-transparent opacity-80" />
 
                   {/* Category & Star Rating Overlay */}
-                  <div className="absolute top-2 right-2 left-2 sm:top-3 sm:right-3 sm:left-3 flex items-center justify-between text-[10px] sm:text-xs gap-1">
-                    <span className="px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg bg-[#0A192F]/90 border border-sky-400/40 text-sky-300 font-bold truncate">
+                  <div className="absolute top-1.5 right-1.5 left-1.5 sm:top-2.5 sm:right-2.5 sm:left-2.5 flex items-center justify-between text-[10px] sm:text-xs gap-1">
+                    <span className="px-1.5 sm:px-2.5 py-0.5 rounded-lg bg-white/95 border border-slate-300 text-black font-extrabold truncate shadow-sm">
                       {store.category}
                     </span>
-                    <span className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-[#0A192F]/90 border border-amber-400/40 text-amber-300 font-mono-tabular font-bold flex items-center gap-0.5 shrink-0">
-                      <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 fill-amber-400" />
+                    <span className="px-1.5 sm:px-2 py-0.5 rounded-lg bg-white/95 border border-amber-400 text-black font-mono-tabular font-extrabold flex items-center gap-0.5 shrink-0 shadow-sm">
+                      <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
                       {ratingInfo.avg}
                     </span>
                   </div>
 
                   {store.menuImages.length > 1 && (
-                    <div className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded bg-[#0A192F]/90 border border-[#334155] text-[10px] text-[#94A3B8]">
-                      منيو ({store.menuImages.length})
+                    <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-white/95 border border-slate-300 text-[10px] font-extrabold text-black shadow-sm">
+                      صور ({store.menuImages.length})
+                    </div>
+                  )}
+
+                  {/* Admin / Moderator Edit & Delete quick icons on image bottom-right */}
+                  {canManage && (
+                    <div
+                      className="absolute bottom-1.5 right-1.5 flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openEditStoreModal(store)}
+                        title="تعديل"
+                        className="p-1 rounded-md bg-white/95 hover:bg-sky-600 text-sky-700 hover:text-white border border-slate-300 shadow cursor-pointer"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                      {isStrictAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteStore(store.id)}
+                          title="حذف"
+                          className="p-1 rounded-md bg-white/95 hover:bg-rose-600 text-rose-600 hover:text-white border border-slate-300 shadow cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
 
-                {/* Store Name & Details */}
-                <div className="p-2.5 sm:p-4 flex-1 flex flex-col justify-between space-y-2.5 sm:space-y-4 relative z-10">
-                  <div className="space-y-1">
-                    <h3 className="text-xs sm:text-base font-extrabold text-[#F8FAFC] group-hover:text-sky-300 transition-colors line-clamp-1">
+                {/* Store Registered Name & Optional Details (White background + Black text) */}
+                <div className="p-2 sm:p-3.5 flex-1 flex flex-col justify-between space-y-2 bg-white text-black relative z-10">
+                  <div className="space-y-0.5">
+                    <h3 className="text-xs sm:text-base font-extrabold text-black line-clamp-1">
                       {store.name}
                     </h3>
-                    <p className="text-[11px] sm:text-xs text-[#94A3B8] line-clamp-2 leading-relaxed">
-                      {store.details}
-                    </p>
+                    {cleanDetails && (
+                      <p className="text-[10px] sm:text-xs text-slate-800 font-semibold line-clamp-2 leading-relaxed">
+                        {cleanDetails}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Facebook-style Like (👍) and Dislike (👎) Bar */}
+                  {/* في كل منتج مسجل: زر لايك و ديس لايك وعدد المشاهدات في سطر واحد */}
                   <div
-                    className="pt-2 sm:pt-3 border-t border-[#334155]/80 flex items-center justify-between gap-1 flex-wrap"
+                    className="pt-2 border-t border-slate-200 flex items-center justify-between gap-1 flex-nowrap w-full overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="flex items-center gap-1 sm:gap-2">
-                      {/* Facebook Like 👍 */}
-                      <button
-                        type="button"
-                        onClick={() => onToggleStoreLike(store.id)}
-                        className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
-                          isLiked
-                            ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-[0_0_12px_rgba(24,119,242,0.5)]'
-                            : 'bg-[#0A192F] text-[#E2E8F0] hover:bg-[#1877F2]/20 border-[#334155]'
-                        }`}
-                      >
-                        <span className="text-xs sm:text-sm leading-none">👍</span>
-                        <span className="hidden sm:inline">أعجبني</span>
-                        <span className="font-mono-tabular">({store.likes.length})</span>
-                      </button>
+                    {/* Like 👍 */}
+                    <button
+                      type="button"
+                      onClick={() => onToggleStoreLike(store.id)}
+                      className={`px-1.5 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-0.5 sm:gap-1 border transition-all cursor-pointer shrink-0 ${
+                        isLiked
+                          ? 'bg-[#1877F2] text-white border-[#1877F2]'
+                          : 'bg-slate-100 text-black hover:bg-slate-200 border-slate-300'
+                      }`}
+                    >
+                      <span className="text-[11px] sm:text-xs leading-none">👍</span>
+                      <span className="font-mono-tabular">{store.likes.length}</span>
+                    </button>
 
-                      {/* Facebook Dislike 👎 */}
-                      <button
-                        type="button"
-                        onClick={() => onToggleStoreDislike(store.id)}
-                        className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold flex items-center gap-1 border transition-all cursor-pointer ${
-                          isDisliked
-                            ? 'bg-rose-600 text-white border-rose-500 shadow-[0_0_12px_rgba(225,29,72,0.4)]'
-                            : 'bg-[#0A192F] text-[#94A3B8] hover:bg-rose-600/20 border-[#334155]'
-                        }`}
-                      >
-                        <span className="text-xs sm:text-sm leading-none">👎</span>
-                        <span className="font-mono-tabular">({store.dislikes.length})</span>
-                      </button>
-                    </div>
+                    {/* Dislike 👎 */}
+                    <button
+                      type="button"
+                      onClick={() => onToggleStoreDislike(store.id)}
+                      className={`px-1.5 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-0.5 sm:gap-1 border transition-all cursor-pointer shrink-0 ${
+                        isDisliked
+                          ? 'bg-rose-600 text-white border-rose-500'
+                          : 'bg-slate-100 text-black hover:bg-slate-200 border-slate-300'
+                      }`}
+                    >
+                      <span className="text-[11px] sm:text-xs leading-none">👎</span>
+                      <span className="font-mono-tabular">{store.dislikes.length}</span>
+                    </button>
 
-                    <div className="flex items-center gap-1 mr-auto">
-                      {/* عدد المشاهدات في الأسفل على اليسار لجميع المستخدمين */}
-                      <span
-                        title="عدد المشاهدات لجميع المستخدمين"
-                        className="px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg bg-[#0A192F] border border-[#334155] text-[10px] sm:text-[11px] font-bold text-sky-300 flex items-center gap-0.5 sm:gap-1 font-mono-tabular"
-                      >
-                        <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-sky-400" />
-                        <span>{store.viewsCount || 0}</span>
-                      </span>
-
-                      {isAdmin && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => openEditStoreModal(store)}
-                            title="تعديل المحل"
-                            className="p-1 sm:p-1.5 rounded-lg bg-sky-600/20 hover:bg-sky-600 text-sky-400 hover:text-white border border-sky-500/30 cursor-pointer"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDeleteStore(store.id)}
-                            title="حذف المحل"
-                            className="p-1 sm:p-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/30 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    {/* Views Counter 👁️ */}
+                    <span
+                      title="عدد المشاهدات لجميع المستخدمين"
+                      className="px-1.5 sm:px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-[10px] sm:text-xs font-extrabold text-black flex items-center justify-center gap-0.5 sm:gap-1 font-mono-tabular shrink-0"
+                    >
+                      <Eye className="w-3 h-3 text-sky-700 shrink-0" />
+                      <span>{store.viewsCount || 0}</span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -866,27 +908,28 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         </div>
       )}
 
-      {/* ================= 1. ADD / EDIT STORE MODAL ================= */}
+      {/* ================= 1. ADD / EDIT STORE MODAL (WHITE BACKGROUND + BLACK TEXT) ================= */}
       <FluentModal
         isOpen={isAddModalOpen}
         onClose={() => {
           setIsAddModalOpen(false);
           setEditingStoreObj(null);
         }}
-        title={editingStoreObj ? `تعديل بيانات المحل: ${editingStoreObj.name}` : 'إضافة محل جديد إلى الدليل'}
-        subtitle="اختر القسم وأدخل بيانات المحل وارفع صور المنيو ليظهر فوراً لجميع الزوار"
+        title={editingStoreObj ? `تعديل البيانات: ${editingStoreObj.name}` : 'إضافة جديد إلى الدليل'}
+        subtitle="اختر القسم وأدخل الاسم والبيانات وارفع الصور ليظهر فوراً لجميع الزوار"
         maxWidth="2xl"
+        theme="light"
       >
-        <form onSubmit={handleCreateStoreSubmit} className="space-y-4">
+        <form onSubmit={handleCreateStoreSubmit} className="space-y-4 text-black">
           {/* Dynamic Category Dropdown */}
           <div>
-            <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
+            <label className="block text-xs font-extrabold text-black mb-1.5">
               اختر القسم *
             </label>
             <select
               value={storeCategory}
               onChange={(e) => setStoreCategory(e.target.value)}
-              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-[#F8FAFC] font-bold outline-none"
+              className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-extrabold outline-none"
             >
               {settings.storeCategories.map((cat) => (
                 <option key={cat} value={cat}>
@@ -899,22 +942,22 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           {/* Store Name & Phone */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-                اسم المحل *
+              <label className="block text-xs font-extrabold text-black mb-1.5">
+                الاسم المسجل (مثال: صيدلية الشفاء / عيادة النور / محل...) *
               </label>
               <input
                 type="text"
                 required
                 value={storeName}
                 onChange={(e) => setStoreName(e.target.value)}
-                placeholder="مثال: سوبر ماركت البركة أو مطعم السلطان..."
-                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-[#F8FAFC] outline-none"
+                placeholder="اكتب الاسم كما تريد ظهوره بالضبط..."
+                className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-bold outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-                رقم هاتف المحل *
+              <label className="block text-xs font-extrabold text-black mb-1.5">
+                رقم الهاتف *
               </label>
               <input
                 type="tel"
@@ -922,55 +965,54 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 value={storePhone}
                 onChange={(e) => setStorePhone(e.target.value)}
                 placeholder="010XXXXXXXX"
-                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-[#F8FAFC] font-mono-tabular outline-none"
+                className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-bold font-mono-tabular outline-none"
               />
             </div>
           </div>
 
           {/* Store Location Google Maps Link */}
           <div>
-            <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-              لوكيشن المحل (رابط خرائط جوجل Google Maps)
+            <label className="block text-xs font-extrabold text-black mb-1.5">
+              اللوكيشن (رابط خرائط جوجل Google Maps — اختياري)
             </label>
             <input
               type="url"
               value={storeLocationUrl}
               onChange={(e) => setStoreLocationUrl(e.target.value)}
               placeholder="https://maps.google.com/?q=..."
-              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-[#F8FAFC] font-mono-tabular outline-none"
+              className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-bold font-mono-tabular outline-none"
             />
           </div>
 
           {/* Store Details */}
           <div>
-            <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-              تفاصيل المحل والعنوان ومواعيد العمل
+            <label className="block text-xs font-extrabold text-black mb-1.5">
+              التفاصيل والعنوان ومواعيد العمل
             </label>
             <textarea
               rows={3}
-              required
               value={storeDetails}
               onChange={(e) => setStoreDetails(e.target.value)}
-              placeholder="اكتب تفاصيل المحل والخدمات والعروض المتاحة..."
-              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 p-3.5 text-[#F8FAFC] outline-none"
+              placeholder="اكتب التفاصيل والخدمات والعروض المتاحة..."
+              className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 p-3.5 text-black font-bold outline-none"
             />
           </div>
 
           {/* Store Menu Image Upload via ImgBB API */}
-          <div className="p-4 rounded-xl bg-[#0A192F] border border-[#334155] space-y-3">
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-300 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <label className="block text-xs font-bold text-sky-400">
-                  منيو المحل (رفع صور المنيو عبر API التحميل)
+                <label className="block text-xs font-extrabold text-black">
+                  الصور / المنيو (رفع الصور عبر API التحميل)
                 </label>
-                <p className="text-[11px] text-[#94A3B8]">
-                  تظهر صورة الصفحة الأولى من المنيو كواجهة رئيسية لقالب المحل
+                <p className="text-[11px] font-semibold text-slate-700">
+                  تظهر الصورة الأولى كواجهة رئيسية واضحة في البطاقة ولوحة الإعلانات والخصومات
                 </p>
               </div>
 
               <label className="fluent-reveal inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer">
                 <Upload className="w-4 h-4" />
-                <span>{uploadingMenu ? 'جاري الرفع...' : 'اختر صور المنيو'}</span>
+                <span>{uploadingMenu ? 'جاري الرفع...' : 'اختر الصور'}</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -982,7 +1024,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             </div>
 
             {uploadStatusMsg && (
-              <div className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5">
+              <div className="text-xs text-emerald-700 font-extrabold flex items-center gap-1.5">
                 <ImageIcon className="w-4 h-4" />
                 <span>{uploadStatusMsg}</span>
               </div>
@@ -993,10 +1035,10 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 {menuImages.map((img, i) => (
                   <div
                     key={i}
-                    className="relative h-20 rounded-lg overflow-hidden border border-sky-400/50"
+                    className="relative h-20 rounded-lg overflow-hidden border border-slate-300 bg-white"
                   >
-                    <img src={img} alt={`Menu ${i + 1}`} className="w-full h-full object-cover" />
-                    <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-[#0A192F]/90 text-[10px] font-bold text-sky-300">
+                    <img src={img} alt={`صورة ${i + 1}`} className="w-full h-full object-cover" />
+                    <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-white/95 text-[10px] font-extrabold text-black border border-slate-300">
                       ص {i + 1}
                     </span>
                   </div>
@@ -1005,23 +1047,23 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#334155]">
-            <FluentButton
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+            <button
               type="button"
-              variant="ghost"
               onClick={() => setIsAddModalOpen(false)}
+              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-black text-xs font-extrabold cursor-pointer"
             >
               إلغاء
-            </FluentButton>
+            </button>
             <FluentButton type="submit" variant="primary" size="lg">
               <Plus className="w-4 h-4" />
-              <span>أضف</span>
+              <span>حفظ</span>
             </FluentButton>
           </div>
         </form>
       </FluentModal>
 
-      {/* ================= 2. STORE DETAILS, RATING, MENU & COMMENTS MODAL ================= */}
+      {/* ================= 2. STORE DETAILS, RATING, MENU & COMMENTS MODAL (WHITE BACKGROUND + BLACK TEXT) ================= */}
       {activeStore && (
         <FluentModal
           isOpen={!!activeStore}
@@ -1029,10 +1071,11 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           title={activeStore.name}
           subtitle={`القسم: ${activeStore.category}`}
           maxWidth="4xl"
+          theme="light"
         >
-          <div className="space-y-5">
-            {/* Admin Edit/Delete Store Controls (Top "قيّم هذا المحل الآن" removed per instructions) */}
-            {isAdmin && (
+          <div className="space-y-5 text-black">
+            {/* Admin / Moderator Edit Store & Admin-Only Delete Store Controls */}
+            {canManage && (
               <div className="flex items-center justify-end gap-2">
                 <FluentButton
                   variant="secondary"
@@ -1044,19 +1087,21 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   }}
                 >
                   <Edit3 className="w-3.5 h-3.5 text-sky-400" />
-                  <span>تعديل المحل</span>
+                  <span>تعديل البيانات</span>
                 </FluentButton>
-                <FluentButton
-                  variant="danger"
-                  size="sm"
-                  onClick={() => {
-                    onDeleteStore(activeStore.id);
-                    setActiveStoreId(null);
-                  }}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>حذف المحل</span>
-                </FluentButton>
+                {isStrictAdmin && (
+                  <FluentButton
+                    variant="danger"
+                    size="sm"
+                    onClick={() => {
+                      onDeleteStore(activeStore.id);
+                      setActiveStoreId(null);
+                    }}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>حذف</span>
+                  </FluentButton>
+                )}
               </div>
             )}
 
@@ -1073,9 +1118,9 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     hasValidLocation ? 'md:grid-cols-2' : ''
                   } gap-3`}
                 >
-                  {/* الرقم + اتصال + مراسلة في صف واحد بدون جملة "رقم هاتف المحل:" */}
-                  <div className="p-3 sm:p-4 rounded-xl bg-[#0A192F] border border-[#334155] flex flex-row flex-nowrap items-center justify-between gap-2">
-                    <span className="text-sm sm:text-base font-extrabold text-sky-400 font-mono-tabular truncate">
+                  {/* الرقم + اتصال + مراسلة في صف واحد بخلفية بيضاء وخط أسود واضح */}
+                  <div className="p-3 sm:p-4 rounded-xl bg-slate-50 border border-slate-300 flex flex-row flex-nowrap items-center justify-between gap-2">
+                    <span className="text-sm sm:text-base font-extrabold text-black font-mono-tabular truncate">
                       {activeStore.phone}
                     </span>
 
@@ -1103,12 +1148,12 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
                   {/* Location with "فتح الرابط" — Hidden completely if store has no registered location */}
                   {hasValidLocation && (
-                    <div className="p-3 sm:p-4 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-3">
+                    <div className="p-3 sm:p-4 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <span className="text-xs text-[#94A3B8] block">
-                          لوكيشن المحل (Google Maps):
+                        <span className="text-xs font-bold text-slate-700 block">
+                          اللوكيشن (Google Maps):
                         </span>
-                        <span className="text-xs font-mono-tabular text-[#E2E8F0] truncate block">
+                        <span className="text-xs font-mono-tabular font-bold text-black truncate block">
                           {activeStore.locationUrl}
                         </span>
                       </div>
@@ -1128,26 +1173,27 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               );
             })()}
 
-            {/* Store Full Details */}
-            <div className="p-4 rounded-xl bg-[#0A192F]/80 border border-[#334155] space-y-1.5">
-              <div className="text-xs font-bold text-sky-400">تفاصيل المحل:</div>
-              <p className="text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line">
-                {activeStore.details}
-              </p>
-            </div>
+            {/* Store Full Details (Only shown if non-empty after cleaning default "محل" text for pharmacies/clinics) */}
+            {getCleanStoreDetails(activeStore) && (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-300 space-y-1.5">
+                <div className="text-xs font-extrabold text-black">التفاصيل:</div>
+                <p className="text-sm font-bold text-black leading-relaxed whitespace-pre-line">
+                  {getCleanStoreDetails(activeStore)}
+                </p>
+              </div>
+            )}
 
-            {/* Menu Section with Right/Left Move Buttons & "تحميل المنيو" (Copyright link hidden) */}
+            {/* Menu / Images Section with Right/Left Move Buttons & "تحميل" */}
             {activeStore.menuImages.length > 0 && (
-              <div className="p-4 rounded-2xl bg-[#0A192F] border border-[#334155] space-y-3">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-300 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <h4 className="text-sm font-extrabold text-[#F8FAFC]">
-                      منيو المحل ({activeStore.menuImages.length} صفحة)
+                    <h4 className="text-sm font-extrabold text-black">
+                      الصور / المنيو ({activeStore.menuImages.length} صفحة)
                     </h4>
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {/* أزرار تحريك صورة المنيو يمين ويسار */}
                     <button
                       type="button"
                       onClick={() => {
@@ -1158,7 +1204,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                           );
                         }
                       }}
-                      className="fluent-reveal px-2.5 py-1.5 rounded-xl bg-[#112240] hover:bg-[#1E293B] border border-sky-400/50 text-sky-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                      className="fluent-reveal px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-black text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow-sm"
                       title="تحريك الصورة لليمين"
                     >
                       <ChevronRight className="w-4 h-4" />
@@ -1169,7 +1215,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setMenuPanOffsetX(0)}
-                        className="px-2 py-1.5 rounded-xl bg-[#112240] hover:bg-[#1E293B] border border-[#334155] text-[#94A3B8] hover:text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        className="px-2 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-black text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm"
                         title="توسيط الصورة"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
@@ -1186,7 +1232,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                           );
                         }
                       }}
-                      className="fluent-reveal px-2.5 py-1.5 rounded-xl bg-[#112240] hover:bg-[#1E293B] border border-sky-400/50 text-sky-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                      className="fluent-reveal px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-black text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow-sm"
                       title="تحريك الصورة لليسار"
                     >
                       <span>يسار</span>
@@ -1199,14 +1245,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       onClick={() =>
                         handleDownloadMenuImage(
                           activeStore.menuImages[activeMenuPageIdx] ||
-                            activeStore.menuImages[0],
+                            getStoreCoverPhoto(activeStore),
                           activeStore.name,
                           activeMenuPageIdx + 1
                         )
                       }
                     >
                       <Download className="w-4 h-4" />
-                      <span>تحميل المنيو</span>
+                      <span>تحميل الصورة</span>
                     </FluentButton>
                   </div>
                 </div>
@@ -1221,10 +1267,10 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                           setActiveMenuPageIdx(idx);
                           setMenuPanOffsetX(0);
                         }}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                        className={`px-3 py-1 rounded-lg text-xs font-extrabold cursor-pointer border ${
                           activeMenuPageIdx === idx
-                            ? 'bg-sky-600 text-white'
-                            : 'bg-[#112240] text-[#94A3B8]'
+                            ? 'bg-sky-600 text-white border-sky-600'
+                            : 'bg-white text-black border-slate-300'
                         }`}
                       >
                         صفحة {idx + 1}
@@ -1233,42 +1279,48 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   </div>
                 )}
 
-                <div className="relative rounded-xl overflow-hidden border border-[#334155] bg-[#112240]">
+                <div className="relative rounded-xl overflow-hidden border border-slate-300 bg-white">
                   <img
                     src={
-                      activeStore.menuImages[activeMenuPageIdx] ||
-                      activeStore.menuImages[0]
+                      activeStore.menuImages[activeMenuPageIdx]
+                        ? activeStore.menuImages[activeMenuPageIdx].startsWith(
+                            'data:image/svg+xml'
+                          ) &&
+                          activeStore.menuImages[activeMenuPageIdx].includes('0A192F')
+                          ? getStoreCoverPhoto(activeStore)
+                          : activeStore.menuImages[activeMenuPageIdx]
+                        : getStoreCoverPhoto(activeStore)
                     }
-                    alt={`منيو ${activeStore.name}`}
+                    alt={`صورة ${activeStore.name}`}
                     referrerPolicy="no-referrer"
                     style={{
                       transform: `translateX(${menuPanOffsetX}px)`,
                       transition: 'transform 220ms ease',
                     }}
-                    className="w-full max-h-[420px] object-contain mx-auto"
+                    className="w-full max-h-[420px] object-contain mx-auto bg-white"
                   />
                 </div>
               </div>
             )}
 
             {/* Bottom Section: Add Rating (With or Without Comment) & Comment Form */}
-            <div className="p-4 rounded-2xl bg-[#0A192F] border border-sky-400/30 space-y-3">
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-300 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="text-sm font-extrabold text-[#F8FAFC]">
+                <h4 className="text-sm font-extrabold text-black">
                   أضف تقييم وتعليق على {activeStore.name}
                 </h4>
-                <span className="text-xs text-[#94A3B8]">
+                <span className="text-xs font-bold text-slate-700">
                   التقييم العام:{' '}
-                  <strong className="text-amber-300 font-mono-tabular">
+                  <strong className="text-amber-600 font-mono-tabular">
                     {getStoreRatingSummary(activeStore).avg} / 5
                   </strong>{' '}
                   ({getStoreRatingSummary(activeStore).count} تقييم)
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-[#112240]/80 p-2.5 rounded-xl border border-[#334155]">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-white p-2.5 rounded-xl border border-slate-300">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[#E2E8F0] font-bold">اختر التقييم:</span>
+                  <span className="text-black font-extrabold">اختر التقييم:</span>
                   {[1, 2, 3, 4, 5].map((st) => (
                     <button
                       key={st}
@@ -1280,15 +1332,15 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                           `تم حفظ تقييمك (${st} من 5 نجوم) بنجاح!`
                         );
                       }}
-                      className="p-1 rounded-lg hover:bg-[#1E293B] transition-transform hover:scale-110 cursor-pointer"
+                      className="p-1 rounded-lg hover:bg-slate-100 transition-transform hover:scale-110 cursor-pointer"
                     >
                       <Star
                         className={`w-5 h-5 ${
                           st <=
                           (activeStore.ratings[currentVisitorId] ||
                             newCommentRating)
-                            ? 'text-amber-400 fill-amber-400'
-                            : 'text-[#475569]'
+                            ? 'text-amber-500 fill-amber-500'
+                            : 'text-slate-300'
                         }`}
                       />
                     </button>
@@ -1304,14 +1356,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       `تم إرسال تقييمك (${newCommentRating} نجوم) بدون تعليق بنجاح!`
                     );
                   }}
-                  className="fluent-reveal px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-[#0A192F] border border-amber-400/50 text-xs font-extrabold cursor-pointer transition-colors"
+                  className="fluent-reveal px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-500 text-black hover:text-white border border-amber-400 text-xs font-extrabold cursor-pointer transition-colors"
                 >
                   إرسال التقييم فقط ({newCommentRating} ⭐)
                 </button>
               </div>
 
               {ratingOnlySavedNotice && (
-                <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-400/50 text-emerald-300 text-xs font-bold flex items-center justify-between">
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-400 text-emerald-900 text-xs font-extrabold flex items-center justify-between">
                   <span>{ratingOnlySavedNotice}</span>
                   <button
                     type="button"
@@ -1324,7 +1376,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               )}
 
               {profanityWarning && (
-                <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-400 text-rose-200 text-xs font-extrabold">
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-400 text-rose-800 text-xs font-extrabold">
                   {profanityWarning}
                 </div>
               )}
@@ -1338,13 +1390,12 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     if (profanityWarning) setProfanityWarning('');
                   }}
                   placeholder="أضف تعليقك هنا (اختياري — يمكنك التقييم بالأعلى بدون تعليق)..."
-                  className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-[#F8FAFC] outline-none"
+                  className="flex-1 rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-bold outline-none"
                 />
                 <FluentButton
                   variant="primary"
                   onClick={() => {
                     if (!newCommentText.trim()) {
-                      // If comment box is empty, still save the rating without requiring a comment!
                       onRateStore(activeStore.id, newCommentRating);
                       setRatingOnlySavedNotice(
                         `تم حفظ تقييمك (${newCommentRating} نجوم) بنجاح!`
@@ -1377,16 +1428,16 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               </div>
             </div>
 
-            {/* Advanced Comments Section (5 default -> +10 on first click -> Sub-Modal on second click) */}
+            {/* Advanced Comments Section */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-extrabold text-[#F8FAFC]">
+                <h4 className="text-sm font-extrabold text-black">
                   التعليقات والتقييمات ({activeStore.comments.length})
                 </h4>
               </div>
 
               {activeStore.comments.length === 0 ? (
-                <p className="text-xs text-[#94A3B8]">
+                <p className="text-xs font-bold text-slate-600">
                   لا توجد تعليقات بعد. كن أول من يضيف تقييماً وتعليقاً!
                 </p>
               ) : (
@@ -1397,7 +1448,6 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       .map((cmt) => renderCommentBlock(activeStore, cmt))}
                   </div>
 
-                  {/* Step 1: If > 5 comments and currently showing 5, show "المزيد" button */}
                   {commentLimitStage === 'initial_5' &&
                     activeStore.comments.length > 5 && (
                       <div className="pt-2 text-center">
@@ -1413,7 +1463,6 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       </div>
                     )}
 
-                  {/* Step 2: After clicking "المزيد" once, show "إظهار المزيد" which opens the All-Comments Sub-Modal */}
                   {commentLimitStage === 'expanded_15' &&
                     activeStore.comments.length > 5 && (
                       <div className="pt-2 text-center">
@@ -1432,12 +1481,12 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               )}
             </div>
 
-            {/* Bottom-Left Store Views Counter ("يظهر في الأسفل على اليسار عدد المشاهدات لجميع المستخدمين") */}
-            <div className="pt-3 border-t border-[#334155] flex items-center justify-end">
-              <div className="mr-auto px-3.5 py-2 rounded-xl bg-[#0A192F] border border-sky-400/50 text-xs font-extrabold text-sky-300 flex items-center gap-2 shadow">
-                <Eye className="w-4 h-4 text-sky-400" />
+            {/* Bottom-Left Store Views Counter */}
+            <div className="pt-3 border-t border-slate-300 flex items-center justify-end">
+              <div className="mr-auto px-3.5 py-2 rounded-xl bg-slate-100 border border-slate-300 text-xs font-extrabold text-black flex items-center gap-2 shadow-sm">
+                <Eye className="w-4 h-4 text-sky-700" />
                 <span>عدد المشاهدات:</span>
-                <span className="font-mono-tabular text-sm text-[#F8FAFC]">
+                <span className="font-mono-tabular text-sm text-black">
                   {activeStore.viewsCount || 1}
                 </span>
               </div>
@@ -1446,7 +1495,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         </FluentModal>
       )}
 
-      {/* ================= 3. SUB-MODAL FOR ALL COMMENTS ORDERED VERTICALLY ================= */}
+      {/* ================= 3. SUB-MODAL FOR ALL COMMENTS ORDERED VERTICALLY (WHITE BACKGROUND + BLACK TEXT) ================= */}
       {activeStore && isAllCommentsSubModalOpen && (
         <FluentModal
           isOpen={isAllCommentsSubModalOpen}
@@ -1454,8 +1503,9 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           title={`جميع تعليقات ${activeStore.name} (${activeStore.comments.length})`}
           subtitle="مرتبة بالكامل أسفل بعضها مع إمكانية الإعجاب والرد"
           maxWidth="2xl"
+          theme="light"
         >
-          <div className="space-y-3">
+          <div className="space-y-3 text-black">
             {activeStore.comments.map((cmt) => renderCommentBlock(activeStore, cmt))}
           </div>
         </FluentModal>

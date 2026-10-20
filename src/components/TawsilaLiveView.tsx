@@ -120,6 +120,7 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
   onDeleteTawsila,
   onUpdateSettings,
 }) => {
+  const isStrictAdmin = currentUser?.role === 'admin';
   const isAdmin =
     currentUser?.role === 'admin' || currentUser?.role === 'moderator';
 
@@ -929,14 +930,16 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => onDeleteTawsila(drv.id)}
-                            className="p-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white cursor-pointer"
-                            title="حذف السائق"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {isStrictAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteTawsila(drv.id)}
+                              className="p-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white cursor-pointer"
+                              title="حذف السائق"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

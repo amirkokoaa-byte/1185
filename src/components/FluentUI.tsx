@@ -138,6 +138,7 @@ interface FluentModalProps {
   title: string;
   subtitle?: string;
   maxWidth?: 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
+  theme?: 'dark' | 'light';
   children: React.ReactNode;
 }
 
@@ -150,6 +151,7 @@ export const FluentModal: React.FC<FluentModalProps> = ({
   title,
   subtitle,
   maxWidth = '2xl',
+  theme = 'dark',
   children,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -175,6 +177,8 @@ export const FluentModal: React.FC<FluentModalProps> = ({
     '4xl': 'max-w-4xl',
   }[maxWidth];
 
+  const isLight = theme === 'light';
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[#0A192F]/80 backdrop-blur-md overflow-y-auto overflow-x-hidden"
@@ -184,28 +188,58 @@ export const FluentModal: React.FC<FluentModalProps> = ({
     >
       <div
         ref={modalRef}
-        className={`w-full ${maxWidthClass} rounded-xl bg-[#112240] border border-sky-400/35 shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col`}
+        className={`w-full ${maxWidthClass} rounded-xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col ${
+          isLight
+            ? 'bg-white border-2 border-slate-300 text-black'
+            : 'bg-[#112240] border border-sky-400/35 text-[#F8FAFC]'
+        }`}
       >
         {/* Top Modal Header with Clear (X) Button */}
-        <div className="flex items-center justify-between gap-4 px-4 sm:px-6 py-4 bg-[#0A192F]/90 border-b border-[#334155]">
+        <div
+          className={`flex items-center justify-between gap-4 px-4 sm:px-6 py-4 border-b ${
+            isLight
+              ? 'bg-slate-50 border-slate-300'
+              : 'bg-[#0A192F]/90 border-[#334155]'
+          }`}
+        >
           <div className="min-w-0">
-            <h3 className="text-base sm:text-lg font-bold text-[#F8FAFC] truncate">{title}</h3>
+            <h3
+              className={`text-base sm:text-lg font-extrabold truncate ${
+                isLight ? 'text-black' : 'text-[#F8FAFC]'
+              }`}
+            >
+              {title}
+            </h3>
             {subtitle && (
-              <p className="text-xs text-[#94A3B8] truncate mt-0.5">{subtitle}</p>
+              <p
+                className={`text-xs font-bold truncate mt-0.5 ${
+                  isLight ? 'text-slate-700' : 'text-[#94A3B8]'
+                }`}
+              >
+                {subtitle}
+              </p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="إغلاق النافذة"
-            className="fluent-reveal w-11 h-11 rounded-lg bg-[#1E293B] hover:bg-rose-600 text-[#F8FAFC] border border-[#334155] hover:border-rose-400 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+            className={`fluent-reveal w-11 h-11 rounded-lg border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+              isLight
+                ? 'bg-slate-200 hover:bg-rose-600 text-black hover:text-white border-slate-300 hover:border-rose-500'
+                : 'bg-[#1E293B] hover:bg-rose-600 text-[#F8FAFC] border-[#334155] hover:border-rose-400'
+            }`}
           >
             <X className="w-5 h-5 relative z-10" />
           </button>
         </div>
 
         {/* Scrollable Modal Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1 space-y-4">
+        <div
+          className={`p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1 space-y-4 ${
+            isLight ? 'bg-white text-black' : ''
+          }`}
+        >
           {children}
         </div>
       </div>

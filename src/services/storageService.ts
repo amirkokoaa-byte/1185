@@ -99,20 +99,12 @@ export const createBannerSvg = (
 
 export const createSquareAdSvg = (title: string, category: string, colorHex: string) => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
-    <defs>
-      <linearGradient id="sqBg" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#0A192F"/>
-        <stop offset="50%" stop-color="#112240"/>
-        <stop offset="100%" stop-color="#1E293B"/>
-      </linearGradient>
-    </defs>
-    <rect width="500" height="500" rx="20" fill="url(#sqBg)"/>
-    <rect x="24" y="24" width="452" height="452" rx="16" fill="none" stroke="${colorHex}" stroke-opacity="0.35" stroke-width="2"/>
-    <circle cx="250" cy="175" r="78" fill="${colorHex}" fill-opacity="0.16" stroke="${colorHex}" stroke-width="2.5"/>
-    <text x="250" y="185" text-anchor="middle" fill="${colorHex}" font-family="Cairo, sans-serif" font-size="26" font-weight="800">${category}</text>
-    <text x="250" y="325" text-anchor="middle" fill="#F8FAFC" font-family="Cairo, sans-serif" font-size="30" font-weight="800">${title}</text>
-    <text x="250" y="370" text-anchor="middle" fill="#94A3B8" font-family="Cairo, sans-serif" font-size="18" font-weight="600">قائمة الأسعار والمنيو المعتمد</text>
-    <rect x="90" y="415" width="320" height="6" rx="3" fill="${colorHex}" fill-opacity="0.65"/>
+    <rect width="500" height="500" rx="20" fill="#FFFFFF"/>
+    <rect x="20" y="20" width="460" height="460" rx="16" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="3"/>
+    <circle cx="250" cy="185" r="78" fill="${colorHex}" fill-opacity="0.12" stroke="#0284C7" stroke-width="3"/>
+    <text x="250" y="195" text-anchor="middle" fill="#0F172A" font-family="Cairo, sans-serif" font-size="26" font-weight="800">${category}</text>
+    <text x="250" y="335" text-anchor="middle" fill="#000000" font-family="Cairo, sans-serif" font-size="32" font-weight="800">${title}</text>
+    <rect x="90" y="405" width="320" height="6" rx="3" fill="#0284C7" fill-opacity="0.75"/>
   </svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
@@ -517,6 +509,10 @@ class HybridStorageEngine {
             parsed.privateChatStatuses && typeof parsed.privateChatStatuses === 'object'
               ? parsed.privateChatStatuses
               : {},
+          chatTypingMap:
+            parsed.chatTypingMap && typeof parsed.chatTypingMap === 'object'
+              ? parsed.chatTypingMap
+              : {},
           userBlockedMap:
             parsed.userBlockedMap && typeof parsed.userBlockedMap === 'object'
               ? parsed.userBlockedMap
@@ -603,6 +599,7 @@ class HybridStorageEngine {
           chatPenalties: state.chatPenalties || [],
           privateChatMessages: state.privateChatMessages || [],
           privateChatStatuses: state.privateChatStatuses || {},
+          chatTypingMap: state.chatTypingMap || {},
           userBlockedMap: state.userBlockedMap || {},
           privateChatReports: state.privateChatReports || [],
         })
@@ -740,6 +737,10 @@ class HybridStorageEngine {
         remoteData.privateChatStatuses && typeof remoteData.privateChatStatuses === 'object'
           ? (remoteData.privateChatStatuses as PlatformDatabaseState['privateChatStatuses'])
           : base.privateChatStatuses || {},
+      chatTypingMap:
+        remoteData.chatTypingMap && typeof remoteData.chatTypingMap === 'object'
+          ? (remoteData.chatTypingMap as PlatformDatabaseState['chatTypingMap'])
+          : base.chatTypingMap || {},
       userBlockedMap:
         remoteData.userBlockedMap && typeof remoteData.userBlockedMap === 'object'
           ? (remoteData.userBlockedMap as PlatformDatabaseState['userBlockedMap'])
@@ -795,6 +796,10 @@ class HybridStorageEngine {
         chatPatch.privateChatStatuses && typeof chatPatch.privateChatStatuses === 'object'
           ? (chatPatch.privateChatStatuses as PlatformDatabaseState['privateChatStatuses'])
           : base.privateChatStatuses || {},
+      chatTypingMap:
+        chatPatch.chatTypingMap && typeof chatPatch.chatTypingMap === 'object'
+          ? (chatPatch.chatTypingMap as PlatformDatabaseState['chatTypingMap'])
+          : base.chatTypingMap || {},
       userBlockedMap:
         chatPatch.userBlockedMap && typeof chatPatch.userBlockedMap === 'object'
           ? (chatPatch.userBlockedMap as PlatformDatabaseState['userBlockedMap'])
@@ -1054,6 +1059,7 @@ class HybridStorageEngine {
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: nextState.privateChatMessages || [],
       privateChatStatuses: nextState.privateChatStatuses || {},
+      chatTypingMap: nextState.chatTypingMap || {},
       userBlockedMap: nextState.userBlockedMap || {},
       privateChatReports: nextState.privateChatReports || [],
       utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),

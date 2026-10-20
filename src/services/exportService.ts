@@ -7,6 +7,7 @@ import {
   StoreListingItem,
   TawsilaRideItem,
   UserAccount,
+  UtilitySubmissionItem,
 } from '../types';
 import { createSquareAdSvg, DEFAULT_STORE_CATEGORIES } from './storageService';
 
@@ -306,6 +307,243 @@ export function exportUsersAndMessagesToExcel(users: UserAccount[], messages: Ad
 
 export function exportPlatformSummaryToPDF(state: PlatformDatabaseState) {
   exportStoresToPDF(state.stores);
+}
+
+/**
+ * Export Utility Submissions (Single utility details or all utilities) to A4 PDF
+ * Supports full multi-line details text, locations, and update timestamps.
+ */
+export function exportUtilitySubmissionsToPDF(
+  items: UtilitySubmissionItem[],
+  customReportTitle?: string
+) {
+  if (!items || items.length === 0) return;
+
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = 1240;
+  const pageHeight = 1754;
+  const marginX = 56;
+  const contentWidth = pageWidth - marginX * 2;
+
+  // Build wrapped lines across all items
+  interface RenderBlock {
+    type: 'header' | 'meta' | 'location' | 'detail_line' | 'spacer';
+    text: string;
+  }
+
+  const measureCanvas = document.createElement('canvas');
+  const mCtx = measureCanvas.getContext('2d');
+
+  const wrapParagraph = (text: string, font: string, maxW: number): string[] => {
+    if (!mCtx) return [text];
+    mCtx.font = font;
+    const rawLines = (text || '').split(/\r?\n/);
+    const wrapped: string[] = [];
+    rawLines.forEach((rawLine) => {
+      const words = rawLine.trim().split(/\s+/);
+      if (words.length === 0 || (words.length === 1 && !words[0])) {
+        wrapped.push('');
+        return;
+      }
+      let current = words[0];
+      for (let i = 1; i < words.length; i++) {
+        const candidate = `${current} ${words[i]}`;
+        if (mCtx.measureText(candidate).width <= maxW) {
+          current = candidate;
+        } else {
+          wrapped.push(current);
+          current = words[i];
+        }
+      }
+      wrapped.push(current);
+    });
+    return wrapped;
+  };
+
+  const blocks: RenderBlock[] = [];
+  items.forEach((item, idx) => {
+    if (idx > 0) {
+      blocks.push({ type: 'spacer', text: '' });
+    }
+    blocks.push({
+      type: 'header',
+      text: `المرفق: ${item.utilityName}`,
+    });
+    let dateStr = item.updatedAt;
+    try {
+      dateStr = new Date(item.updatedAt).toLocaleString('ar-EG', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      // keep raw
+    }
+    blocks.push({
+      type: 'meta',
+      text: `آخر تحديث: ${dateStr}`,
+    });
+
+    if (item.locations && item.locations.length > 0) {
+      item.locations.forEach((loc, lIdx) => {
+        if (loc.name || loc.locationUrl) {
+          blocks.push({
+            type: 'location',
+            text: `الموقع (${lIdx + 1}): ${loc.name || item.utilityName}${
+              loc.locationUrl ? ` — ${loc.locationUrl}` : ''
+            }`,
+          });
+        }
+      });
+    }
+
+    const detailText = (item.details || '').trim() || 'لا توجد تفاصيل إضافية مسجلة.';
+    const wrappedDetails = wrapParagraph(
+      detailText,
+      'bold 20px Cairo, sans-serif',
+      contentWidth - 48
+    );
+    wrappedDetails.forEach((line) => {
+      blocks.push({
+        type: 'detail_line',
+        text: line,
+      });
+    });
+  });
+
+  const blockHeight = (b: RenderBlock) => {
+    if (b.type === 'header') return 58;
+    if (b.type === 'meta') return 42;
+    if (b.type === 'location') return 44;
+    if (b.type === 'spacer') return 28;
+    return 38;
+  };
+
+  const topTitleY = 50;
+  const startContentY = 145;
+  const bottomLimitY = pageHeight - 95;
+
+  const pages: RenderBlock[][] = [];
+  let currentPage: RenderBlock[] = [];
+  let currentY = startContentY;
+
+  blocks.forEach((b) => {
+    const h = blockHeight(b);
+    if (currentY + h > bottomLimitY && currentPage.length > 0) {
+      pages.push(currentPage);
+      currentPage = [];
+      currentY = startContentY;
+    }
+    currentPage.push(b);
+    currentY += h;
+  });
+  if (currentPage.length > 0 || pages.length === 0) {
+    pages.push(currentPage);
+  }
+
+  const reportHeader =
+    customReportTitle ||
+    (items.length === 1
+      ? `تفاصيل ${items[0].utilityName} — تقديمات المرافق`
+      : 'تقرير تفاصيل تقديمات المرافق المسجلة');
+
+  pages.forEach((pageBlocks, pageIndex) => {
+    if (pageIndex > 0) {
+      pdf.addPage('a4', 'portrait');
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = pageWidth;
+    canvas.height = pageHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, pageWidth, pageHeight);
+    ctx.direction = 'rtl';
+    ctx.textBaseline = 'middle';
+
+    // Top Document Header
+    ctx.fillStyle = '#0A192F';
+    ctx.fillRect(marginX, topTitleY, contentWidth, 72);
+    ctx.strokeStyle = '#1E293B';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(marginX, topTitleY, contentWidth, 72);
+
+    ctx.fillStyle = '#F8FAFC';
+    ctx.font = 'bold 26px Cairo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(reportHeader, pageWidth / 2, topTitleY + 36);
+
+    // Outer Content Border
+    ctx.strokeStyle = '#CBD5E1';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(
+      marginX,
+      startContentY - 10,
+      contentWidth,
+      bottomLimitY - startContentY + 20
+    );
+
+    let y = startContentY;
+    pageBlocks.forEach((b) => {
+      const h = blockHeight(b);
+      if (b.type === 'header') {
+        ctx.fillStyle = '#112240';
+        ctx.fillRect(marginX + 12, y, contentWidth - 24, h - 6);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 22px Cairo, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(b.text, pageWidth - marginX - 28, y + (h - 6) / 2);
+      } else if (b.type === 'meta') {
+        ctx.fillStyle = '#F1F5F9';
+        ctx.fillRect(marginX + 12, y, contentWidth - 24, h - 4);
+        ctx.fillStyle = '#0F172A';
+        ctx.font = 'bold 18px Cairo, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(b.text, pageWidth - marginX - 28, y + (h - 4) / 2);
+      } else if (b.type === 'location') {
+        ctx.fillStyle = '#E0F2FE';
+        ctx.fillRect(marginX + 12, y, contentWidth - 24, h - 4);
+        ctx.fillStyle = '#0369A1';
+        ctx.font = 'bold 18px Cairo, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(
+          truncateCanvasText(ctx, b.text, contentWidth - 56),
+          pageWidth - marginX - 28,
+          y + (h - 4) / 2
+        );
+      } else if (b.type === 'detail_line') {
+        ctx.fillStyle = '#0F172A';
+        ctx.font = 'bold 20px Cairo, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(b.text, pageWidth - marginX - 28, y + h / 2);
+      }
+      y += h;
+    });
+
+    // Page Footer
+    ctx.fillStyle = '#0F172A';
+    ctx.font = 'bold 20px Cairo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`صفحة ${pageIndex + 1}`, pageWidth / 2, pageHeight - 42);
+
+    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+  });
+
+  const safeName =
+    items.length === 1
+      ? `Utility_${items[0].utilityName.replace(/\s+/g, '_')}`
+      : 'Utilities_Submissions_Report';
+  pdf.save(`${safeName}_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 /**

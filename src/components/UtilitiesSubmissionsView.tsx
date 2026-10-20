@@ -9,6 +9,9 @@ import {
   FileText,
   X,
   Edit3,
+  LayoutGrid,
+  LayoutList,
+  Download,
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
@@ -29,6 +32,7 @@ import {
 } from '../types';
 import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import { CommunityHubView } from './CommunityHubView';
+import { exportUtilitySubmissionsToPDF } from '../services/exportService';
 
 interface UtilitiesSubmissionsViewProps {
   utilityTypes: string[];
@@ -122,6 +126,18 @@ interface UtilitiesSubmissionsViewProps {
   ) => void;
 }
 
+function formatUtilityDateOnly(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('ar-EG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function formatUtilityUpdateDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString('ar-EG', {
@@ -203,13 +219,16 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
       ? utilityTypes
       : ['تقديم المياه', 'تقديم الكهرباء', 'تقديم الغاز'];
 
-  const [selectedUtility, setSelectedUtility] = useState<string>(
+  const [selectedUtility, setSelectedUtility] = useState<string>('all');
+  const [formTargetUtility, setFormTargetUtility] = useState<string>(
     availableTypes[0] || 'تقديم المياه'
   );
+  const [utilityLayoutMode, setUtilityLayoutMode] = useState<'list' | 'grid'>('list');
   const [isAddUtilityTypeOpen, setIsAddUtilityTypeOpen] = useState<boolean>(false);
   const [newUtilityTypeName, setNewUtilityTypeName] = useState<string>('');
+  const [isPdfPickerOpen, setIsPdfPickerOpen] = useState<boolean>(false);
 
-  // Form states for the selected utility (Admin only)
+  // Form states for the selected utility (Admin / Moderator)
   // Up to 3 (الاسم + لوكيشن) rows in one line
   const [locations, setLocations] = useState<UtilityLocationEntry[]>([
     { name: '', locationUrl: '' },
@@ -222,10 +241,17 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   const [activeModalUtility, setActiveModalUtility] =
     useState<UtilitySubmissionItem | null>(null);
 
-  // When Admin switches the dropdown option, load existing data for that utility if already saved, or empty fields
+  // Sync formTargetUtility when user picks a specific utility from the top dropdown
+  useEffect(() => {
+    if (selectedUtility !== 'all') {
+      setFormTargetUtility(selectedUtility);
+    }
+  }, [selectedUtility]);
+
+  // When Admin switches the form target utility, load existing data for that utility if already saved, or empty fields
   useEffect(() => {
     const existing = utilitySubmissions.find(
-      (u) => u.utilityName === selectedUtility
+      (u) => u.utilityName === formTargetUtility
     );
     if (existing) {
       setLocations(
@@ -238,7 +264,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
       setLocations([{ name: '', locationUrl: '' }]);
       setDetailsText('');
     }
-  }, [selectedUtility]);
+  }, [formTargetUtility, utilitySubmissions]);
 
   // Keep activeModalUtility synced in real-time if updated while modal is open
   useEffect(() => {
@@ -253,11 +279,11 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
 
   const handleConfirmAddNewUtilityType = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canManage) return;
     const clean = newUtilityTypeName.trim();
     if (!clean) return;
     onAddUtilityType(clean);
     setSelectedUtility(clean);
+    setFormTargetUtility(clean);
     setNewUtilityTypeName('');
     setIsAddUtilityTypeOpen(false);
   };
@@ -286,8 +312,9 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
     e.preventDefault();
     if (!canManage) return;
 
+    const targetName = formTargetUtility || availableTypes[0] || 'تقديم المياه';
     const existing = utilitySubmissions.find(
-      (u) => u.utilityName === selectedUtility
+      (u) => u.utilityName === targetName
     );
     const cleanedLocations = locations
       .slice(0, 3)
@@ -300,7 +327,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
     const nowIso = new Date().toISOString();
     const itemToSave: UtilitySubmissionItem = {
       id: existing ? existing.id : `util-${Date.now()}`,
-      utilityName: selectedUtility,
+      utilityName: targetName,
       locations: cleanedLocations,
       details: detailsText.slice(0, 10000),
       updatedAt: nowIso,
@@ -308,60 +335,179 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
     };
 
     onSaveUtilitySubmission(itemToSave);
-    setSaveNotice(`تم حفظ وتحديث "${selectedUtility}" لحظياً لجميع المستخدمين.`);
+    setSaveNotice(`تم حفظ وتحديث "${targetName}" لحظياً لجميع المستخدمين.`);
     setTimeout(() => setSaveNotice(''), 3500);
+  };
+
+  const filteredUtilitySubmissions =
+    selectedUtility === 'all'
+      ? utilitySubmissions
+      : utilitySubmissions.filter((u) => u.utilityName === selectedUtility);
+
+  const handleHeaderExportPDFClick = () => {
+    if (!isStrictAdmin) return;
+    if (selectedUtility !== 'all') {
+      const targetItem = utilitySubmissions.find(
+        (u) => u.utilityName === selectedUtility
+      );
+      if (targetItem) {
+        exportUtilitySubmissionsToPDF([targetItem]);
+        return;
+      }
+    }
+    if (utilitySubmissions.length === 1) {
+      exportUtilitySubmissionsToPDF([utilitySubmissions[0]]);
+      return;
+    }
+    setIsPdfPickerOpen((v) => !v);
   };
 
   return (
     <div className="space-y-6 w-full max-w-4xl mx-auto overflow-x-hidden">
-      {/* 1. Top Section Card: Dropdown ("تقديم المياه / تقديم الكهرباء / تقديم الغاز") + "+" Button next to it */}
+      {/* 1. Top Section Card: Header + Admin PDF Button beside "تقديمات المرافق" + Dropdown ("إظهار الكل" + المرافق) + "+" Button + View Mode Toggle (عرضي / شبكي) */}
       <FluentCard className="p-3.5 sm:p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#334155] pb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
-              <FileText className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-sm sm:text-lg font-extrabold text-[#F8FAFC]">
-                تقديمات المرافق
-              </h1>
-              <p className="text-[11px] text-[#94A3B8]">
-                دليل ومواعيد وأماكن تقديم المياه والكهرباء والغاز والمرافق العامة
-              </p>
+        <div className="flex flex-col gap-3 border-b border-[#334155] pb-3.5">
+          {/* Row 1: Title "تقديمات المرافق" + Admin-only "تصدير PDF" button right beside it */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-sm sm:text-lg font-extrabold text-[#F8FAFC]">
+                    تقديمات المرافق
+                  </h1>
+
+                  {/* زر تصدير PDF بجانب جملة تقديمات المرافق لصلاحيات Admin فقط */}
+                  {isStrictAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleHeaderExportPDFClick}
+                      title="تصدير PDF لتفاصيل أي مرفق (خاص بـ Admin)"
+                      className="fluent-reveal px-2.5 py-1 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-400/60 text-[11px] sm:text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer shadow-md shrink-0"
+                    >
+                      <Download className="w-3.5 h-3.5 relative z-10" />
+                      <span className="relative z-10">تصدير PDF</span>
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-[#94A3B8]">
+                  دليل ومواعيد وأماكن تقديم المياه والكهرباء والغاز والمرافق العامة
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* القائمة المنسدلة وبجانبها زر أضف مرفق (+) فقط */}
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <select
-              value={selectedUtility}
-              onChange={(e) => setSelectedUtility(e.target.value)}
-              className="flex-1 sm:w-64 rounded-xl bg-[#0A192F] border border-sky-400/60 focus:border-sky-400 px-3 py-2 text-xs sm:text-sm font-extrabold text-[#F8FAFC] outline-none cursor-pointer shadow"
-            >
-              {availableTypes.map((uType) => (
-                <option key={uType} value={uType}>
-                  {uType}
-                </option>
-              ))}
-            </select>
+          {/* قائمة منبثقة سريعة لـ Admin عند الضغط على تصدير PDF بجانب العنوان لاختيار أي مرفق لتصدير تفاصيله أو تصدير الكل */}
+          {isStrictAdmin && isPdfPickerOpen && (
+            <div className="p-3 rounded-xl bg-[#0A192F] border border-rose-400/50 space-y-2">
+              <div className="flex items-center justify-between text-xs font-extrabold text-rose-300">
+                <span>اختر المرفق لتصدير تفاصيله كملف PDF:</span>
+                <button
+                  type="button"
+                  onClick={() => setIsPdfPickerOpen(false)}
+                  className="text-[#94A3B8] hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {utilitySubmissions.length === 0 ? (
+                <p className="text-[11px] text-[#94A3B8]">
+                  لا توجد مرافق مسجلة حالياً لتصديرها.
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      exportUtilitySubmissionsToPDF(utilitySubmissions);
+                      setIsPdfPickerOpen(false);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold cursor-pointer shadow"
+                  >
+                    تصدير جميع المرافق المسجلة ({utilitySubmissions.length}) PDF
+                  </button>
+                  {utilitySubmissions.map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => {
+                        exportUtilitySubmissionsToPDF([u]);
+                        setIsPdfPickerOpen(false);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-[#112240] hover:bg-sky-600 text-[#F8FAFC] border border-sky-400/50 text-xs font-extrabold cursor-pointer transition-colors"
+                    >
+                      PDF: {u.utilityName}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
-            {/* زر أضف مرفق بجوار القائمة المنسدلة ويكون عبارة عن زر + فقط */}
-            {canManage && (
+          {/* Row 2: القائمة المنسدلة (بها إظهار الكل) وبجانبها زر + لإضافة مرافق أخرى + أزرار طريقة العرض (عرضي / شبكي) في سطر واحد */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            {/* القائمة المنسدلة وبجانبها زر + في نفس السطر */}
+            <div className="flex items-center gap-2 w-full sm:w-auto flex-nowrap">
+              <select
+                value={selectedUtility}
+                onChange={(e) => setSelectedUtility(e.target.value)}
+                className="flex-1 sm:w-64 rounded-xl bg-[#0A192F] border border-sky-400/60 focus:border-sky-400 px-3 py-2 text-xs sm:text-sm font-extrabold text-[#F8FAFC] outline-none cursor-pointer shadow min-w-0"
+              >
+                <option value="all">إظهار الكل</option>
+                {availableTypes.map((uType) => (
+                  <option key={uType} value={uType}>
+                    {uType}
+                  </option>
+                ))}
+              </select>
+
+              {/* زر + بجانب القائمة المنسدلة لإضافة مرافق أخرى */}
               <button
                 type="button"
                 onClick={() => setIsAddUtilityTypeOpen((v) => !v)}
-                title="أضف مرفق"
-                aria-label="أضف مرفق"
+                title="إضافة مرفق جديد"
+                aria-label="إضافة مرفق جديد"
                 className="fluent-reveal w-10 h-10 rounded-xl bg-sky-600 hover:bg-sky-500 text-white border border-sky-400 flex items-center justify-center text-lg font-extrabold shrink-0 cursor-pointer shadow-lg"
               >
                 <Plus className="w-5 h-5 relative z-10" />
               </button>
-            )}
+            </div>
+
+            {/* زرين طريقة العرض (عرضي + شبكي) بجانب بعض في سطر واحد */}
+            <div className="flex flex-row flex-nowrap items-center gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setUtilityLayoutMode('list')}
+                className={`fluent-reveal flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 border cursor-pointer transition-all whitespace-nowrap ${
+                  utilityLayoutMode === 'list'
+                    ? 'bg-sky-600 text-white border-sky-400 shadow'
+                    : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border-[#334155]'
+                }`}
+              >
+                <LayoutList className="w-4 h-4 shrink-0" />
+                <span>عرضي</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setUtilityLayoutMode('grid')}
+                className={`fluent-reveal flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 border cursor-pointer transition-all whitespace-nowrap ${
+                  utilityLayoutMode === 'grid'
+                    ? 'bg-sky-600 text-white border-sky-400 shadow'
+                    : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border-[#334155]'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4 shrink-0" />
+                <span>شبكي</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* نافذة مصغرة لإضافة مرفق جديد للقائمة المنسدلة عند الضغط على زر + */}
-        {canManage && isAddUtilityTypeOpen && (
+        {isAddUtilityTypeOpen && (
           <form
             onSubmit={handleConfirmAddNewUtilityType}
             className="p-3 rounded-xl bg-[#0A192F] border border-sky-400/50 flex items-center gap-2"
@@ -371,7 +517,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
               value={newUtilityTypeName}
               onChange={(e) => setNewUtilityTypeName(e.target.value)}
               placeholder="اكتب اسم المرفق الجديد (مثال: تقديم التليفون والإنترنت)..."
-              className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs font-bold text-[#F8FAFC] outline-none"
+              className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs font-bold text-[#F8FAFC] outline-none min-w-0"
             />
             <FluentButton type="submit" variant="primary" size="sm">
               أضف
@@ -379,22 +525,33 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
             <button
               type="button"
               onClick={() => setIsAddUtilityTypeOpen(false)}
-              className="w-8 h-8 rounded-lg bg-[#1E293B] text-[#94A3B8] hover:text-white flex items-center justify-center cursor-pointer"
+              className="w-8 h-8 rounded-lg bg-[#1E293B] text-[#94A3B8] hover:text-white flex items-center justify-center cursor-pointer shrink-0"
             >
               <X className="w-4 h-4" />
             </button>
           </form>
         )}
 
-        {/* 2. Admin / Moderator Input Form when selecting any option from the dropdown */}
+        {/* 2. Admin / Moderator Input Form when adding/updating a utility */}
         {canManage && (
           <form
             onSubmit={handleAdminSubmitUtility}
             className="p-3.5 sm:p-4 rounded-2xl bg-[#0A192F]/90 border border-sky-400/40 space-y-3.5"
           >
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs sm:text-sm font-extrabold text-sky-300">
-                بيانات المرفق المختار: <span className="text-white">{selectedUtility}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap text-xs sm:text-sm font-extrabold text-sky-300">
+                <span>بيانات المرفق المختار للتسجيل/التعديل:</span>
+                <select
+                  value={formTargetUtility}
+                  onChange={(e) => setFormTargetUtility(e.target.value)}
+                  className="rounded-xl bg-[#112240] border border-sky-400/50 px-2.5 py-1 text-xs font-extrabold text-white outline-none cursor-pointer"
+                >
+                  {availableTypes.map((uType) => (
+                    <option key={uType} value={uType}>
+                      {uType}
+                    </option>
+                  ))}
+                </select>
               </div>
               {locations.length < 3 && (
                 <button
@@ -450,7 +607,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
                 value={detailsText}
                 onChange={(e) => setDetailsText(e.target.value.slice(0, 10000))}
                 maxLength={10000}
-                placeholder={`اكتب جميع تفاصيل وشروط وأوراق ومواعيد ${selectedUtility}...`}
+                placeholder={`اكتب جميع تفاصيل وشروط وأوراق ومواعيد ${formTargetUtility}...`}
                 className="w-full min-h-[280px] sm:min-h-[360px] rounded-2xl bg-[#112240] border-2 border-sky-400/60 focus:border-sky-400 p-3.5 sm:p-4 text-xs sm:text-sm font-bold text-[#F8FAFC] leading-relaxed outline-none resize-y shadow-[0_0_25px_-8px_rgba(56,189,248,0.35)]"
               />
             </div>
@@ -462,7 +619,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
               </div>
             )}
 
-            {/* زر أضف في الأسفل (يظهر لصلاحيات Admin فقط) */}
+            {/* زر أضف في الأسفل */}
             <div className="flex justify-end">
               <FluentButton type="submit" variant="primary" size="md">
                 <Plus className="w-4 h-4" />
@@ -472,32 +629,45 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
           </form>
         )}
 
-        {/* 3. الخانات المضافة التي تظهر لحظياً لجميع المستخدمين (اسم المرفق وبجانبه تاريخ آخر تحديث) */}
-        <div className="space-y-2.5 pt-1">
-          {utilitySubmissions.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-[#0A192F]/80 border border-[#334155] text-center text-xs text-[#94A3B8]">
+        {/* 3. الخانات المضافة التي تظهر لحظياً لجميع المستخدمين:
+            يظهر نوع المرفق بالكامل دون أن يختفي أي جزء من الكلمة + التاريخ فقط (والتاريخ والوقت يظل بالداخل) */}
+        <div
+          className={
+            utilityLayoutMode === 'grid'
+              ? 'grid grid-cols-2 gap-2.5 sm:gap-3 pt-1'
+              : 'space-y-2.5 pt-1'
+          }
+        >
+          {filteredUtilitySubmissions.length === 0 ? (
+            <div className="col-span-2 p-6 rounded-2xl bg-[#0A192F]/80 border border-[#334155] text-center text-xs text-[#94A3B8]">
               لا توجد بيانات تقديم مرافق مضافة حالياً.
             </div>
           ) : (
-            utilitySubmissions.map((item) => (
+            filteredUtilitySubmissions.map((item) => (
               <div
                 key={item.id}
                 onClick={() => setActiveModalUtility(item)}
-                className="fluent-reveal w-full p-3.5 sm:p-4 rounded-2xl bg-[#0A192F] hover:bg-[#1E293B] border border-sky-400/50 transition-all flex items-center justify-between gap-3 cursor-pointer shadow-md"
+                className={`fluent-reveal w-full p-3 sm:p-4 rounded-2xl bg-[#0A192F] hover:bg-[#1E293B] border border-sky-400/50 transition-all cursor-pointer shadow-md ${
+                  utilityLayoutMode === 'grid'
+                    ? 'flex flex-col justify-between gap-2.5'
+                    : 'flex flex-col sm:flex-row sm:items-center justify-between gap-2.5'
+                }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0 relative z-10">
+                {/* نوع المرفق بالكامل دون أن يختفي أي جزء من الكلمة */}
+                <div className="flex items-start sm:items-center gap-2 min-w-0 relative z-10">
                   <div className="w-8 h-8 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
                     <FileText className="w-4 h-4" />
                   </div>
-                  <span className="text-xs sm:text-base font-extrabold text-[#F8FAFC] truncate">
+                  <span className="text-xs sm:text-base font-extrabold text-[#F8FAFC] break-words leading-snug">
                     {item.utilityName}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 relative z-10">
-                  <div className="px-2.5 py-1 rounded-xl bg-[#112240] border border-[#334155] text-[10px] sm:text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span>آخر تحديث: {formatUtilityUpdateDate(item.updatedAt)}</span>
+                {/* التاريخ فقط بالخارج + أزرار الإدارة */}
+                <div className="flex items-center justify-between sm:justify-end gap-1.5 flex-wrap relative z-10">
+                  <div className="px-2 py-1 rounded-xl bg-[#112240] border border-[#334155] text-[10px] sm:text-xs font-bold text-amber-300 flex items-center gap-1 shrink-0">
+                    <Calendar className="w-3 h-3 text-amber-400 shrink-0" />
+                    <span>{formatUtilityDateOnly(item.updatedAt)}</span>
                   </div>
 
                   {canManage && (
@@ -508,7 +678,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedUtility(item.utilityName);
+                          setFormTargetUtility(item.utilityName);
                           setLocations(
                             item.locations.length > 0
                               ? item.locations.slice(0, 3)
@@ -517,19 +687,29 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
                           setDetailsText(item.details || '');
                         }}
                         title="تعديل بيانات المرفق"
-                        className="w-8 h-8 rounded-lg bg-sky-500/20 hover:bg-sky-500 text-sky-300 hover:text-white border border-sky-400/40 flex items-center justify-center cursor-pointer"
+                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-sky-500/20 hover:bg-sky-500 text-sky-300 hover:text-white border border-sky-400/40 flex items-center justify-center cursor-pointer"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       {isStrictAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => onDeleteUtilitySubmission(item.id)}
-                          title="حذف المرفق"
-                          className="w-8 h-8 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 flex items-center justify-center cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => exportUtilitySubmissionsToPDF([item])}
+                            title="تصدير PDF لتفاصيل هذا المرفق"
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 flex items-center justify-center cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteUtilitySubmission(item.id)}
+                            title="حذف المرفق"
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 flex items-center justify-center cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
@@ -540,18 +720,35 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
         </div>
       </FluentCard>
 
-      {/* 4. الشاشة المنبثقة عند الضغط على خانة المرفق (تظهر البيانات المدخلة واللوكيشن كزر توجه إلى جوجل ماب مباشرة) */}
+      {/* 4. الشاشة المنبثقة عند الضغط على خانة المرفق (يظل التاريخ والوقت بالداخل + زر تصدير PDF للـ Admin) */}
       {activeModalUtility && (
         <FluentModal
           isOpen={!!activeModalUtility}
           onClose={() => setActiveModalUtility(null)}
           title={activeModalUtility.utilityName}
-          subtitle={`آخر تحديث: ${formatUtilityUpdateDate(
+          subtitle={`آخر تحديث (التاريخ والوقت): ${formatUtilityUpdateDate(
             activeModalUtility.updatedAt
           )}`}
           maxWidth="2xl"
         >
           <div className="space-y-4">
+            {isStrictAdmin && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportUtilitySubmissionsToPDF([activeModalUtility])
+                  }
+                  className="fluent-reveal px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-lg"
+                >
+                  <Download className="w-4 h-4 relative z-10" />
+                  <span className="relative z-10">
+                    تصدير تفاصيل هذا المرفق (PDF)
+                  </span>
+                </button>
+              </div>
+            )}
+
             {/* قائمة الأسماء وأزرار التوجه المباشر إلى جوجل ماب */}
             {activeModalUtility.locations &&
               activeModalUtility.locations.length > 0 && (
@@ -559,9 +756,9 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
                   {activeModalUtility.locations.map((loc, idx) => (
                     <div
                       key={idx}
-                      className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-3"
+                      className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-3 flex-wrap"
                     >
-                      <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                      <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] break-words">
                         {loc.name || activeModalUtility.utilityName}
                       </div>
 

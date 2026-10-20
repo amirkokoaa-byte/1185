@@ -359,14 +359,27 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     setAdMenuImages(p.menuImages || []);
   };
 
+  const combinedAdImages: string[] = [
+    ...(adMainImage.trim() ? [adMainImage.trim()] : []),
+    ...adMenuImages,
+  ];
+
+  const applyCombinedAdImages = (nextList: string[]) => {
+    setAdMainImage(nextList[0] || '');
+    setAdMenuImages(nextList.slice(1));
+  };
+
   const handleUploadAdMainFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingAdMain(true);
     try {
       const res = await uploadImageDynamic(file, state.settings.imgbbApiKey);
+      if (adMainImage.trim()) {
+        setAdMenuImages((prev) => [adMainImage.trim(), ...prev]);
+      }
       setAdMainImage(res.url);
-      showToast('تم رفع الصورة الرئيسية للإعلان بنجاح!');
+      showToast('تم رفع الصورة وتحديدها كصورة رئيسية (#1) للإعلان بنجاح!');
     } finally {
       setUploadingAdMain(false);
     }
@@ -382,8 +395,13 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         const res = await uploadImageDynamic(files[i], state.settings.imgbbApiKey);
         uploaded.push(res.url);
       }
-      setAdMenuImages((prev) => [...prev, ...uploaded]);
-      showToast(`تم رفع ${uploaded.length} صورة إضافية / منيو للإعلان!`);
+      if (!adMainImage.trim() && uploaded.length > 0) {
+        setAdMainImage(uploaded[0]);
+        setAdMenuImages((prev) => [...prev, ...uploaded.slice(1)]);
+      } else {
+        setAdMenuImages((prev) => [...prev, ...uploaded]);
+      }
+      showToast(`تم رفع ${uploaded.length} صورة للإعلان بنجاح!`);
     } finally {
       setUploadingAdExtra(false);
     }
@@ -1461,85 +1479,175 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     </div>
                   </div>
 
-                  {/* 6. رفع الصورة الرئيسية للإعلان + صور إضافية أو منيو */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-                    <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] space-y-2">
-                      <label className="block text-xs font-bold text-sky-400">
-                        رفع الصورة الرئيسية للإعلان
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <label className="fluent-reveal px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer inline-flex items-center gap-1.5 shrink-0">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>
-                            {uploadingAdMain ? 'جاري الرفع...' : 'اختر صورة رئيسية'}
-                          </span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleUploadAdMainFile}
-                            className="hidden"
-                          />
+                  {/* 6. رفع الصورة الرئيسية للإعلان + صور إضافية أو منيو + تحديد ترقيم الصور والرئيسية */}
+                  <div className="space-y-3 pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] space-y-2">
+                        <label className="block text-xs font-bold text-sky-400">
+                          رفع الصورة الرئيسية للإعلان
                         </label>
-                        <input
-                          type="text"
-                          value={adMainImage}
-                          onChange={(e) => setAdMainImage(e.target.value)}
-                          placeholder="أو ضع رابط الصورة مباشرة..."
-                          className="flex-1 rounded-lg bg-[#0A192F] border border-[#334155] px-2.5 py-1.5 text-xs text-[#F8FAFC] outline-none"
-                        />
+                        <div className="flex items-center gap-2">
+                          <label className="fluent-reveal px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer inline-flex items-center gap-1.5 shrink-0">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>
+                              {uploadingAdMain ? 'جاري الرفع...' : 'اختر صورة رئيسية'}
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleUploadAdMainFile}
+                              className="hidden"
+                            />
+                          </label>
+                          <input
+                            type="text"
+                            value={adMainImage}
+                            onChange={(e) => setAdMainImage(e.target.value)}
+                            placeholder="أو ضع رابط الصورة مباشرة..."
+                            className="flex-1 rounded-lg bg-[#0A192F] border border-[#334155] px-2.5 py-1.5 text-xs text-[#F8FAFC] outline-none"
+                          />
+                        </div>
                       </div>
-                      {adMainImage && (
-                        <img
-                          src={adMainImage}
-                          alt="Preview"
-                          className="w-full h-24 object-cover rounded-lg border border-[#334155]"
-                        />
-                      )}
+
+                      <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] space-y-2">
+                        <label className="block text-xs font-bold text-amber-400">
+                          رفع صور إضافية أو منيو للمكان ({combinedAdImages.length} صور إجمالاً)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <label className="fluent-reveal px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-xs font-extrabold cursor-pointer inline-flex items-center gap-1.5">
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            <span>
+                              {uploadingAdExtra
+                                ? 'جاري رفع المنيو...'
+                                : 'رفع صور إضافية / منيو'}
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={handleUploadAdExtraFiles}
+                              className="hidden"
+                            />
+                          </label>
+                          {combinedAdImages.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => applyCombinedAdImages([])}
+                              className="text-xs text-rose-400 underline cursor-pointer"
+                            >
+                              مسح كل الصور ({combinedAdImages.length})
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] space-y-2">
-                      <label className="block text-xs font-bold text-amber-400">
-                        رفع صور إضافية أو منيو للمكان ({adMenuImages.length} صور)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <label className="fluent-reveal px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-xs font-extrabold cursor-pointer inline-flex items-center gap-1.5">
-                          <ImageIcon className="w-3.5 h-3.5" />
+                    {/* شبكة إدارة وترقيم صور الإعلان وتحديد الصورة الرئيسية */}
+                    {combinedAdImages.length > 0 && (
+                      <div className="p-3.5 rounded-xl bg-[#112240] border border-sky-400/40 space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-sky-300">
                           <span>
-                            {uploadingAdExtra
-                              ? 'جاري رفع المنيو...'
-                              : 'رفع صور إضافية / منيو'}
+                            ترقيم الصور وتحديد الصورة الرئيسية للإعلان ({combinedAdImages.length} صور):
                           </span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            onChange={handleUploadAdExtraFiles}
-                            className="hidden"
-                          />
-                        </label>
-                        {adMenuImages.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setAdMenuImages([])}
-                            className="text-xs text-rose-400 underline cursor-pointer"
-                          >
-                            مسح الصور ({adMenuImages.length})
-                          </button>
-                        )}
-                      </div>
-                      {adMenuImages.length > 0 && (
-                        <div className="flex gap-1.5 overflow-x-auto py-1">
-                          {adMenuImages.map((img, idx) => (
-                            <img
-                              key={idx}
-                              src={img}
-                              alt={`Extra ${idx}`}
-                              className="w-12 h-12 rounded object-cover border border-[#334155] shrink-0"
-                            />
-                          ))}
+                          <span className="text-[11px] text-[#94A3B8]">
+                            الصورة رقم (1) هي الصورة الرئيسية التي تظهر في واجهة الإعلان
+                          </span>
                         </div>
-                      )}
-                    </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                          {combinedAdImages.map((imgUrl, idx) => {
+                            const isPrimary = idx === 0;
+                            return (
+                              <div
+                                key={`${idx}-${imgUrl.slice(0, 24)}`}
+                                className={`rounded-xl overflow-hidden border-2 bg-[#0A192F] flex flex-col ${
+                                  isPrimary
+                                    ? 'border-emerald-400 ring-2 ring-emerald-500/30'
+                                    : 'border-[#334155]'
+                                }`}
+                              >
+                                <div className="relative h-24 w-full bg-[#1E293B]">
+                                  <img
+                                    src={imgUrl}
+                                    alt={`Ad ${idx + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  <span
+                                    className={`absolute top-1.5 right-1.5 px-2 py-0.5 rounded-lg text-[10px] font-extrabold shadow ${
+                                      isPrimary
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-[#0A192F]/90 text-[#F8FAFC] border border-[#334155]'
+                                    }`}
+                                  >
+                                    {isPrimary ? '1 ★ الرئيسية' : `صورة #${idx + 1}`}
+                                  </span>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      applyCombinedAdImages(
+                                        combinedAdImages.filter((_, i) => i !== idx)
+                                      )
+                                    }
+                                    title="حذف هذه الصورة"
+                                    className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+
+                                <div className="p-1.5 bg-[#112240] border-t border-[#334155] flex items-center justify-between gap-1">
+                                  {isPrimary ? (
+                                    <span className="text-[10px] font-extrabold text-emerald-400 flex items-center gap-1 px-1">
+                                      <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                      <span>الرئيسية</span>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const target = combinedAdImages[idx];
+                                        const rest = combinedAdImages.filter(
+                                          (_, i) => i !== idx
+                                        );
+                                        applyCombinedAdImages([target, ...rest]);
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-extrabold cursor-pointer"
+                                    >
+                                      تحديد كرئيسية
+                                    </button>
+                                  )}
+
+                                  {combinedAdImages.length > 1 && (
+                                    <select
+                                      value={idx}
+                                      onChange={(e) => {
+                                        const newIdx = Number(e.target.value);
+                                        if (newIdx === idx) return;
+                                        const copy = [...combinedAdImages];
+                                        const [moved] = copy.splice(idx, 1);
+                                        copy.splice(newIdx, 0, moved);
+                                        applyCombinedAdImages(copy);
+                                      }}
+                                      title="تحديد ترقيم الصورة"
+                                      className="rounded-lg bg-[#0A192F] border border-[#334155] px-1.5 py-0.5 text-[10px] font-extrabold text-[#F8FAFC] outline-none cursor-pointer"
+                                    >
+                                      {combinedAdImages.map((_, orderIdx) => (
+                                        <option key={orderIdx} value={orderIdx}>
+                                          {orderIdx === 0
+                                            ? 'ترقيم: 1 (الرئيسية)'
+                                            : `ترقيم: ${orderIdx + 1}`}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
@@ -2403,9 +2511,9 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <label className="block text-xs font-bold text-sky-400">
-                صور منيو المحل ({stMenuImages.length})
+                صور منيو المحل ({stMenuImages.length}) — يمكنك حذف أي صورة قديمة أو حديثة وتحديد الصورة الرئيسية والترقيم:
               </label>
               <div className="flex items-center gap-2">
                 <label className="fluent-reveal px-3 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold cursor-pointer inline-flex items-center gap-1.5">
@@ -2444,10 +2552,107 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     onClick={() => setStMenuImages([])}
                     className="text-xs text-rose-400 underline cursor-pointer"
                   >
-                    مسح الصور الحالية
+                    مسح جميع الصور
                   </button>
                 )}
               </div>
+
+              {stMenuImages.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                  {stMenuImages.map((imgUrl, idx) => {
+                    const isPrimary = idx === 0;
+                    return (
+                      <div
+                        key={`${idx}-${imgUrl.slice(0, 24)}`}
+                        className={`rounded-xl overflow-hidden border-2 bg-[#0A192F] flex flex-col ${
+                          isPrimary
+                            ? 'border-emerald-400 ring-2 ring-emerald-500/30'
+                            : 'border-[#334155]'
+                        }`}
+                      >
+                        <div className="relative h-24 w-full bg-[#1E293B]">
+                          <img
+                            src={imgUrl}
+                            alt={`Store ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <span
+                            className={`absolute top-1.5 right-1.5 px-2 py-0.5 rounded-lg text-[10px] font-extrabold shadow ${
+                              isPrimary
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-[#0A192F]/90 text-[#F8FAFC] border border-[#334155]'
+                            }`}
+                          >
+                            {isPrimary ? '1 ★ الرئيسية' : `صورة #${idx + 1}`}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setStMenuImages((prev) =>
+                                prev.filter((_, i) => i !== idx)
+                              )
+                            }
+                            title="حذف هذه الصورة"
+                            className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="p-1.5 bg-[#112240] border-t border-[#334155] flex items-center justify-between gap-1">
+                          {isPrimary ? (
+                            <span className="text-[10px] font-extrabold text-emerald-400 flex items-center gap-1 px-1">
+                              <CheckCircle2 className="w-3 h-3 shrink-0" />
+                              <span>الرئيسية</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setStMenuImages((prev) => {
+                                  const target = prev[idx];
+                                  const rest = prev.filter((_, i) => i !== idx);
+                                  return [target, ...rest];
+                                })
+                              }
+                              className="px-2 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-extrabold cursor-pointer"
+                            >
+                              تحديد كرئيسية
+                            </button>
+                          )}
+
+                          {stMenuImages.length > 1 && (
+                            <select
+                              value={idx}
+                              onChange={(e) => {
+                                const newIdx = Number(e.target.value);
+                                if (newIdx === idx) return;
+                                setStMenuImages((prev) => {
+                                  const copy = [...prev];
+                                  const [moved] = copy.splice(idx, 1);
+                                  copy.splice(newIdx, 0, moved);
+                                  return copy;
+                                });
+                              }}
+                              title="ترقيم الصورة"
+                              className="rounded-lg bg-[#0A192F] border border-[#334155] px-1.5 py-0.5 text-[10px] font-extrabold text-[#F8FAFC] outline-none cursor-pointer"
+                            >
+                              {stMenuImages.map((_, orderIdx) => (
+                                <option key={orderIdx} value={orderIdx}>
+                                  {orderIdx === 0
+                                    ? 'ترقيم: 1 (الرئيسية)'
+                                    : `ترقيم: ${orderIdx + 1}`}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-2">

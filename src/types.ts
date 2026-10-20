@@ -3,6 +3,7 @@ export type MainSectionId =
   | 'services_numbers'
   | 'tawsila'
   | 'community'
+  | 'utilities'
   | 'settings';
 
 export type UserRoleType = 'admin' | 'moderator' | 'user';
@@ -275,6 +276,20 @@ export interface FirebaseConfigSettings {
   measurementId?: string;
 }
 
+export interface UtilityLocationEntry {
+  name: string; // الاسم
+  locationUrl: string; // لوكيشن
+}
+
+export interface UtilitySubmissionItem {
+  id: string;
+  utilityName: string; // اسم المرفق (مثل: تقديم المياه، تقديم الكهرباء، تقديم الغاز)
+  locations: UtilityLocationEntry[]; // حتى 3 مرات (الاسم + لوكيشن في سطر واحد)
+  details: string; // مربع كبير بحجم الشاشة يمكن كتابة حتى 10 آلاف حرف
+  updatedAt: string; // تاريخ آخر تحديث
+  createdAt: string;
+}
+
 export interface PlatformSettings {
   siteName: string;
   marqueeText: string;
@@ -285,6 +300,7 @@ export interface PlatformSettings {
   imageHostSiteName?: string; // اسم موقع رفع الصور المجاني
   googleMapsApiKey?: string;
   storeCategories: string[]; // Dynamic store categories updatable in real-time from Settings
+  utilityTypes?: string[]; // قائمة المرافق في قسم تقديمات المرافق (تقديم المياه، تقديم الكهرباء، تقديم الغاز...)
   requireDriverCriminalRecordApproval?: boolean; // اشتراط موافقة الإدارة على صورة الفيش قبل التفعيل أم فتح الخدمة مع مهلة 3 أيام
   liveChatCooldownSeconds?: number; // المدة بين كل رسالة في الشات العام (ثواني)
   liveChatAutoClearMinutes?: number; // مدة المسح التلقائي للشات العام (بالدقائق)
@@ -302,6 +318,8 @@ export interface PlatformDatabaseState {
   serviceNumbers: ServicePhoneEntry[];
   tawsilaRides: TawsilaRideItem[];
   communityPosts: CommunityPostItem[];
+  utilitySubmissions?: UtilitySubmissionItem[];
+  utilityPosts?: CommunityPostItem[];
   liveChatMessages?: LiveChatMessageItem[];
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];

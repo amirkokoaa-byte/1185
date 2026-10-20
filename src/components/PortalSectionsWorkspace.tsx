@@ -19,12 +19,14 @@ import {
   TawsilaRideItem,
   TopBannerAd,
   UserAccount,
+  UtilitySubmissionItem,
 } from '../types';
 import { FluentButton, FluentCard } from './FluentUI';
 import { DirectoryStoresView } from './DirectoryStoresView';
 import { ServiceNumbersView } from './ServiceNumbersView';
 import { TawsilaLiveView } from './TawsilaLiveView';
 import { CommunityHubView } from './CommunityHubView';
+import { UtilitiesSubmissionsView } from './UtilitiesSubmissionsView';
 import { AdminSettingsHubView } from './AdminSettingsHubView';
 
 interface PortalSectionsWorkspaceProps {
@@ -137,6 +139,41 @@ interface PortalSectionsWorkspaceProps {
   onMarkMessageRead: (id: string) => void;
   onDeleteMessage: (id: string) => void;
   onRenameStoreCategory: (oldName: string, newName: string) => void;
+  onAddUtilityType: (newTypeName: string) => void;
+  onSaveUtilitySubmission: (item: UtilitySubmissionItem) => void;
+  onDeleteUtilitySubmission: (id: string) => void;
+  onAddUtilityPost: (post: CommunityPostItem) => void;
+  onEditUtilityPost: (
+    postId: string,
+    updatedContent: string,
+    updatedPostType?: 'استفسار' | 'اقتراح' | 'بيع'
+  ) => void;
+  onUpdateUtilityPostStatus: (postId: string, status: CommunityPostStatus) => void;
+  onDeleteUtilityPost: (postId: string) => void;
+  onToggleUtilityPostLike: (postId: string) => void;
+  onToggleUtilityPostDislike: (postId: string) => void;
+  onReportUtilityPost: (postId: string, reason: CommunityReportReason) => void;
+  onRestoreReportedUtilityPost: (postId: string) => void;
+  onAddCommentToUtilityPost: (postId: string, comment: CommunityCommentItem) => void;
+  onToggleUtilityCommentLike: (postId: string, commentId: string) => void;
+  onToggleUtilityCommentEmoji: (
+    postId: string,
+    commentId: string,
+    reaction: CommentEmojiReactionType
+  ) => void;
+  onAddReplyToUtilityComment: (
+    postId: string,
+    commentId: string,
+    reply: CommunityCommentReply
+  ) => void;
+  onReportUtilityComment: (
+    postId: string,
+    commentId: string,
+    reason: CommunityReportReason
+  ) => void;
+  onDeleteUtilityComment: (postId: string, commentId: string) => void;
+  onRestoreReportedUtilityComment: (postId: string, commentId: string) => void;
+  onTogglePinUtilityComment: (postId: string, commentId: string) => void;
 }
 
 export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = ({
@@ -207,6 +244,25 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onMarkMessageRead,
   onDeleteMessage,
   onRenameStoreCategory,
+  onAddUtilityType,
+  onSaveUtilitySubmission,
+  onDeleteUtilitySubmission,
+  onAddUtilityPost,
+  onEditUtilityPost,
+  onUpdateUtilityPostStatus,
+  onDeleteUtilityPost,
+  onToggleUtilityPostLike,
+  onToggleUtilityPostDislike,
+  onReportUtilityPost,
+  onRestoreReportedUtilityPost,
+  onAddCommentToUtilityPost,
+  onToggleUtilityCommentLike,
+  onToggleUtilityCommentEmoji,
+  onAddReplyToUtilityComment,
+  onReportUtilityComment,
+  onDeleteUtilityComment,
+  onRestoreReportedUtilityComment,
+  onTogglePinUtilityComment,
 }) => {
   // Settings is strictly for Admin only (Moderators can review posts & edit other sections EXCEPT Settings)
   const isStrictAdmin = currentUser?.role === 'admin';
@@ -274,6 +330,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         users={state.users}
         cooldownConfigSeconds={state.settings.liveChatCooldownSeconds ?? 5}
         autoClearMinutes={state.settings.liveChatAutoClearMinutes ?? 60}
+        lastClearedAt={state.settings.liveChatLastClearedAt}
         chatPenalties={state.chatPenalties || []}
         privateChatMessages={state.privateChatMessages || []}
         privateChatStatuses={state.privateChatStatuses || {}}
@@ -312,7 +369,68 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
     );
   }
 
-  // ================= 5. ADMIN SETTINGS (الإعدادات - يظهر للـ Admin فقط وليس المشرف) =================
+  // ================= 5. UTILITIES SUBMISSIONS (تقديمات المرافق) =================
+  if (activeSection === 'utilities') {
+    return (
+      <UtilitiesSubmissionsView
+        utilityTypes={
+          state.settings.utilityTypes || [
+            'تقديم المياه',
+            'تقديم الكهرباء',
+            'تقديم الغاز',
+          ]
+        }
+        utilitySubmissions={state.utilitySubmissions || []}
+        utilityPosts={state.utilityPosts || []}
+        liveChatMessages={state.liveChatMessages || []}
+        onlineCount={onlineCount}
+        currentUser={currentUser}
+        users={state.users}
+        cooldownConfigSeconds={state.settings.liveChatCooldownSeconds ?? 5}
+        autoClearMinutes={state.settings.liveChatAutoClearMinutes ?? 60}
+        lastClearedAt={state.settings.liveChatLastClearedAt}
+        chatPenalties={state.chatPenalties || []}
+        privateChatMessages={state.privateChatMessages || []}
+        privateChatStatuses={state.privateChatStatuses || {}}
+        userBlockedMap={state.userBlockedMap || {}}
+        privateChatReports={state.privateChatReports || []}
+        onOpenAuthModal={onOpenAuthModal}
+        onAddUtilityType={onAddUtilityType}
+        onSaveUtilitySubmission={onSaveUtilitySubmission}
+        onDeleteUtilitySubmission={onDeleteUtilitySubmission}
+        onAddUtilityPost={onAddUtilityPost}
+        onEditUtilityPost={onEditUtilityPost}
+        onUpdateUtilityPostStatus={onUpdateUtilityPostStatus}
+        onDeleteUtilityPost={onDeleteUtilityPost}
+        onToggleUtilityPostLike={onToggleUtilityPostLike}
+        onToggleUtilityPostDislike={onToggleUtilityPostDislike}
+        onReportUtilityPost={onReportUtilityPost}
+        onRestoreReportedUtilityPost={onRestoreReportedUtilityPost}
+        onAddCommentToUtilityPost={onAddCommentToUtilityPost}
+        onToggleUtilityCommentLike={onToggleUtilityCommentLike}
+        onToggleUtilityCommentEmoji={onToggleUtilityCommentEmoji}
+        onAddReplyToUtilityComment={onAddReplyToUtilityComment}
+        onReportUtilityComment={onReportUtilityComment}
+        onDeleteUtilityComment={onDeleteUtilityComment}
+        onRestoreReportedUtilityComment={onRestoreReportedUtilityComment}
+        onTogglePinUtilityComment={onTogglePinUtilityComment}
+        onSendChatMessage={onSendChatMessage}
+        onReportChatMessage={onReportChatMessage}
+        onDeleteChatMessage={onDeleteChatMessage}
+        onUpdateChatCooldown={onUpdateChatCooldown}
+        onUpdateAutoClearMinutes={onUpdateAutoClearMinutes}
+        onClearPublicChatNow={onClearPublicChatNow}
+        onClearPrivateChatSession={onClearPrivateChatSession}
+        onApplyChatPenalty={onApplyChatPenalty}
+        onSendPrivateMessage={onSendPrivateMessage}
+        onRespondPrivateChatRequest={onRespondPrivateChatRequest}
+        onBlockUserInChat={onBlockUserInChat}
+        onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
+      />
+    );
+  }
+
+  // ================= 6. ADMIN SETTINGS (الإعدادات - يظهر للـ Admin فقط وليس المشرف) =================
   if (!isStrictAdmin) {
     return (
       <FluentCard className="p-8 text-center space-y-3">

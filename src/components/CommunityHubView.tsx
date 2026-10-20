@@ -55,6 +55,11 @@ interface CommunityHubViewProps {
   users?: UserAccount[];
   cooldownConfigSeconds?: number;
   autoClearMinutes?: number;
+  lastClearedAt?: string;
+  sectionTitle?: string;
+  sectionSubtitle?: string;
+  hideLiveChatButton?: boolean;
+  savedPostsNamespace?: string;
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];
   privateChatStatuses?: Record<string, PrivateChatStatus>;
@@ -233,6 +238,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   users = [],
   cooldownConfigSeconds = 5,
   autoClearMinutes = 60,
+  lastClearedAt,
+  sectionTitle = 'مجتمع',
+  sectionSubtitle = 'شارك استفساراتك، اقتراحاتك، وإعلانات البيع والشراء مع أهالي المنطقة',
+  hideLiveChatButton = false,
+  savedPostsNamespace = 'community',
   chatPenalties = [],
   privateChatMessages = [],
   privateChatStatuses = {},
@@ -305,7 +315,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const infiniteScrollSentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Saved Posts State ("المنشورات المحفوظة") per user
-  const savedPostsStorageKey = `fluent_saved_posts_v1_${visitorId}`;
+  const savedPostsStorageKey = `fluent_saved_posts_v1_${savedPostsNamespace}_${visitorId}`;
   const [savedPostIds, setSavedPostIds] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem(`fluent_saved_posts_v1_${visitorId}`);
@@ -876,10 +886,10 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           </div>
           <div>
             <h1 className="text-xs sm:text-lg font-extrabold text-[#F8FAFC] whitespace-nowrap">
-              مجتمع
+              {sectionTitle}
             </h1>
             <p className="text-[11px] text-[#94A3B8] hidden sm:block">
-              شارك استفساراتك، اقتراحاتك، وإعلانات البيع والشراء مع أهالي المنطقة
+              {sectionSubtitle}
             </p>
           </div>
         </div>
@@ -924,17 +934,19 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           </div>
 
           {/* زر على اليسار يظهر في قسم المجتمع فقط باسم "محادثة لايف" بشكل كامل وواضح على الهاتف */}
-          <button
-            type="button"
-            onClick={() => setIsLiveChatOpen(true)}
-            className="fluent-reveal px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-extrabold flex items-center gap-1 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap shrink-0"
-          >
-            <Radio className="w-3.5 h-3.5 animate-pulse relative z-10 shrink-0" />
-            <span className="relative z-10">محادثة لايف</span>
-            <span className="relative z-10 px-1.5 py-0.2 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[10px] font-mono-tabular">
-              {liveChatMessages.length}
-            </span>
-          </button>
+          {!hideLiveChatButton && (
+            <button
+              type="button"
+              onClick={() => setIsLiveChatOpen(true)}
+              className="fluent-reveal px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-extrabold flex items-center gap-1 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap shrink-0"
+            >
+              <Radio className="w-3.5 h-3.5 animate-pulse relative z-10 shrink-0" />
+              <span className="relative z-10">محادثة لايف</span>
+              <span className="relative z-10 px-1.5 py-0.2 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[10px] font-mono-tabular">
+                {liveChatMessages.length}
+              </span>
+            </button>
+          )}
 
           {isAdmin && (
             <button
@@ -1891,6 +1903,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         onlineCount={onlineCount}
         cooldownConfigSeconds={cooldownConfigSeconds}
         autoClearMinutes={autoClearMinutes}
+        lastClearedAt={lastClearedAt}
         chatPenalties={chatPenalties}
         privateChatMessages={privateChatMessages}
         privateChatStatuses={privateChatStatuses}

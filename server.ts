@@ -1,0 +1,232 @@
+import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import { createServer as createViteServer } from 'vite';
+
+const PORT = 3000;
+const STATE_FILE_PATH = path.resolve(process.cwd(), '.realtime-portal-state.json');
+
+interface PresenceSession {
+  sessionId: string;
+  userId: string | null;
+  username: string | null;
+  isRegistered: boolean;
+  lastActiveAt: number;
+}
+
+// Authoritative in-memory state + disk persistence for instant multi-user sync
+let authoritativeState: Record<string, unknown> | null = null;
+let stateVersion = Date.now();
+const presenceMap = new Map<string, PresenceSession>();
+
+try {
+  if (fs.existsSync(STATE_FILE_PATH)) {
+    const raw = fs.readFileSync(STATE_FILE_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      authoritativeState = parsed;
+    }
+  }
+} catch {
+  authoritativeState = null;
+}
+
+function saveStateToDisk(state: Record<string, unknown>) {
+  try {
+    fs.writeFileSync(STATE_FILE_PATH, JSON.stringify(state), 'utf-8');
+  } catch {
+    // ignore disk write errors in read-only environments
+  }
+}
+
+function computeOnlineStats() {
+  const now = Date.now();
+  for (const [key, sess] of presenceMap.entries()) {
+    if (now - sess.lastActiveAt > 25000) {
+      presenceMap.delete(key);
+    }
+  }
+  const registeredMap = new Map<string, string>();
+  let guestsCount = 0;
+
+  for (const sess of presenceMap.values()) {
+    if (sess.isRegistered && sess.userId) {
+      registeredMap.set(sess.userId, sess.username || 'مستخدم مسجل');
+    } else {
+      guestsCount += 1;
+    }
+  }
+
+  const registeredCount = registeredMap.size;
+  const totalOnline = Math.max(1, registeredCount + guestsCount);
+  return {
+    totalOnline,
+    registeredCount,
+    guestsCount,
+    registeredUsernames: Array.from(registeredMap.values()),
+  };
+}
+
+// Connected SSE clients for <10ms instant broadcast to all users
+const sseClients = new Set<express.Response>();
+
+function broadcastSseEvent(eventType: string, payload: unknown) {
+  const dataString = `event: ${eventType}\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(dataString);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
+async function startServer() {
+  const app = express();
+  app.use(express.json({ limit: '50mb' }));
+
+  // 1. Live SSE Stream for instant real-time updates (Public Chat, Private Chat, Settings, Utilities, Posts)
+  app.get('/api/realtime/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    sseClients.add(res);
+
+    // Send initial state & presence immediately upon connection
+    if (authoritativeState) {
+      res.write(
+        `event: state_update\ndata: ${JSON.stringify({
+          version: stateVersion,
+          state: authoritativeState,
+          senderTabId: 'server_init',
+        })}\n\n`
+      );
+    }
+    res.write(
+      `event: presence_update\ndata: ${JSON.stringify(computeOnlineStats())}\n\n`
+    );
+
+    const keepAliveTimer = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch {
+        clearInterval(keepAliveTimer);
+        sseClients.delete(res);
+      }
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(keepAliveTimer);
+      sseClients.delete(res);
+    });
+  });
+
+  // 2. Get current authoritative state
+  app.get('/api/realtime/state', (_req, res) => {
+    res.json({
+      version: stateVersion,
+      state: authoritativeState,
+      onlineStats: computeOnlineStats(),
+    });
+  });
+
+  // 3. Publish state update & immediately broadcast to all connected clients
+  app.post('/api/realtime/sync', (req, res) => {
+    const { state, senderTabId } = req.body || {};
+    if (!state || typeof state !== 'object') {
+      res.status(400).json({ error: 'Invalid state payload' });
+      return;
+    }
+
+    authoritativeState = state;
+    stateVersion = Date.now();
+    saveStateToDisk(state);
+
+    broadcastSseEvent('state_update', {
+      version: stateVersion,
+      state: authoritativeState,
+      senderTabId: senderTabId || null,
+    });
+
+    res.json({ ok: true, version: stateVersion });
+  });
+
+  // 4. Ultra-fast Live Chat & Chat Settings delta endpoint
+  app.post('/api/realtime/chat-fast', (req, res) => {
+    const { chatPatch, senderTabId } = req.body || {};
+    if (!chatPatch || typeof chatPatch !== 'object') {
+      res.status(400).json({ error: 'Invalid chatPatch' });
+      return;
+    }
+
+    if (authoritativeState) {
+      const prevSettings =
+        (authoritativeState.settings as Record<string, unknown>) || {};
+      const patchSettings =
+        (chatPatch.settings as Record<string, unknown>) || {};
+      authoritativeState = {
+        ...authoritativeState,
+        ...chatPatch,
+        settings: {
+          ...prevSettings,
+          ...patchSettings,
+        },
+      };
+      saveStateToDisk(authoritativeState);
+    }
+
+    stateVersion = Date.now();
+    broadcastSseEvent('chat_fast_update', {
+      version: stateVersion,
+      chatPatch,
+      senderTabId: senderTabId || null,
+    });
+
+    res.json({ ok: true, version: stateVersion });
+  });
+
+  // 5. Real-time multi-device online presence heartbeat
+  app.post('/api/realtime/presence', (req, res) => {
+    const { sessionId, userId, username, isRegistered, remove } = req.body || {};
+    if (sessionId && typeof sessionId === 'string') {
+      if (remove) {
+        presenceMap.delete(sessionId);
+      } else {
+        presenceMap.set(sessionId, {
+          sessionId,
+          userId: userId || null,
+          username: username || null,
+          isRegistered: Boolean(isRegistered),
+          lastActiveAt: Date.now(),
+        });
+      }
+    }
+    const stats = computeOnlineStats();
+    broadcastSseEvent('presence_update', stats);
+    res.json(stats);
+  });
+
+  // Mount Vite in development or static dist in production
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.resolve(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Real-time server listening on http://0.0.0.0:${PORT}`);
+  });
+}
+
+startServer();

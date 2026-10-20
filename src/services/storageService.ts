@@ -30,6 +30,7 @@ import {
   CommunityPostItem,
   AdminMessage,
   LiveChatMessageItem,
+  UtilitySubmissionItem,
 } from '../types';
 
 const DB_STORAGE_KEY = 'fluent_portal_db_v1185';
@@ -51,6 +52,12 @@ export const DEFAULT_STORE_CATEGORIES: string[] = [
   'محل هواتف وصيانة موبايل',
   'محل إكسسوارات أو زينة',
   'مخبز سياحي أو بلدي',
+];
+
+export const DEFAULT_UTILITY_TYPES: string[] = [
+  'تقديم المياه',
+  'تقديم الكهرباء',
+  'تقديم الغاز',
 ];
 
 // High-resolution embedded SVG banners & menu visuals
@@ -133,6 +140,7 @@ export const INITIAL_SETTINGS: PlatformSettings = {
   imgbbApiKey: '',
   googleMapsApiKey: '',
   storeCategories: DEFAULT_STORE_CATEGORIES,
+  utilityTypes: DEFAULT_UTILITY_TYPES,
   liveChatCooldownSeconds: 5,
   liveChatAutoClearMinutes: 60,
   liveChatLastClearedAt: new Date().toISOString(),
@@ -259,17 +267,47 @@ function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPos
 function normalizeLiveChatList(rawList?: LiveChatMessageItem[]): LiveChatMessageItem[] {
   if (!Array.isArray(rawList)) return [];
   // Keep strictly only the latest 50 messages in Public Chat; older messages are permanently deleted
-  return rawList.slice(-50).map((m, idx) => ({
-    id: m.id || `chat-${idx}`,
-    authorId: m.authorId || 'guest',
-    authorUsername: m.authorUsername || 'زائر',
-    text: m.text || '',
-    textColor: m.textColor || '#F8FAFC',
-    reports: Array.isArray(m.reports) ? m.reports : [],
-    createdAt: m.createdAt || new Date().toISOString(),
-    isSystemNotification: m.isSystemNotification,
-    targetUsername: m.targetUsername,
+  return rawList.slice(-50).map((m, idx) => {
+    const item: LiveChatMessageItem = {
+      id: m.id || `chat-${idx}`,
+      authorId: m.authorId || 'guest',
+      authorUsername: m.authorUsername || 'زائر',
+      text: m.text || '',
+      textColor: m.textColor || '#F8FAFC',
+      reports: Array.isArray(m.reports) ? m.reports : [],
+      createdAt: m.createdAt || new Date().toISOString(),
+    };
+    if (m.isSystemNotification) item.isSystemNotification = true;
+    if (m.targetUsername) item.targetUsername = m.targetUsername;
+    return item;
+  });
+}
+
+function normalizeUtilitySubmissionsList(
+  rawList?: UtilitySubmissionItem[]
+): UtilitySubmissionItem[] {
+  if (!Array.isArray(rawList)) return [];
+  return rawList.map((u, idx) => ({
+    id: u.id || `util-${idx}`,
+    utilityName: u.utilityName || 'تقديم المياه',
+    locations: Array.isArray(u.locations)
+      ? u.locations.slice(0, 3).map((l) => ({
+          name: l?.name || '',
+          locationUrl: l?.locationUrl || '',
+        }))
+      : [],
+    details: (u.details || '').slice(0, 10000),
+    updatedAt: u.updatedAt || u.createdAt || new Date().toISOString(),
+    createdAt: u.createdAt || new Date().toISOString(),
   }));
+}
+
+function sanitizeForFirebase<T>(obj: T): T {
+  try {
+    return JSON.parse(JSON.stringify(obj));
+  } catch {
+    return obj;
+  }
 }
 
 /**
@@ -343,11 +381,23 @@ class FastBrowserCacheEngine {
 
 const fastBrowserCache = new FastBrowserCacheEngine();
 
+let stateSyncChannel: BroadcastChannel | null = null;
+try {
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    stateSyncChannel = new BroadcastChannel('nakhil_1185_state_sync_v2');
+  }
+} catch {
+  stateSyncChannel = null;
+}
+
 class HybridStorageEngine {
   private firebaseApp: FirebaseApp | null = null;
   private firestoreDb: Firestore | null = null;
   private realtimeDb: Database | null = null;
   private unsubscribeSnapshot: FirestoreUnsubscribe | RTDBUnsubscribe | null = null;
+  private unsubscribeFastChatSnapshot: FirestoreUnsubscribe | null = null;
+  private eventSource: EventSource | null = null;
+  private latestState: PlatformDatabaseState | null = null;
   private listeners: Array<(state: PlatformDatabaseState) => void> = [];
   private connectionStatusListeners: Array<
     (status: 'local' | 'firebase_connected' | 'firebase_error', message?: string) => void
@@ -356,9 +406,39 @@ class HybridStorageEngine {
   private currentMessage: string =
     'يعمل بنظام التخزين الفوري السريع في المتصفح (Browser Instant Cache)';
 
-  public loadLocalState(): PlatformDatabaseState {
-    const cachedMem = fastBrowserCache.getMemoryCache();
-    if (cachedMem) return cachedMem;
+  constructor() {
+    if (typeof window !== 'undefined') {
+      // 1. Instant cross-tab BroadcastChannel listener (< 1ms)
+      if (stateSyncChannel) {
+        stateSyncChannel.addEventListener('message', (ev) => {
+          const data = ev.data;
+          if (!data || data.senderTabId === getOrCreateTabSessionId()) return;
+          if (data.type === 'full_state' && data.state) {
+            this.applyIncomingRemoteState(data.state);
+          } else if (data.type === 'chat_fast' && data.chatPatch) {
+            this.applyIncomingFastChatPatch(data.chatPatch);
+          }
+        });
+      }
+
+      // 2. Cross-tab localStorage event listener
+      window.addEventListener('storage', (e) => {
+        if (e.key === DB_STORAGE_KEY || e.key === SETTINGS_STORAGE_KEY) {
+          const fresh = this.loadLocalState(true);
+          this.notifyData(fresh);
+        }
+      });
+    }
+  }
+
+  public loadLocalState(forceReloadFromStorage = false): PlatformDatabaseState {
+    if (!forceReloadFromStorage) {
+      const cachedMem = fastBrowserCache.getMemoryCache();
+      if (cachedMem) {
+        this.latestState = cachedMem;
+        return cachedMem;
+      }
+    }
 
     try {
       const savedSettingsRaw = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -382,6 +462,11 @@ class HybridStorageEngine {
           parsedSettings.storeCategories.length > 0
             ? parsedSettings.storeCategories
             : DEFAULT_STORE_CATEGORIES,
+        utilityTypes:
+          Array.isArray(parsedSettings.utilityTypes) &&
+          parsedSettings.utilityTypes.length > 0
+            ? parsedSettings.utilityTypes
+            : DEFAULT_UTILITY_TYPES,
         requireDriverCriminalRecordApproval:
           parsedSettings.requireDriverCriminalRecordApproval ?? false,
         liveChatCooldownSeconds:
@@ -417,13 +502,21 @@ class HybridStorageEngine {
           communityPosts: Array.isArray(parsed.communityPosts)
             ? normalizeCommunityPostsList(parsed.communityPosts)
             : INITIAL_COMMUNITY_POSTS,
+          utilitySubmissions: normalizeUtilitySubmissionsList(parsed.utilitySubmissions),
+          utilityPosts: Array.isArray(parsed.utilityPosts)
+            ? normalizeCommunityPostsList(parsed.utilityPosts)
+            : [],
           liveChatMessages: normalizeLiveChatList(parsed.liveChatMessages),
           chatPenalties: Array.isArray(parsed.chatPenalties)
             ? parsed.chatPenalties
             : [],
-          // Ephemeral private chats: cleared upon site exit/reload ("في حالة الخروج من الموقع يتم تحديث لايف شات ولا يظهر أي محادثات خاصة تم التحدث بها من قبل")
-          privateChatMessages: [],
-          privateChatStatuses: {},
+          privateChatMessages: Array.isArray(parsed.privateChatMessages)
+            ? parsed.privateChatMessages
+            : [],
+          privateChatStatuses:
+            parsed.privateChatStatuses && typeof parsed.privateChatStatuses === 'object'
+              ? parsed.privateChatStatuses
+              : {},
           userBlockedMap:
             parsed.userBlockedMap && typeof parsed.userBlockedMap === 'object'
               ? parsed.userBlockedMap
@@ -433,6 +526,7 @@ class HybridStorageEngine {
             : [],
           settings,
         };
+        this.latestState = hydrated;
         fastBrowserCache.setMemoryAndDiskCache(hydrated);
         return hydrated;
       }
@@ -447,6 +541,8 @@ class HybridStorageEngine {
         serviceNumbers: INITIAL_SERVICE_NUMBERS,
         tawsilaRides: INITIAL_TAWSILA,
         communityPosts: INITIAL_COMMUNITY_POSTS,
+        utilitySubmissions: [],
+        utilityPosts: [],
         liveChatMessages: INITIAL_LIVE_CHAT,
         chatPenalties: [],
         privateChatMessages: [],
@@ -455,10 +551,11 @@ class HybridStorageEngine {
         privateChatReports: [],
         settings,
       };
+      this.latestState = initialState;
       this.saveLocalState(initialState);
       return initialState;
     } catch {
-      return {
+      const fallback: PlatformDatabaseState = {
         users: INITIAL_USERS,
         topBanners: INITIAL_TOP_BANNERS,
         squareAds: INITIAL_SQUARE_ADS,
@@ -468,6 +565,8 @@ class HybridStorageEngine {
         serviceNumbers: INITIAL_SERVICE_NUMBERS,
         tawsilaRides: INITIAL_TAWSILA,
         communityPosts: INITIAL_COMMUNITY_POSTS,
+        utilitySubmissions: [],
+        utilityPosts: [],
         liveChatMessages: INITIAL_LIVE_CHAT,
         chatPenalties: [],
         privateChatMessages: [],
@@ -476,10 +575,13 @@ class HybridStorageEngine {
         privateChatReports: [],
         settings: INITIAL_SETTINGS,
       };
+      this.latestState = fallback;
+      return fallback;
     }
   }
 
   public saveLocalState(state: PlatformDatabaseState, activeUserId?: string) {
+    this.latestState = state;
     fastBrowserCache.setMemoryAndDiskCache(state, activeUserId);
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(state.settings));
@@ -495,8 +597,12 @@ class HybridStorageEngine {
           serviceNumbers: state.serviceNumbers,
           tawsilaRides: state.tawsilaRides,
           communityPosts: state.communityPosts,
+          utilitySubmissions: normalizeUtilitySubmissionsList(state.utilitySubmissions),
+          utilityPosts: state.utilityPosts || [],
           liveChatMessages: normalizeLiveChatList(state.liveChatMessages),
           chatPenalties: state.chatPenalties || [],
+          privateChatMessages: state.privateChatMessages || [],
+          privateChatStatuses: state.privateChatStatuses || {},
           userBlockedMap: state.userBlockedMap || {},
           privateChatReports: state.privateChatReports || [],
         })
@@ -535,7 +641,6 @@ class HybridStorageEngine {
         sessionStorage.removeItem(AUTH_SESSION_KEY);
         return;
       }
-      // Cache all user & platform data in browser immediately upon login for instant future loads
       if (currentState) {
         fastBrowserCache.setMemoryAndDiskCache(currentState, user.id);
       }
@@ -583,16 +688,226 @@ class HybridStorageEngine {
   }
 
   private notifyData(state: PlatformDatabaseState) {
+    this.latestState = state;
     this.listeners.forEach((cb) => cb(state));
+  }
+
+  private applyIncomingRemoteState(remoteData: Record<string, unknown>) {
+    const base = this.latestState || this.loadLocalState();
+    const remoteSettings = (remoteData.settings as Partial<PlatformSettings>) || {};
+    const mergedState: PlatformDatabaseState = {
+      users: Array.isArray(remoteData.users) && remoteData.users.length > 0
+        ? (remoteData.users as UserAccount[])
+        : base.users,
+      topBanners: Array.isArray(remoteData.topBanners)
+        ? (remoteData.topBanners as TopBannerAd[])
+        : base.topBanners,
+      squareAds: Array.isArray(remoteData.squareAds)
+        ? (remoteData.squareAds as SquareMovingAd[])
+        : base.squareAds,
+      popupAd: (remoteData.popupAd as PopupAdConfig) || base.popupAd,
+      messages: Array.isArray(remoteData.messages)
+        ? (remoteData.messages as AdminMessage[])
+        : base.messages,
+      stores: Array.isArray(remoteData.stores)
+        ? normalizeStoresList(remoteData.stores as StoreListingItem[])
+        : base.stores,
+      serviceNumbers: Array.isArray(remoteData.serviceNumbers)
+        ? normalizeServiceNumbersList(remoteData.serviceNumbers as ServicePhoneEntry[])
+        : base.serviceNumbers,
+      tawsilaRides: Array.isArray(remoteData.tawsilaRides)
+        ? normalizeTawsilaList(remoteData.tawsilaRides as TawsilaRideItem[])
+        : base.tawsilaRides,
+      communityPosts: Array.isArray(remoteData.communityPosts)
+        ? normalizeCommunityPostsList(remoteData.communityPosts as CommunityPostItem[])
+        : base.communityPosts,
+      utilitySubmissions: Array.isArray(remoteData.utilitySubmissions)
+        ? normalizeUtilitySubmissionsList(remoteData.utilitySubmissions as UtilitySubmissionItem[])
+        : base.utilitySubmissions || [],
+      utilityPosts: Array.isArray(remoteData.utilityPosts)
+        ? normalizeCommunityPostsList(remoteData.utilityPosts as CommunityPostItem[])
+        : base.utilityPosts || [],
+      liveChatMessages: Array.isArray(remoteData.liveChatMessages)
+        ? normalizeLiveChatList(remoteData.liveChatMessages as LiveChatMessageItem[])
+        : base.liveChatMessages || [],
+      chatPenalties: Array.isArray(remoteData.chatPenalties)
+        ? (remoteData.chatPenalties as PlatformDatabaseState['chatPenalties'])
+        : base.chatPenalties || [],
+      privateChatMessages: Array.isArray(remoteData.privateChatMessages)
+        ? (remoteData.privateChatMessages as PlatformDatabaseState['privateChatMessages'])
+        : base.privateChatMessages || [],
+      privateChatStatuses:
+        remoteData.privateChatStatuses && typeof remoteData.privateChatStatuses === 'object'
+          ? (remoteData.privateChatStatuses as PlatformDatabaseState['privateChatStatuses'])
+          : base.privateChatStatuses || {},
+      userBlockedMap:
+        remoteData.userBlockedMap && typeof remoteData.userBlockedMap === 'object'
+          ? (remoteData.userBlockedMap as PlatformDatabaseState['userBlockedMap'])
+          : base.userBlockedMap || {},
+      privateChatReports: Array.isArray(remoteData.privateChatReports)
+        ? (remoteData.privateChatReports as PlatformDatabaseState['privateChatReports'])
+        : base.privateChatReports || [],
+      settings: {
+        ...base.settings,
+        ...remoteSettings,
+        storeCategories:
+          Array.isArray(remoteSettings.storeCategories) &&
+          remoteSettings.storeCategories.length > 0
+            ? remoteSettings.storeCategories
+            : base.settings.storeCategories,
+        utilityTypes:
+          Array.isArray(remoteSettings.utilityTypes) &&
+          remoteSettings.utilityTypes.length > 0
+            ? remoteSettings.utilityTypes
+            : base.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
+        liveChatCooldownSeconds:
+          typeof remoteSettings.liveChatCooldownSeconds === 'number'
+            ? remoteSettings.liveChatCooldownSeconds
+            : base.settings.liveChatCooldownSeconds ?? 5,
+        liveChatAutoClearMinutes:
+          typeof remoteSettings.liveChatAutoClearMinutes === 'number'
+            ? remoteSettings.liveChatAutoClearMinutes
+            : base.settings.liveChatAutoClearMinutes ?? 60,
+        liveChatLastClearedAt:
+          remoteSettings.liveChatLastClearedAt || base.settings.liveChatLastClearedAt,
+        firebase: base.settings.firebase,
+      },
+    };
+    this.saveLocalState(mergedState);
+    this.notifyData(mergedState);
+  }
+
+  private applyIncomingFastChatPatch(chatPatch: Record<string, unknown>) {
+    const base = this.latestState || this.loadLocalState();
+    const patchSettings = (chatPatch.settings as Partial<PlatformSettings>) || {};
+    const mergedState: PlatformDatabaseState = {
+      ...base,
+      liveChatMessages: Array.isArray(chatPatch.liveChatMessages)
+        ? normalizeLiveChatList(chatPatch.liveChatMessages as LiveChatMessageItem[])
+        : base.liveChatMessages || [],
+      chatPenalties: Array.isArray(chatPatch.chatPenalties)
+        ? (chatPatch.chatPenalties as PlatformDatabaseState['chatPenalties'])
+        : base.chatPenalties || [],
+      privateChatMessages: Array.isArray(chatPatch.privateChatMessages)
+        ? (chatPatch.privateChatMessages as PlatformDatabaseState['privateChatMessages'])
+        : base.privateChatMessages || [],
+      privateChatStatuses:
+        chatPatch.privateChatStatuses && typeof chatPatch.privateChatStatuses === 'object'
+          ? (chatPatch.privateChatStatuses as PlatformDatabaseState['privateChatStatuses'])
+          : base.privateChatStatuses || {},
+      userBlockedMap:
+        chatPatch.userBlockedMap && typeof chatPatch.userBlockedMap === 'object'
+          ? (chatPatch.userBlockedMap as PlatformDatabaseState['userBlockedMap'])
+          : base.userBlockedMap || {},
+      privateChatReports: Array.isArray(chatPatch.privateChatReports)
+        ? (chatPatch.privateChatReports as PlatformDatabaseState['privateChatReports'])
+        : base.privateChatReports || [],
+      utilitySubmissions: Array.isArray(chatPatch.utilitySubmissions)
+        ? normalizeUtilitySubmissionsList(chatPatch.utilitySubmissions as UtilitySubmissionItem[])
+        : base.utilitySubmissions || [],
+      utilityPosts: Array.isArray(chatPatch.utilityPosts)
+        ? normalizeCommunityPostsList(chatPatch.utilityPosts as CommunityPostItem[])
+        : base.utilityPosts || [],
+      communityPosts: Array.isArray(chatPatch.communityPosts)
+        ? normalizeCommunityPostsList(chatPatch.communityPosts as CommunityPostItem[])
+        : base.communityPosts,
+      settings: {
+        ...base.settings,
+        ...patchSettings,
+        liveChatCooldownSeconds:
+          typeof patchSettings.liveChatCooldownSeconds === 'number'
+            ? patchSettings.liveChatCooldownSeconds
+            : typeof chatPatch.liveChatCooldownSeconds === 'number'
+            ? (chatPatch.liveChatCooldownSeconds as number)
+            : base.settings.liveChatCooldownSeconds ?? 5,
+        liveChatAutoClearMinutes:
+          typeof patchSettings.liveChatAutoClearMinutes === 'number'
+            ? patchSettings.liveChatAutoClearMinutes
+            : typeof chatPatch.liveChatAutoClearMinutes === 'number'
+            ? (chatPatch.liveChatAutoClearMinutes as number)
+            : base.settings.liveChatAutoClearMinutes ?? 60,
+        liveChatLastClearedAt:
+          patchSettings.liveChatLastClearedAt ||
+          (chatPatch.liveChatLastClearedAt as string) ||
+          base.settings.liveChatLastClearedAt,
+        utilityTypes:
+          Array.isArray(patchSettings.utilityTypes) &&
+          patchSettings.utilityTypes.length > 0
+            ? patchSettings.utilityTypes
+            : Array.isArray(chatPatch.utilityTypes)
+            ? (chatPatch.utilityTypes as string[])
+            : base.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
+      },
+    };
+    this.saveLocalState(mergedState);
+    this.notifyData(mergedState);
+  }
+
+  private connectServerRealtimeStream() {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+
+    try {
+      const es = new EventSource('/api/realtime/stream');
+      this.eventSource = es;
+
+      es.addEventListener('state_update', (ev) => {
+        try {
+          const parsed = JSON.parse((ev as MessageEvent).data);
+          if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
+          if (parsed.state) {
+            this.applyIncomingRemoteState(parsed.state);
+          }
+        } catch {
+          // ignore parse error
+        }
+      });
+
+      es.addEventListener('chat_fast_update', (ev) => {
+        try {
+          const parsed = JSON.parse((ev as MessageEvent).data);
+          if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
+          if (parsed.chatPatch) {
+            this.applyIncomingFastChatPatch(parsed.chatPatch);
+          }
+        } catch {
+          // ignore
+        }
+      });
+
+      es.addEventListener('presence_update', (ev) => {
+        try {
+          const stats = JSON.parse((ev as MessageEvent).data);
+          if (stats && typeof stats.totalOnline === 'number') {
+            latestServerOnlineStats = stats;
+            presenceChannel?.postMessage({ type: 'presence_changed' });
+          }
+        } catch {
+          // ignore
+        }
+      });
+    } catch {
+      // ignore SSE errors
+    }
   }
 
   public async initializeSync(
     firebaseConfig: FirebaseConfigSettings,
     currentState: PlatformDatabaseState
   ) {
+    this.latestState = currentState;
+    this.connectServerRealtimeStream();
+
     if (this.unsubscribeSnapshot) {
       this.unsubscribeSnapshot();
       this.unsubscribeSnapshot = null;
+    }
+    if (this.unsubscribeFastChatSnapshot) {
+      this.unsubscribeFastChatSnapshot();
+      this.unsubscribeFastChatSnapshot = null;
     }
 
     if (!firebaseConfig.enabled || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
@@ -651,54 +966,18 @@ class HybridStorageEngine {
           (snapshot) => {
             const remoteData = snapshot.val();
             if (remoteData) {
-              const mergedState: PlatformDatabaseState = {
-                users: remoteData.users || currentState.users,
-                topBanners: remoteData.topBanners || [],
-                squareAds: remoteData.squareAds || [],
-                popupAd: remoteData.popupAd || currentState.popupAd,
-                messages: remoteData.messages || [],
-                stores: remoteData.stores
-                  ? normalizeStoresList(remoteData.stores)
-                  : [],
-                serviceNumbers: remoteData.serviceNumbers || [],
-                tawsilaRides: remoteData.tawsilaRides || [],
-                communityPosts: remoteData.communityPosts
-                  ? normalizeCommunityPostsList(remoteData.communityPosts)
-                  : [],
-                liveChatMessages: normalizeLiveChatList(remoteData.liveChatMessages),
-                chatPenalties: Array.isArray(remoteData.chatPenalties)
-                  ? remoteData.chatPenalties
-                  : currentState.chatPenalties || [],
-                privateChatMessages: Array.isArray(remoteData.privateChatMessages)
-                  ? remoteData.privateChatMessages
-                  : currentState.privateChatMessages || [],
-                privateChatStatuses:
-                  remoteData.privateChatStatuses ||
-                  currentState.privateChatStatuses ||
-                  {},
-                userBlockedMap:
-                  remoteData.userBlockedMap || currentState.userBlockedMap || {},
-                privateChatReports: Array.isArray(remoteData.privateChatReports)
-                  ? remoteData.privateChatReports
-                  : currentState.privateChatReports || [],
-                settings: {
-                  ...currentState.settings,
-                  ...(remoteData.settings || {}),
-                  firebase: firebaseConfig,
-                },
-              };
-              this.saveLocalState(mergedState);
-              this.notifyData(mergedState);
+              if (remoteData.senderTabId !== getOrCreateTabSessionId()) {
+                this.applyIncomingRemoteState(remoteData);
+              }
             } else {
-              set(stateRef, {
-                ...currentState,
+              const cleanPayload = sanitizeForFirebase({
+                ...(this.latestState || currentState),
+                senderTabId: getOrCreateTabSessionId(),
                 updatedAt: new Date().toISOString(),
               });
+              set(stateRef, cleanPayload);
             }
-            this.notifyStatus(
-              'firebase_connected',
-              'التسجيل السحابي نشط'
-            );
+            this.notifyStatus('firebase_connected', 'التسجيل السحابي نشط');
           },
           (error) => {
             this.notifyStatus(
@@ -710,60 +989,46 @@ class HybridStorageEngine {
       } else {
         this.firestoreDb = getFirestore(this.firebaseApp);
         const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
+        const fastChatDocRef = doc(
+          this.firestoreDb,
+          'fluent_portal_v3',
+          'live_chat_realtime'
+        );
 
+        // 1. Dedicated high-speed listener for Live Chat, Private Chat, Chat Settings & Utilities
+        this.unsubscribeFastChatSnapshot = onSnapshot(
+          fastChatDocRef,
+          (snapshot) => {
+            if (snapshot.exists()) {
+              const fastData = snapshot.data();
+              if (fastData && fastData.senderTabId !== getOrCreateTabSessionId()) {
+                this.applyIncomingFastChatPatch(fastData);
+              }
+            }
+          },
+          () => {
+            // ignore fast chat listener warning if rules fallback to local/SSE
+          }
+        );
+
+        // 2. Main workspace listener
         this.unsubscribeSnapshot = onSnapshot(
           docRef,
           (snapshot) => {
             if (snapshot.exists()) {
               const remoteData = snapshot.data();
-              const mergedState: PlatformDatabaseState = {
-                users: remoteData.users || currentState.users,
-                topBanners: remoteData.topBanners || [],
-                squareAds: remoteData.squareAds || [],
-                popupAd: remoteData.popupAd || currentState.popupAd,
-                messages: remoteData.messages || [],
-                stores: remoteData.stores
-                  ? normalizeStoresList(remoteData.stores)
-                  : [],
-                serviceNumbers: remoteData.serviceNumbers || [],
-                tawsilaRides: remoteData.tawsilaRides || [],
-                communityPosts: remoteData.communityPosts
-                  ? normalizeCommunityPostsList(remoteData.communityPosts)
-                  : [],
-                liveChatMessages: normalizeLiveChatList(remoteData.liveChatMessages),
-                chatPenalties: Array.isArray(remoteData.chatPenalties)
-                  ? remoteData.chatPenalties
-                  : currentState.chatPenalties || [],
-                privateChatMessages: Array.isArray(remoteData.privateChatMessages)
-                  ? remoteData.privateChatMessages
-                  : currentState.privateChatMessages || [],
-                privateChatStatuses:
-                  remoteData.privateChatStatuses ||
-                  currentState.privateChatStatuses ||
-                  {},
-                userBlockedMap:
-                  remoteData.userBlockedMap || currentState.userBlockedMap || {},
-                privateChatReports: Array.isArray(remoteData.privateChatReports)
-                  ? remoteData.privateChatReports
-                  : currentState.privateChatReports || [],
-                settings: {
-                  ...currentState.settings,
-                  ...(remoteData.settings || {}),
-                  firebase: firebaseConfig,
-                },
-              };
-              this.saveLocalState(mergedState);
-              this.notifyData(mergedState);
+              if (remoteData && remoteData.senderTabId !== getOrCreateTabSessionId()) {
+                this.applyIncomingRemoteState(remoteData);
+              }
             } else {
-              setDoc(docRef, {
-                ...currentState,
+              const cleanPayload = sanitizeForFirebase({
+                ...(this.latestState || currentState),
+                senderTabId: getOrCreateTabSessionId(),
                 updatedAt: new Date().toISOString(),
               });
+              setDoc(docRef, cleanPayload).catch(() => {});
             }
-            this.notifyStatus(
-              'firebase_connected',
-              'التسجيل السحابي نشط'
-            );
+            this.notifyStatus('firebase_connected', 'التسجيل السحابي نشط');
           },
           (error) => {
             this.notifyStatus(
@@ -780,31 +1045,94 @@ class HybridStorageEngine {
   }
 
   public async persistState(nextState: PlatformDatabaseState, activeUserId?: string) {
+    const tabId = getOrCreateTabSessionId();
     this.saveLocalState(nextState, activeUserId);
     this.notifyData(nextState);
 
+    const fastChatPatch = sanitizeForFirebase({
+      liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
+      chatPenalties: nextState.chatPenalties || [],
+      privateChatMessages: nextState.privateChatMessages || [],
+      privateChatStatuses: nextState.privateChatStatuses || {},
+      userBlockedMap: nextState.userBlockedMap || {},
+      privateChatReports: nextState.privateChatReports || [],
+      utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),
+      utilityPosts: nextState.utilityPosts || [],
+      communityPosts: nextState.communityPosts || [],
+      liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,
+      liveChatAutoClearMinutes: nextState.settings.liveChatAutoClearMinutes ?? 60,
+      liveChatLastClearedAt: nextState.settings.liveChatLastClearedAt,
+      utilityTypes: nextState.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
+      settings: nextState.settings,
+      senderTabId: tabId,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 1. Broadcast across browser tabs in < 1ms
+    try {
+      stateSyncChannel?.postMessage({
+        type: 'chat_fast',
+        chatPatch: fastChatPatch,
+        senderTabId: tabId,
+      });
+      stateSyncChannel?.postMessage({
+        type: 'full_state',
+        state: sanitizeForFirebase(nextState),
+        senderTabId: tabId,
+      });
+    } catch {
+      // ignore
+    }
+
+    // 2. Broadcast via Express Real-Time SSE Server (< 15ms across all users/devices)
+    if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      fetch('/api/realtime/chat-fast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatPatch: fastChatPatch,
+          senderTabId: tabId,
+        }),
+      }).catch(() => {});
+
+      fetch('/api/realtime/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          state: sanitizeForFirebase(nextState),
+          senderTabId: tabId,
+        }),
+      }).catch(() => {});
+    }
+
+    // 3. Sync with Firebase Firestore / Realtime DB (Sanitized with zero undefined values!)
     const fb = nextState.settings.firebase;
-    if (
-      !fb.enabled ||
-      !fb.apiKey ||
-      !fb.projectId ||
-      this.currentStatus !== 'firebase_connected'
-    ) {
+    if (!fb.enabled || !fb.apiKey || !fb.projectId) {
       return;
     }
 
     try {
-      const payload = {
+      const cleanFullPayload = sanitizeForFirebase({
         ...nextState,
+        senderTabId: tabId,
         updatedAt: new Date().toISOString(),
-      };
+      });
 
       if (fb.mode === 'realtime' && this.realtimeDb) {
         const stateRef = ref(this.realtimeDb, 'fluent_portal_v3/workspace');
-        await set(stateRef, payload);
+        await set(stateRef, cleanFullPayload);
       } else if (this.firestoreDb) {
+        const fastChatDocRef = doc(
+          this.firestoreDb,
+          'fluent_portal_v3',
+          'live_chat_realtime'
+        );
         const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
-        await setDoc(docRef, payload, { merge: true });
+        // Write lightweight fast chat document first for immediate snapshot trigger on all clients
+        await Promise.all([
+          setDoc(fastChatDocRef, fastChatPatch),
+          setDoc(docRef, cleanFullPayload),
+        ]);
       }
     } catch (error) {
       console.error('Firebase sync write error:', error);
@@ -863,9 +1191,19 @@ export function subscribePresenceBroadcast(onUpdate: () => void): () => void {
   };
 }
 
+let latestServerOnlineStats: RealOnlinePresenceStats | null = null;
+
 export function removeCurrentTabPresence(): void {
   try {
     const tabId = getOrCreateTabSessionId();
+    if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      fetch('/api/realtime/presence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: tabId, remove: true }),
+        keepalive: true,
+      }).catch(() => {});
+    }
     const raw = localStorage.getItem(REAL_PRESENCE_MAP_KEY);
     if (!raw) return;
     const map: Record<string, StoredPresenceSession> = JSON.parse(raw);
@@ -881,8 +1219,7 @@ export function removeCurrentTabPresence(): void {
 
 /**
  * 100% Real Live Online Presence Tracker ("عدد المتصلين الآن: المتصلين المسجلين وعدد الزائرين")
- * Tracks actual open browser sessions without fabricating numbers, deduplicating registered users
- * and counting active guest visitors in real time.
+ * Tracks actual open browser sessions across all devices via server + local fallback.
  */
 export function syncRealOnlinePresence(
   currentUser: UserAccount | null
@@ -890,11 +1227,32 @@ export function syncRealOnlinePresence(
   try {
     const now = Date.now();
     const tabId = getOrCreateTabSessionId();
+    const isRegistered = Boolean(currentUser && currentUser.id);
+
+    if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      fetch('/api/realtime/presence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: tabId,
+          userId: currentUser?.id || null,
+          username: currentUser?.username || null,
+          isRegistered,
+        }),
+      })
+        .then((r) => r.json())
+        .then((stats) => {
+          if (stats && typeof stats.totalOnline === 'number') {
+            latestServerOnlineStats = stats;
+          }
+        })
+        .catch(() => {});
+    }
+
     const raw = localStorage.getItem(REAL_PRESENCE_MAP_KEY);
     const map: Record<string, StoredPresenceSession> = raw ? JSON.parse(raw) : {};
 
     const prevEntry = map[tabId];
-    const isRegistered = Boolean(currentUser && currentUser.id);
     map[tabId] = {
       sessionId: tabId,
       userId: currentUser?.id || null,
@@ -912,7 +1270,6 @@ export function syncRealOnlinePresence(
 
     localStorage.setItem(REAL_PRESENCE_MAP_KEY, JSON.stringify(map));
 
-    // If user login/logout state changed on this tab, broadcast immediately
     if (
       !prevEntry ||
       prevEntry.userId !== (currentUser?.id || null) ||
@@ -933,12 +1290,19 @@ export function syncRealOnlinePresence(
       }
     });
 
-    const registeredCount = registeredMap.size;
-    const totalOnline = registeredCount + guestsCount;
+    const localRegCount = registeredMap.size;
+    const localTotal = localRegCount + guestsCount;
+
+    if (
+      latestServerOnlineStats &&
+      latestServerOnlineStats.totalOnline >= localTotal
+    ) {
+      return latestServerOnlineStats;
+    }
 
     return {
-      totalOnline,
-      registeredCount,
+      totalOnline: localTotal,
+      registeredCount: localRegCount,
       guestsCount,
       registeredUsernames: Array.from(registeredMap.values()),
     };

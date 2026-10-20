@@ -43,6 +43,7 @@ interface LiveCommunityChatModalProps {
   onlineCount: number;
   cooldownConfigSeconds?: number;
   autoClearMinutes?: number;
+  lastClearedAt?: string;
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];
   privateChatStatuses?: Record<string, PrivateChatStatus>;
@@ -379,6 +380,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   onlineCount,
   cooldownConfigSeconds = 5,
   autoClearMinutes = 60,
+  lastClearedAt,
   chatPenalties = [],
   privateChatMessages = [],
   privateChatStatuses = {},
@@ -401,9 +403,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   const canModerate = currentUser?.role === 'admin';
   const myUserId = currentUser?.id || 'guest';
   const myUsername = currentUser?.username || 'زائر';
-
-  // Ephemeral session timestamp: only private chats created after entering the site are shown
-  const sessionEnteredAtMsRef = useRef<number>(Date.now());
+  const myUsernameNorm = myUsername.trim().toLowerCase();
 
   // Top Switcher: 'public' (الشات العام) vs 'private' (الشات الخاص)
   const [activeChatTab, setActiveChatTab] = useState<'public' | 'private'>(
@@ -443,6 +443,8 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
 
   useEffect(() => {
     setGearCooldownInput(cooldownConfigSeconds);
+    // Clamp active cooldown immediately when Admin changes cooldown setting in real time
+    setCooldownSeconds((prev) => Math.min(prev, cooldownConfigSeconds));
   }, [cooldownConfigSeconds]);
 
   useEffect(() => {
@@ -530,12 +532,27 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     text: string;
   } | null>(null);
 
-  // Real-time tick every 5 seconds to re-evaluate active bans/suspensions
+  // Real-time tick every 1 second for instant auto-clear countdown & active bans/suspensions
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNowMs(Date.now()), 5000);
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  const remainingAutoClearSeconds = useMemo(() => {
+    if (!autoClearMinutes || autoClearMinutes <= 0) return null;
+    const baseMs = lastClearedAt ? new Date(lastClearedAt).getTime() : nowMs;
+    const targetMs = baseMs + autoClearMinutes * 60 * 1000;
+    const diffSec = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+    return diffSec;
+  }, [autoClearMinutes, lastClearedAt, nowMs]);
+
+  const formatCountdown = (totalSec: number | null) => {
+    if (totalSec === null) return '';
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
 
   const feedContainerRef = useRef<HTMLDivElement>(null);
 
@@ -552,22 +569,34 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   const myBlockedList = useMemo(() => {
     const byId = userBlockedMap[myUserId] || [];
     const byName = userBlockedMap[myUsername] || [];
-    return Array.from(new Set([...byId, ...byName]));
-  }, [userBlockedMap, myUserId, myUsername]);
+    const byNameNorm = userBlockedMap[myUsernameNorm] || [];
+    return Array.from(new Set([...byId, ...byName, ...byNameNorm]));
+  }, [userBlockedMap, myUserId, myUsername, myUsernameNorm]);
 
   const isBlockedByMe = (userId: string, username: string) => {
-    return myBlockedList.includes(userId) || myBlockedList.includes(username);
+    const uNorm = username.trim().toLowerCase();
+    return (
+      myBlockedList.includes(userId) ||
+      myBlockedList.includes(username) ||
+      myBlockedList.includes(uNorm)
+    );
   };
 
   // Check if the other person blocked ME (so I cannot send them private messages)
   const hasPartnerBlockedMe = (partnerId: string, partnerUsername: string) => {
+    const pNorm = partnerUsername.trim().toLowerCase();
     const partnerBlockedById = userBlockedMap[partnerId] || [];
     const partnerBlockedByName = userBlockedMap[partnerUsername] || [];
+    const partnerBlockedByNorm = userBlockedMap[pNorm] || [];
+    const combined = [
+      ...partnerBlockedById,
+      ...partnerBlockedByName,
+      ...partnerBlockedByNorm,
+    ];
     return (
-      partnerBlockedById.includes(myUserId) ||
-      partnerBlockedById.includes(myUsername) ||
-      partnerBlockedByName.includes(myUserId) ||
-      partnerBlockedByName.includes(myUsername)
+      combined.includes(myUserId) ||
+      combined.includes(myUsername) ||
+      combined.includes(myUsernameNorm)
     );
   };
 
@@ -575,10 +604,11 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   const myActivePenalty = useMemo(() => {
     return chatPenalties.find(
       (p) =>
-        (p.targetUserId === myUserId || p.targetUsername === myUsername) &&
+        (p.targetUserId === myUserId ||
+          p.targetUsername.trim().toLowerCase() === myUsernameNorm) &&
         new Date(p.expiresAt).getTime() > nowMs
     );
-  }, [chatPenalties, myUserId, myUsername, nowMs]);
+  }, [chatPenalties, myUserId, myUsernameNorm, nowMs]);
 
   // Filter Public Messages: strictly keep only the latest 50 messages ("لا يتم حفظ في الشات السابق إلا 50 رسالة فقط ويتم حذف السابق ولا يمكن الرجوع إليه")
   const visiblePublicMessages = useMemo(() => {
@@ -587,29 +617,26 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
       .slice(-50);
   }, [messages, myBlockedList]);
 
-  // Private Chat Conversations & Incoming Pending Requests for ME (Only from current active visit)
+  // Private Chat Conversations & Incoming Pending Requests for ME
   const myPrivateMessages = useMemo(() => {
     return privateChatMessages.filter((pm) => {
-      const msgTime = new Date(pm.createdAt).getTime();
-      if (msgTime < sessionEnteredAtMsRef.current - 2000) {
-        return false;
-      }
+      const sNorm = pm.senderUsername.trim().toLowerCase();
+      const rNorm = pm.receiverUsername.trim().toLowerCase();
       const involvesMe =
-        pm.senderUsername === myUsername ||
-        pm.receiverUsername === myUsername ||
+        sNorm === myUsernameNorm ||
+        rNorm === myUsernameNorm ||
         (currentUser &&
           (pm.senderId === currentUser.id || pm.receiverId === currentUser.id));
       if (!involvesMe) return false;
-      const otherId =
-        pm.senderUsername === myUsername ? pm.receiverId : pm.senderId;
-      const otherName =
-        pm.senderUsername === myUsername
-          ? pm.receiverUsername
-          : pm.senderUsername;
+      const isMeSender =
+        sNorm === myUsernameNorm ||
+        Boolean(currentUser && pm.senderId === currentUser.id);
+      const otherId = isMeSender ? pm.receiverId : pm.senderId;
+      const otherName = isMeSender ? pm.receiverUsername : pm.senderUsername;
       if (isBlockedByMe(otherId, otherName)) return false;
       return true;
     });
-  }, [privateChatMessages, myUsername, currentUser, myBlockedList]);
+  }, [privateChatMessages, myUsernameNorm, currentUser, myBlockedList]);
 
   // Unique Private Partners list
   const privatePartnersList = useMemo(() => {
@@ -625,19 +652,33 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     >();
 
     myPrivateMessages.forEach((pm) => {
-      const isMeSender = pm.senderUsername === myUsername;
+      const sNorm = pm.senderUsername.trim().toLowerCase();
+      const isMeSender =
+        sNorm === myUsernameNorm ||
+        Boolean(currentUser && pm.senderId === currentUser.id);
       const partnerName = isMeSender ? pm.receiverUsername : pm.senderUsername;
+      const partnerNorm = partnerName.trim().toLowerCase();
       const partnerId = isMeSender ? pm.receiverId : pm.senderId;
-      const threadKey = `${partnerName}__${myUsername}`;
-      const reverseKey = `${myUsername}__${partnerName}`;
+
+      const threadKey1 = `${partnerName}__${myUsername}`;
+      const reverseKey1 = `${myUsername}__${partnerName}`;
+      const threadKeyNorm = `${partnerNorm}__${myUsernameNorm}`;
+      const reverseKeyNorm = `${myUsernameNorm}__${partnerNorm}`;
+      const idKey1 = `${myUserId}__${partnerName}`;
+      const idKey2 = `${myUserId}__${partnerId}`;
+
       const status: PrivateChatStatus =
-        privateChatStatuses[threadKey] ||
-        privateChatStatuses[reverseKey] ||
+        privateChatStatuses[reverseKeyNorm] ||
+        privateChatStatuses[threadKeyNorm] ||
+        privateChatStatuses[reverseKey1] ||
+        privateChatStatuses[threadKey1] ||
+        privateChatStatuses[idKey1] ||
+        privateChatStatuses[idKey2] ||
         (isMeSender ? 'accepted' : 'pending');
 
       if (status === 'rejected' && !isMeSender) return;
 
-      map.set(partnerName, {
+      map.set(partnerNorm, {
         userId: partnerId,
         username: partnerName,
         lastMessage: pm,
@@ -647,7 +688,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     });
 
     return Array.from(map.values());
-  }, [myPrivateMessages, myUsername, privateChatStatuses]);
+  }, [myPrivateMessages, myUsername, myUsernameNorm, myUserId, currentUser, privateChatStatuses]);
 
   const incomingPendingRequests = useMemo(
     () => privatePartnersList.filter((p) => p.isIncomingRequest),
@@ -657,14 +698,16 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   // Messages with currently selected private partner
   const activePartnerMessages = useMemo(() => {
     if (!activePrivatePartner) return [];
-    return myPrivateMessages.filter(
-      (pm) =>
-        (pm.senderUsername === myUsername &&
-          pm.receiverUsername === activePrivatePartner.username) ||
-        (pm.senderUsername === activePrivatePartner.username &&
-          pm.receiverUsername === myUsername)
-    );
-  }, [myPrivateMessages, activePrivatePartner, myUsername]);
+    const activePartnerNorm = activePrivatePartner.username.trim().toLowerCase();
+    return myPrivateMessages.filter((pm) => {
+      const sNorm = pm.senderUsername.trim().toLowerCase();
+      const rNorm = pm.receiverUsername.trim().toLowerCase();
+      return (
+        (sNorm === myUsernameNorm && rNorm === activePartnerNorm) ||
+        (sNorm === activePartnerNorm && rNorm === myUsernameNorm)
+      );
+    });
+  }, [myPrivateMessages, activePrivatePartner, myUsernameNorm]);
 
   // Reported public chat messages for Admin Gear
   const reportedPublicMessages = useMemo(
@@ -989,9 +1032,14 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                 )}
               </div>
 
-              <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+              <div className="text-[10px] text-emerald-400 font-bold flex flex-wrap items-center gap-1.5">
                 <Radio className="w-3 h-3" />
                 <span>المتصلون الآن: {onlineCount} · آخر 50 رسالة فقط</span>
+                {remainingAutoClearSeconds !== null && (
+                  <span className="text-amber-300 font-mono-tabular">
+                    · مسح تلقائي خلال {formatCountdown(remainingAutoClearSeconds)}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -1240,20 +1288,50 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
               </button>
             </div>
 
-            {/* 1. تحديد المدة التي بين كل رسالة */}
+            {/* 1. تحديد المدة التي بين كل رسالة (تحديث لحظي لجميع المستخدمين) */}
             <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] space-y-2.5">
               <label className="block text-xs font-extrabold text-sky-300">
-                1. تحديد المدة الفاصلة بين كل رسالة والأخرى (بالثواني):
+                1. تحديد المدة الفاصلة بين كل رسالة والأخرى (بالثواني - تحديث لحظي):
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { label: 'بدون فاصل (0ث)', val: 0 },
+                  { label: '2 ثانية', val: 2 },
+                  { label: '5 ثوانٍ', val: 5 },
+                  { label: '10 ثوانٍ', val: 10 },
+                  { label: '30 ثانية', val: 30 },
+                ].map((preset) => (
+                  <button
+                    key={preset.val}
+                    type="button"
+                    onClick={() => {
+                      setGearCooldownInput(preset.val);
+                      onUpdateChatCooldown?.(preset.val);
+                      setStatusFeedback({
+                        type: 'ok',
+                        text: `تم تحديث المدة الفاصلة لحظياً لجميع المستخدمين إلى ${preset.val} ثانية.`,
+                      });
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border ${
+                      cooldownConfigSeconds === preset.val
+                        ? 'bg-sky-500 text-[#0A192F] border-sky-300'
+                        : 'bg-[#0A192F] text-[#94A3B8] border-[#334155] hover:text-white'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
                 <input
                   type="number"
                   min={0}
                   max={300}
                   value={gearCooldownInput}
-                  onChange={(e) =>
-                    setGearCooldownInput(Math.max(0, Number(e.target.value) || 0))
-                  }
+                  onChange={(e) => {
+                    const nextVal = Math.max(0, Number(e.target.value) || 0);
+                    setGearCooldownInput(nextVal);
+                  }}
                   className="w-24 rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-1.5 text-xs font-mono-tabular font-bold text-[#F8FAFC] outline-none"
                 />
                 <span className="text-xs text-[#94A3B8]">ثانية</span>
@@ -1263,23 +1341,33 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                     onUpdateChatCooldown?.(gearCooldownInput);
                     setStatusFeedback({
                       type: 'ok',
-                      text: `تم تحديث المدة بين كل رسالة إلى ${gearCooldownInput} ثانية بنجاح.`,
+                      text: `تم تحديث المدة بين كل رسالة لحظياً إلى ${gearCooldownInput} ثانية بنجاح.`,
                     });
                   }}
                   className="mr-auto px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold cursor-pointer"
                 >
-                  حفظ المدة
+                  حفظ المدة لحظياً
                 </button>
               </div>
             </div>
 
-            {/* 1-B. خانة التحكم في مدة كل قد إيه يتم مسح الشات في الشات العام */}
+            {/* 1-B. خانة التحكم في مدة كل قد إيه يتم مسح الشات في الشات العام (لحظياً) */}
             <div className="p-3 rounded-xl bg-[#112240] border border-amber-400/50 space-y-2.5">
-              <label className="block text-xs font-extrabold text-amber-300">
-                2. التحكم في مدة مسح الشات العام تلقائياً (كل قد إيه يتم مسح الشات العام):
-              </label>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <label className="block text-xs font-extrabold text-amber-300">
+                  2. التحكم في مدة مسح الشات العام تلقائياً (تحديث لحظي):
+                </label>
+                {remainingAutoClearSeconds !== null && (
+                  <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[10px] font-mono-tabular font-extrabold">
+                    المسح القادم خلال: {formatCountdown(remainingAutoClearSeconds)}
+                  </span>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 {[
+                  { label: '1 دقيقة', val: 1 },
+                  { label: '2 دقيقة', val: 2 },
+                  { label: '5 دقائق', val: 5 },
                   { label: '15 دقيقة', val: 15 },
                   { label: '30 دقيقة', val: 30 },
                   { label: 'ساعة (60 د)', val: 60 },
@@ -1289,9 +1377,16 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                   <button
                     key={preset.val}
                     type="button"
-                    onClick={() => setGearAutoClearInput(preset.val)}
+                    onClick={() => {
+                      setGearAutoClearInput(preset.val);
+                      onUpdateAutoClearMinutes?.(preset.val);
+                      setStatusFeedback({
+                        type: 'ok',
+                        text: `تم ضبط المسح التلقائي للشات العام لحظياً كل ${preset.val} دقيقة.`,
+                      });
+                    }}
                     className={`px-2 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer border ${
-                      gearAutoClearInput === preset.val
+                      autoClearMinutes === preset.val
                         ? 'bg-amber-500 text-[#0A192F] border-amber-300'
                         : 'bg-[#0A192F] text-[#94A3B8] border-[#334155] hover:text-white'
                     }`}
@@ -1307,7 +1402,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                   max={10080}
                   value={gearAutoClearInput}
                   onChange={(e) =>
-                    setGearAutoClearInput(Math.max(1, Number(e.target.value) || 60))
+                    setGearAutoClearInput(Math.max(1, Number(e.target.value) || 1))
                   }
                   className="w-24 rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-1.5 text-xs font-mono-tabular font-bold text-[#F8FAFC] outline-none"
                 />
@@ -1318,7 +1413,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                     onUpdateAutoClearMinutes?.(gearAutoClearInput);
                     setStatusFeedback({
                       type: 'ok',
-                      text: `تم ضبط المسح التلقائي للشات العام كل ${gearAutoClearInput} دقيقة.`,
+                      text: `تم ضبط المسح التلقائي للشات العام لحظياً كل ${gearAutoClearInput} دقيقة.`,
                     });
                   }}
                   className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold cursor-pointer"
@@ -1331,7 +1426,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                     onClearPublicChatNow?.();
                     setStatusFeedback({
                       type: 'ok',
-                      text: 'تم مسح جميع رسائل الشات العام فوراً.',
+                      text: 'تم مسح جميع رسائل الشات العام لحظياً لدى جميع المستخدمين.',
                     });
                   }}
                   className="mr-auto px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer"

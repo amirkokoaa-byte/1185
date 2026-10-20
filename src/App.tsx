@@ -13,6 +13,7 @@ import {
   X,
   CheckCircle2,
   Radio,
+  FileText,
 } from 'lucide-react';
 import {
   AdminMessage,
@@ -39,6 +40,7 @@ import {
   TawsilaRideItem,
   TopBannerAd,
   UserAccount,
+  UtilitySubmissionItem,
 } from './types';
 import {
   RealOnlinePresenceStats,
@@ -143,7 +145,7 @@ export default function App() {
     };
   }, [currentUser]);
 
-  // Automatic Public Chat Clear Timer controlled by Admin Gear (liveChatAutoClearMinutes)
+  // Automatic Public Chat Clear Timer controlled by Admin Gear (liveChatAutoClearMinutes) - ticks every 1 second for instant clearing
   useEffect(() => {
     const autoClearMins = dbState.settings.liveChatAutoClearMinutes ?? 0;
     if (autoClearMins <= 0) return;
@@ -157,9 +159,6 @@ export default function App() {
           : 0;
         const nowMs = Date.now();
         if (nowMs - lastClearedMs >= mins * 60 * 1000) {
-          if ((prev.liveChatMessages || []).length === 0) {
-            return prev;
-          }
           const nextState: PlatformDatabaseState = {
             ...prev,
             liveChatMessages: [],
@@ -175,9 +174,14 @@ export default function App() {
       });
     };
 
-    const timer = setInterval(checkAndAutoClear, 10000);
+    checkAndAutoClear();
+    const timer = setInterval(checkAndAutoClear, 1000);
     return () => clearInterval(timer);
-  }, [dbState.settings.liveChatAutoClearMinutes, currentUser?.id]);
+  }, [
+    dbState.settings.liveChatAutoClearMinutes,
+    dbState.settings.liveChatLastClearedAt,
+    currentUser?.id,
+  ]);
 
   useEffect(() => {
     const unsubData = storageEngine.subscribe((nextState) => {
@@ -749,8 +753,8 @@ export default function App() {
       textColor: textColor || '#F8FAFC',
       reports: [],
       createdAt: new Date().toISOString(),
-      isSystemNotification,
-      targetUsername,
+      ...(isSystemNotification ? { isSystemNotification: true } : {}),
+      ...(targetUsername ? { targetUsername } : {}),
     };
     updateAndPersist((prev) => ({
       ...prev,
@@ -1130,15 +1134,339 @@ export default function App() {
     }));
   };
 
+  // --- Utilities Submissions ("تقديمات المرافق") & Utility Posts Handlers ---
+  const handleAddUtilityType = (newTypeName: string) => {
+    const clean = newTypeName.trim();
+    if (!clean) return;
+    updateAndPersist((prev) => {
+      const currentTypes = prev.settings.utilityTypes || [
+        'تقديم المياه',
+        'تقديم الكهرباء',
+        'تقديم الغاز',
+      ];
+      if (currentTypes.includes(clean)) return prev;
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          utilityTypes: [...currentTypes, clean],
+        },
+      };
+    });
+  };
+
+  const handleSaveUtilitySubmission = (item: UtilitySubmissionItem) => {
+    updateAndPersist((prev) => {
+      const list = prev.utilitySubmissions || [];
+      const exists = list.some(
+        (u) => u.id === item.id || u.utilityName === item.utilityName
+      );
+      const nextList = exists
+        ? list.map((u) =>
+            u.id === item.id || u.utilityName === item.utilityName ? item : u
+          )
+        : [item, ...list];
+      return {
+        ...prev,
+        utilitySubmissions: nextList,
+      };
+    });
+  };
+
+  const handleDeleteUtilitySubmission = (id: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilitySubmissions: (prev.utilitySubmissions || []).filter(
+        (u) => u.id !== id
+      ),
+    }));
+  };
+
+  const handleAddUtilityPost = (post: CommunityPostItem) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: [post, ...(prev.utilityPosts || [])],
+    }));
+  };
+
+  const handleEditUtilityPost = (
+    postId: string,
+    updatedContent: string,
+    updatedPostType?: 'استفسار' | 'اقتراح' | 'بيع'
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) =>
+        p.id === postId
+          ? {
+              ...p,
+              content: updatedContent,
+              postType: updatedPostType || p.postType,
+            }
+          : p
+      ),
+    }));
+  };
+
+  const handleUpdateUtilityPostStatus = (
+    postId: string,
+    status: CommunityPostStatus
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) =>
+        p.id === postId ? { ...p, status } : p
+      ),
+    }));
+  };
+
+  const handleDeleteUtilityPost = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).filter((p) => p.id !== postId),
+    }));
+  };
+
+  const handleToggleUtilityPostLike = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        const alreadyLiked = p.likes.includes(visitorId);
+        return {
+          ...p,
+          likes: alreadyLiked
+            ? p.likes.filter((id) => id !== visitorId)
+            : [...p.likes, visitorId],
+          dislikes: p.dislikes.filter((id) => id !== visitorId),
+        };
+      }),
+    }));
+  };
+
+  const handleToggleUtilityPostDislike = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        const alreadyDisliked = p.dislikes.includes(visitorId);
+        return {
+          ...p,
+          dislikes: alreadyDisliked
+            ? p.dislikes.filter((id) => id !== visitorId)
+            : [...p.dislikes, visitorId],
+          likes: p.likes.filter((id) => id !== visitorId),
+        };
+      }),
+    }));
+  };
+
+  const handleReportUtilityPost = (
+    postId: string,
+    reason: CommunityReportReason
+  ) => {
+    const reporterName = currentUser?.username || 'زائر';
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) =>
+        p.id === postId
+          ? {
+              ...p,
+              reports: [
+                ...p.reports,
+                {
+                  id: `rep-up-${Date.now()}`,
+                  reporterId: visitorId,
+                  reporterUsername: reporterName,
+                  reason,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+            }
+          : p
+      ),
+    }));
+  };
+
+  const handleRestoreReportedUtilityPost = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) =>
+        p.id === postId ? { ...p, reports: [] } : p
+      ),
+    }));
+  };
+
+  const handleAddCommentToUtilityPost = (
+    postId: string,
+    comment: CommunityCommentItem
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) =>
+        p.id === postId ? { ...p, comments: [...p.comments, comment] } : p
+      ),
+    }));
+  };
+
+  const handleToggleUtilityCommentLike = (
+    postId: string,
+    commentId: string
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) => {
+            if (c.id !== commentId) return c;
+            const liked = c.likes.includes(visitorId);
+            return {
+              ...c,
+              likes: liked
+                ? c.likes.filter((id) => id !== visitorId)
+                : [...c.likes, visitorId],
+            };
+          }),
+        };
+      }),
+    }));
+  };
+
+  const handleToggleUtilityCommentEmoji = (
+    postId: string,
+    commentId: string,
+    reaction: CommentEmojiReactionType
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) => {
+            if (c.id !== commentId) return c;
+            const currentArr = c.reactions[reaction] || [];
+            const hasReacted = currentArr.includes(visitorId);
+            return {
+              ...c,
+              reactions: {
+                ...c.reactions,
+                [reaction]: hasReacted
+                  ? currentArr.filter((id) => id !== visitorId)
+                  : [...currentArr, visitorId],
+              },
+            };
+          }),
+        };
+      }),
+    }));
+  };
+
+  const handleAddReplyToUtilityComment = (
+    postId: string,
+    commentId: string,
+    reply: CommunityCommentReply
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, replies: [...c.replies, reply] } : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleReportUtilityComment = (
+    postId: string,
+    commentId: string,
+    reason: CommunityReportReason
+  ) => {
+    const reporterName = currentUser?.username || 'زائر';
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId
+              ? {
+                  ...c,
+                  reports: [
+                    ...c.reports,
+                    {
+                      id: `rep-uc-${Date.now()}`,
+                      reporterId: visitorId,
+                      reporterUsername: reporterName,
+                      reason,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ],
+                }
+              : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleDeleteUtilityComment = (postId: string, commentId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) =>
+        p.id === postId
+          ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) }
+          : p
+      ),
+    }));
+  };
+
+  const handleRestoreReportedUtilityComment = (
+    postId: string,
+    commentId: string
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, reports: [] } : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleTogglePinUtilityComment = (postId: string, commentId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, isPinned: !c.isPinned } : c
+          ),
+        };
+      }),
+    }));
+  };
+
   // --- Stage 5: Admin Settings, Accounts, Stores, Categories & Ads Handlers ---
   const handleUpdateSettings = (nextSettings: PlatformSettings) => {
-    const nextState: PlatformDatabaseState = {
-      ...dbState,
+    updateAndPersist((prev) => ({
+      ...prev,
       settings: nextSettings,
-    };
-    setDbState(nextState);
-    storageEngine.saveLocalState(nextState);
-    storageEngine.initializeSync(nextSettings.firebase, nextState);
+    }));
   };
 
   const handleUpdateUserAccount = (updatedUser: UserAccount) => {
@@ -1321,8 +1649,15 @@ export default function App() {
       icon: Users,
     },
     {
-      id: 'settings',
+      id: 'utilities',
       number: '5',
+      label: 'تقديمات المرافق',
+      subtitle: 'المياه والكهرباء والغاز والمنشورات',
+      icon: FileText,
+    },
+    {
+      id: 'settings',
+      number: '6',
       label: 'الإعدادات',
       subtitle: 'لوحة الـ Admin والتخزين والمراسلات',
       icon: Settings,
@@ -1648,6 +1983,25 @@ export default function App() {
             onMarkMessageRead={handleMarkMessageRead}
             onDeleteMessage={handleDeleteMessage}
             onRenameStoreCategory={handleRenameStoreCategory}
+            onAddUtilityType={handleAddUtilityType}
+            onSaveUtilitySubmission={handleSaveUtilitySubmission}
+            onDeleteUtilitySubmission={handleDeleteUtilitySubmission}
+            onAddUtilityPost={handleAddUtilityPost}
+            onEditUtilityPost={handleEditUtilityPost}
+            onUpdateUtilityPostStatus={handleUpdateUtilityPostStatus}
+            onDeleteUtilityPost={handleDeleteUtilityPost}
+            onToggleUtilityPostLike={handleToggleUtilityPostLike}
+            onToggleUtilityPostDislike={handleToggleUtilityPostDislike}
+            onReportUtilityPost={handleReportUtilityPost}
+            onRestoreReportedUtilityPost={handleRestoreReportedUtilityPost}
+            onAddCommentToUtilityPost={handleAddCommentToUtilityPost}
+            onToggleUtilityCommentLike={handleToggleUtilityCommentLike}
+            onToggleUtilityCommentEmoji={handleToggleUtilityCommentEmoji}
+            onAddReplyToUtilityComment={handleAddReplyToUtilityComment}
+            onReportUtilityComment={handleReportUtilityComment}
+            onDeleteUtilityComment={handleDeleteUtilityComment}
+            onRestoreReportedUtilityComment={handleRestoreReportedUtilityComment}
+            onTogglePinUtilityComment={handleTogglePinUtilityComment}
           />
         </main>
       </div>

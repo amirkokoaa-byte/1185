@@ -1,0 +1,6 @@
+{
+  "name": "منصة الأعمال والخدمات التجارية المتكاملة | Fluent Enterprise Hub",
+  "description": "نظام ويب خدمي وتجاري متكامل (SPA/PWA) بهوية Windows 10 Fluent Design، مزامنة لحظية عبر Firebase، رفع صور عبر ImgBB، وتصدير تقارير Excel و PDF.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

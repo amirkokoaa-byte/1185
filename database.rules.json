@@ -1,0 +1,59 @@
+{
+  "rules": {
+    ".read": true,
+    ".write": true,
+    "fluent_platform_v2": {
+      ".read": true,
+      ".write": true,
+      "state": {
+        "users": {
+          ".read": true,
+          ".write": true
+        },
+        "stores": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["category", "approved", "createdAt"]
+        },
+        "serviceNumbers": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["createdAt"]
+        },
+        "tawsilaRides": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["availableNow", "adminApproved", "driverId"]
+        },
+        "communityPosts": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": ["status", "postType", "createdAt"]
+        },
+        "topBanners": {
+          ".read": true,
+          ".write": true
+        },
+        "squareAds": {
+          ".read": true,
+          ".write": true
+        },
+        "popupAd": {
+          ".read": true,
+          ".write": true
+        },
+        "messages": {
+          ".read": true,
+          ".write": true
+        },
+        "settings": {
+          ".read": true,
+          ".write": true
+        }
+      },
+      "updatedAt": {
+        ".validate": "newData.isString()"
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { initializeApp, FirebaseApp, getApps, deleteApp } from 'firebase/app';
+import { getAnalytics, isSupported as isAnalyticsSupported } from 'firebase/analytics';
 import {
   getFirestore,
   Firestore,
@@ -109,6 +110,19 @@ export const createSquareAdSvg = (title: string, category: string, colorHex: str
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
 
+export const HIDDEN_DEFAULT_FIREBASE_CONFIG: FirebaseConfigSettings = {
+  enabled: true,
+  mode: 'firestore',
+  apiKey: 'AIzaSyChpehDm5ER9-_hrWl1pT8Oe1a6YJLU6kU',
+  authDomain: 'project-1796493268337237589.firebaseapp.com',
+  databaseURL: '',
+  projectId: 'project-1796493268337237589',
+  storageBucket: 'project-1796493268337237589.firebasestorage.app',
+  messagingSenderId: '164535462456',
+  appId: '1:164535462456:web:d0e2580876f4ef9da794cd',
+  measurementId: 'G-GY7K2HLTX5',
+};
+
 export const INITIAL_SETTINGS: PlatformSettings = {
   siteName: 'موقع خدمات التخيل 1185',
   marqueeText:
@@ -119,17 +133,10 @@ export const INITIAL_SETTINGS: PlatformSettings = {
   imgbbApiKey: '',
   googleMapsApiKey: '',
   storeCategories: DEFAULT_STORE_CATEGORIES,
-  firebase: {
-    enabled: false,
-    mode: 'firestore',
-    apiKey: '',
-    authDomain: '',
-    databaseURL: '',
-    projectId: '',
-    storageBucket: '',
-    messagingSenderId: '',
-    appId: '',
-  },
+  liveChatCooldownSeconds: 5,
+  liveChatAutoClearMinutes: 60,
+  liveChatLastClearedAt: new Date().toISOString(),
+  firebase: HIDDEN_DEFAULT_FIREBASE_CONFIG,
 };
 
 // Cleared demo accounts (kept only core admin so system settings remain accessible by admin)
@@ -251,8 +258,8 @@ function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPos
 
 function normalizeLiveChatList(rawList?: LiveChatMessageItem[]): LiveChatMessageItem[] {
   if (!Array.isArray(rawList)) return [];
-  // Keep latest 150 messages so chat stays blazingly fast and never lags
-  return rawList.slice(-150).map((m, idx) => ({
+  // Keep strictly only the latest 50 messages in Public Chat; older messages are permanently deleted
+  return rawList.slice(-50).map((m, idx) => ({
     id: m.id || `chat-${idx}`,
     authorId: m.authorId || 'guest',
     authorUsername: m.authorUsername || 'زائر',
@@ -260,6 +267,8 @@ function normalizeLiveChatList(rawList?: LiveChatMessageItem[]): LiveChatMessage
     textColor: m.textColor || '#F8FAFC',
     reports: Array.isArray(m.reports) ? m.reports : [],
     createdAt: m.createdAt || new Date().toISOString(),
+    isSystemNotification: m.isSystemNotification,
+    targetUsername: m.targetUsername,
   }));
 }
 
@@ -355,6 +364,15 @@ class HybridStorageEngine {
       const savedSettingsRaw = localStorage.getItem(SETTINGS_STORAGE_KEY);
       const savedStateRaw = localStorage.getItem(DB_STORAGE_KEY);
       const parsedSettings = savedSettingsRaw ? JSON.parse(savedSettingsRaw) : {};
+      const mergedFirebase: FirebaseConfigSettings =
+        parsedSettings.firebase && parsedSettings.firebase.apiKey
+          ? {
+              ...HIDDEN_DEFAULT_FIREBASE_CONFIG,
+              ...parsedSettings.firebase,
+              enabled: true,
+            }
+          : HIDDEN_DEFAULT_FIREBASE_CONFIG;
+
       const settings: PlatformSettings = {
         ...INITIAL_SETTINGS,
         ...parsedSettings,
@@ -366,6 +384,17 @@ class HybridStorageEngine {
             : DEFAULT_STORE_CATEGORIES,
         requireDriverCriminalRecordApproval:
           parsedSettings.requireDriverCriminalRecordApproval ?? false,
+        liveChatCooldownSeconds:
+          typeof parsedSettings.liveChatCooldownSeconds === 'number'
+            ? parsedSettings.liveChatCooldownSeconds
+            : 5,
+        liveChatAutoClearMinutes:
+          typeof parsedSettings.liveChatAutoClearMinutes === 'number'
+            ? parsedSettings.liveChatAutoClearMinutes
+            : 60,
+        liveChatLastClearedAt:
+          parsedSettings.liveChatLastClearedAt || new Date().toISOString(),
+        firebase: mergedFirebase,
       };
 
       if (savedStateRaw) {
@@ -389,6 +418,19 @@ class HybridStorageEngine {
             ? normalizeCommunityPostsList(parsed.communityPosts)
             : INITIAL_COMMUNITY_POSTS,
           liveChatMessages: normalizeLiveChatList(parsed.liveChatMessages),
+          chatPenalties: Array.isArray(parsed.chatPenalties)
+            ? parsed.chatPenalties
+            : [],
+          // Ephemeral private chats: cleared upon site exit/reload ("في حالة الخروج من الموقع يتم تحديث لايف شات ولا يظهر أي محادثات خاصة تم التحدث بها من قبل")
+          privateChatMessages: [],
+          privateChatStatuses: {},
+          userBlockedMap:
+            parsed.userBlockedMap && typeof parsed.userBlockedMap === 'object'
+              ? parsed.userBlockedMap
+              : {},
+          privateChatReports: Array.isArray(parsed.privateChatReports)
+            ? parsed.privateChatReports
+            : [],
           settings,
         };
         fastBrowserCache.setMemoryAndDiskCache(hydrated);
@@ -406,6 +448,11 @@ class HybridStorageEngine {
         tawsilaRides: INITIAL_TAWSILA,
         communityPosts: INITIAL_COMMUNITY_POSTS,
         liveChatMessages: INITIAL_LIVE_CHAT,
+        chatPenalties: [],
+        privateChatMessages: [],
+        privateChatStatuses: {},
+        userBlockedMap: {},
+        privateChatReports: [],
         settings,
       };
       this.saveLocalState(initialState);
@@ -422,6 +469,11 @@ class HybridStorageEngine {
         tawsilaRides: INITIAL_TAWSILA,
         communityPosts: INITIAL_COMMUNITY_POSTS,
         liveChatMessages: INITIAL_LIVE_CHAT,
+        chatPenalties: [],
+        privateChatMessages: [],
+        privateChatStatuses: {},
+        userBlockedMap: {},
+        privateChatReports: [],
         settings: INITIAL_SETTINGS,
       };
     }
@@ -444,6 +496,9 @@ class HybridStorageEngine {
           tawsilaRides: state.tawsilaRides,
           communityPosts: state.communityPosts,
           liveChatMessages: normalizeLiveChatList(state.liveChatMessages),
+          chatPenalties: state.chatPenalties || [],
+          userBlockedMap: state.userBlockedMap || {},
+          privateChatReports: state.privateChatReports || [],
         })
       );
     } catch (e) {
@@ -566,12 +621,26 @@ class HybridStorageEngine {
           projectId: firebaseConfig.projectId.trim(),
           storageBucket:
             firebaseConfig.storageBucket.trim() ||
-            `${firebaseConfig.projectId.trim()}.appspot.com`,
+            `${firebaseConfig.projectId.trim()}.firebasestorage.app`,
           messagingSenderId: firebaseConfig.messagingSenderId.trim(),
           appId: firebaseConfig.appId.trim(),
+          measurementId: firebaseConfig.measurementId?.trim() || 'G-GY7K2HLTX5',
         },
         'DynamicPortalApp'
       );
+
+      // Initialize Firebase Analytics silently in browser if supported
+      if (typeof window !== 'undefined') {
+        isAnalyticsSupported()
+          .then((supported) => {
+            if (supported && this.firebaseApp) {
+              getAnalytics(this.firebaseApp);
+            }
+          })
+          .catch(() => {
+            // ignore analytics init warnings in restricted environments
+          });
+      }
 
       if (firebaseConfig.mode === 'realtime' && firebaseConfig.databaseURL) {
         this.realtimeDb = getDatabase(this.firebaseApp);
@@ -597,6 +666,21 @@ class HybridStorageEngine {
                   ? normalizeCommunityPostsList(remoteData.communityPosts)
                   : [],
                 liveChatMessages: normalizeLiveChatList(remoteData.liveChatMessages),
+                chatPenalties: Array.isArray(remoteData.chatPenalties)
+                  ? remoteData.chatPenalties
+                  : currentState.chatPenalties || [],
+                privateChatMessages: Array.isArray(remoteData.privateChatMessages)
+                  ? remoteData.privateChatMessages
+                  : currentState.privateChatMessages || [],
+                privateChatStatuses:
+                  remoteData.privateChatStatuses ||
+                  currentState.privateChatStatuses ||
+                  {},
+                userBlockedMap:
+                  remoteData.userBlockedMap || currentState.userBlockedMap || {},
+                privateChatReports: Array.isArray(remoteData.privateChatReports)
+                  ? remoteData.privateChatReports
+                  : currentState.privateChatReports || [],
                 settings: {
                   ...currentState.settings,
                   ...(remoteData.settings || {}),
@@ -613,7 +697,7 @@ class HybridStorageEngine {
             }
             this.notifyStatus(
               'firebase_connected',
-              'متصل لحظياً مع Firebase Realtime Database + كاش المتصفح السريع'
+              'التسجيل السحابي نشط'
             );
           },
           (error) => {
@@ -647,6 +731,21 @@ class HybridStorageEngine {
                   ? normalizeCommunityPostsList(remoteData.communityPosts)
                   : [],
                 liveChatMessages: normalizeLiveChatList(remoteData.liveChatMessages),
+                chatPenalties: Array.isArray(remoteData.chatPenalties)
+                  ? remoteData.chatPenalties
+                  : currentState.chatPenalties || [],
+                privateChatMessages: Array.isArray(remoteData.privateChatMessages)
+                  ? remoteData.privateChatMessages
+                  : currentState.privateChatMessages || [],
+                privateChatStatuses:
+                  remoteData.privateChatStatuses ||
+                  currentState.privateChatStatuses ||
+                  {},
+                userBlockedMap:
+                  remoteData.userBlockedMap || currentState.userBlockedMap || {},
+                privateChatReports: Array.isArray(remoteData.privateChatReports)
+                  ? remoteData.privateChatReports
+                  : currentState.privateChatReports || [],
                 settings: {
                   ...currentState.settings,
                   ...(remoteData.settings || {}),
@@ -663,7 +762,7 @@ class HybridStorageEngine {
             }
             this.notifyStatus(
               'firebase_connected',
-              'متصل لحظياً مع سحابة Firebase Firestore + كاش المتصفح السريع'
+              'التسجيل السحابي نشط'
             );
           },
           (error) => {

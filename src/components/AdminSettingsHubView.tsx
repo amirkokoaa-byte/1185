@@ -298,6 +298,10 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   const [activeAdPackageTab, setActiveAdPackageTab] = useState<
     'moving_square' | 'top_banner' | 'popup_entry'
   >('moving_square');
+  const [selectedSquareAdIds, setSelectedSquareAdIds] = useState<string[]>([]);
+  const [confirmBulkDeleteSquare, setConfirmBulkDeleteSquare] = useState(false);
+  const [selectedTopBannerIds, setSelectedTopBannerIds] = useState<string[]>([]);
+  const [confirmBulkDeleteBanner, setConfirmBulkDeleteBanner] = useState(false);
 
   // Unified New / Edit Ad Form State
   const [editingAdId, setEditingAdId] = useState<string | null>(null);
@@ -688,7 +692,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       id: 'storage',
       number: 7,
       label: 'التخزين',
-      subtitle: 'API رفع الصور ومفاتيح Firebase',
+      subtitle: 'إعدادات API رفع الصور',
       icon: Database,
     },
   ];
@@ -1565,128 +1569,292 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                 {/* Existing Ads List for Current Package */}
                 {activeAdPackageTab === 'moving_square' && (
                   <div className="space-y-2.5 pt-2">
-                    <div className="text-xs font-extrabold text-[#94A3B8]">
-                      الإعلانات المربعة الحالية ({state.squareAds.length}):
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {state.squareAds.map((ad) => (
-                        <div
-                          key={ad.id}
-                          className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-3"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <img
-                              src={ad.imageUrl}
-                              alt={ad.title}
-                              className="w-12 h-12 rounded-lg object-cover border border-[#334155] shrink-0"
-                            />
-                            <div className="min-w-0">
-                              <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
-                                {ad.title}
-                              </div>
-                              <div className="text-[11px] text-sky-400">
-                                {ad.category} · {getDaysRemainingBadge(ad.expiresAt)}
-                              </div>
-                            </div>
-                          </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-extrabold text-[#94A3B8]">
+                        الإعلانات المربعة الحالية ({state.squareAds.length}):
+                      </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
+                      {state.squareAds.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (selectedSquareAdIds.length === state.squareAds.length) {
+                                setSelectedSquareAdIds([]);
+                              } else {
+                                setSelectedSquareAdIds(state.squareAds.map((a) => a.id));
+                              }
+                              setConfirmBulkDeleteSquare(false);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-[#0A192F] border border-sky-400/50 text-sky-300 text-xs font-bold cursor-pointer"
+                          >
+                            {selectedSquareAdIds.length === state.squareAds.length
+                              ? 'إلغاء تحديد الكل'
+                              : 'تحديد الكل'}
+                          </button>
+
+                          {selectedSquareAdIds.length > 0 && !confirmBulkDeleteSquare && (
                             <button
                               type="button"
-                              onClick={() => onTogglePinSquareAd(ad.id)}
-                              className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
-                                ad.isAdminPinned
-                                  ? 'bg-amber-500 text-[#0A192F]'
-                                  : 'bg-[#1E293B] text-[#94A3B8]'
-                              }`}
-                            >
-                              {ad.isAdminPinned ? 'مثبت' : 'عشوائي'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingAdId(ad.id);
-                                setAdPlaceName(ad.title);
-                                setAdCategoryOrSub(ad.category);
-                                setAdLocationUrl(ad.locationUrl || '');
-                                setAdPhone(ad.phone || '');
-                                setAdDurationDays(ad.durationDays || 5);
-                                setAdMainImage(ad.imageUrl);
-                                setAdMenuImages(ad.menuImages || []);
-                                setAdPinned(ad.isAdminPinned);
-                              }}
-                              className="p-1.5 rounded bg-sky-600/20 text-sky-400 hover:bg-sky-600 hover:text-white cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDeleteSquareAd(ad.id)}
-                              className="p-1.5 rounded bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer"
+                              onClick={() => setConfirmBulkDeleteSquare(true)}
+                              className="px-3 py-1 rounded-lg bg-rose-600/85 hover:bg-rose-600 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
+                              <span>حذف المحدد ({selectedSquareAdIds.length})</span>
                             </button>
-                          </div>
+                          )}
+
+                          {confirmBulkDeleteSquare && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  selectedSquareAdIds.forEach((id) => onDeleteSquareAd(id));
+                                  showToast(
+                                    `تم حذف ${selectedSquareAdIds.length} إعلان دفعة واحدة بنجاح.`
+                                  );
+                                  setSelectedSquareAdIds([]);
+                                  setConfirmBulkDeleteSquare(false);
+                                }}
+                                className="px-3.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white border border-white/60 text-xs font-extrabold flex items-center gap-1 cursor-pointer animate-pulse shadow-lg"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>تأكيد الحذف ({selectedSquareAdIds.length})</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmBulkDeleteSquare(false)}
+                                className="px-2.5 py-1 rounded-lg bg-[#1E293B] text-[#94A3B8] hover:text-white text-xs font-bold cursor-pointer"
+                              >
+                                إلغاء
+                              </button>
+                            </>
+                          )}
                         </div>
-                      ))}
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {state.squareAds.map((ad) => {
+                        const isChecked = selectedSquareAdIds.includes(ad.id);
+                        return (
+                          <div
+                            key={ad.id}
+                            className={`p-3 rounded-xl bg-[#0A192F] border flex items-center justify-between gap-3 ${
+                              isChecked
+                                ? 'border-rose-500 ring-1 ring-rose-500/40'
+                                : 'border-[#334155]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  setSelectedSquareAdIds((prev) =>
+                                    prev.includes(ad.id)
+                                      ? prev.filter((x) => x !== ad.id)
+                                      : [...prev, ad.id]
+                                  );
+                                  setConfirmBulkDeleteSquare(false);
+                                }}
+                                className="w-4 h-4 accent-rose-500 cursor-pointer shrink-0"
+                              />
+                              <img
+                                src={ad.imageUrl}
+                                alt={ad.title}
+                                className="w-12 h-12 rounded-lg object-cover border border-[#334155] shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
+                                  {ad.title}
+                                </div>
+                                <div className="text-[11px] text-sky-400">
+                                  {ad.category} · {getDaysRemainingBadge(ad.expiresAt)}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => onTogglePinSquareAd(ad.id)}
+                                className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
+                                  ad.isAdminPinned
+                                    ? 'bg-amber-500 text-[#0A192F]'
+                                    : 'bg-[#1E293B] text-[#94A3B8]'
+                                }`}
+                              >
+                                {ad.isAdminPinned ? 'مثبت' : 'عشوائي'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingAdId(ad.id);
+                                  setAdPlaceName(ad.title);
+                                  setAdCategoryOrSub(ad.category);
+                                  setAdLocationUrl(ad.locationUrl || '');
+                                  setAdPhone(ad.phone || '');
+                                  setAdDurationDays(ad.durationDays || 5);
+                                  setAdMainImage(ad.imageUrl);
+                                  setAdMenuImages(ad.menuImages || []);
+                                  setAdPinned(ad.isAdminPinned);
+                                }}
+                                className="p-1.5 rounded bg-sky-600/20 text-sky-400 hover:bg-sky-600 hover:text-white cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDeleteSquareAd(ad.id)}
+                                className="p-1.5 rounded bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
                 {activeAdPackageTab === 'top_banner' && (
                   <div className="space-y-2.5 pt-2">
-                    <div className="text-xs font-extrabold text-[#94A3B8]">
-                      البنرات العلوية الحالية ({state.topBanners.length}):
-                    </div>
-                    <div className="space-y-2.5">
-                      {state.topBanners.map((b) => (
-                        <div
-                          key={b.id}
-                          className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-3"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <img
-                              src={b.imageUrl}
-                              alt={b.title}
-                              className="w-16 h-11 rounded-lg object-cover border border-[#334155] shrink-0"
-                            />
-                            <div className="min-w-0">
-                              <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
-                                {b.title}
-                              </div>
-                              <div className="text-[11px] text-sky-400 truncate">
-                                {getDaysRemainingBadge(b.expiresAt)} · {b.subtitle}
-                              </div>
-                            </div>
-                          </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-extrabold text-[#94A3B8]">
+                        البنرات العلوية الحالية ({state.topBanners.length}):
+                      </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
+                      {state.topBanners.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (selectedTopBannerIds.length === state.topBanners.length) {
+                                setSelectedTopBannerIds([]);
+                              } else {
+                                setSelectedTopBannerIds(state.topBanners.map((b) => b.id));
+                              }
+                              setConfirmBulkDeleteBanner(false);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-[#0A192F] border border-sky-400/50 text-sky-300 text-xs font-bold cursor-pointer"
+                          >
+                            {selectedTopBannerIds.length === state.topBanners.length
+                              ? 'إلغاء تحديد الكل'
+                              : 'تحديد الكل'}
+                          </button>
+
+                          {selectedTopBannerIds.length > 0 && !confirmBulkDeleteBanner && (
                             <button
                               type="button"
-                              onClick={() => {
-                                setEditingAdId(b.id);
-                                setAdPlaceName(b.title);
-                                setAdCategoryOrSub(b.subtitle || '');
-                                setAdLocationUrl(b.locationUrl || '');
-                                setAdPhone(b.phone || b.whatsappPhone || '');
-                                setAdDurationDays(b.durationDays || 5);
-                                setAdMainImage(b.imageUrl);
-                                setAdMenuImages(b.menuImages || []);
-                              }}
-                              className="p-1.5 rounded bg-sky-600/20 text-sky-400 hover:bg-sky-600 hover:text-white cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDeleteTopBanner(b.id)}
-                              className="p-1.5 rounded bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer"
+                              onClick={() => setConfirmBulkDeleteBanner(true)}
+                              className="px-3 py-1 rounded-lg bg-rose-600/85 hover:bg-rose-600 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
+                              <span>حذف المحدد ({selectedTopBannerIds.length})</span>
                             </button>
-                          </div>
+                          )}
+
+                          {confirmBulkDeleteBanner && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  selectedTopBannerIds.forEach((id) => onDeleteTopBanner(id));
+                                  showToast(
+                                    `تم حذف ${selectedTopBannerIds.length} بنر دفعة واحدة بنجاح.`
+                                  );
+                                  setSelectedTopBannerIds([]);
+                                  setConfirmBulkDeleteBanner(false);
+                                }}
+                                className="px-3.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white border border-white/60 text-xs font-extrabold flex items-center gap-1 cursor-pointer animate-pulse shadow-lg"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>تأكيد الحذف ({selectedTopBannerIds.length})</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmBulkDeleteBanner(false)}
+                                className="px-2.5 py-1 rounded-lg bg-[#1E293B] text-[#94A3B8] hover:text-white text-xs font-bold cursor-pointer"
+                              >
+                                إلغاء
+                              </button>
+                            </>
+                          )}
                         </div>
-                      ))}
+                      )}
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {state.topBanners.map((b) => {
+                        const isChecked = selectedTopBannerIds.includes(b.id);
+                        return (
+                          <div
+                            key={b.id}
+                            className={`p-3 rounded-xl bg-[#0A192F] border flex items-center justify-between gap-3 ${
+                              isChecked
+                                ? 'border-rose-500 ring-1 ring-rose-500/40'
+                                : 'border-[#334155]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  setSelectedTopBannerIds((prev) =>
+                                    prev.includes(b.id)
+                                      ? prev.filter((x) => x !== b.id)
+                                      : [...prev, b.id]
+                                  );
+                                  setConfirmBulkDeleteBanner(false);
+                                }}
+                                className="w-4 h-4 accent-rose-500 cursor-pointer shrink-0"
+                              />
+                              <img
+                                src={b.imageUrl}
+                                alt={b.title}
+                                className="w-16 h-11 rounded-lg object-cover border border-[#334155] shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
+                                  {b.title}
+                                </div>
+                                <div className="text-[11px] text-sky-400 truncate">
+                                  {getDaysRemainingBadge(b.expiresAt)} · {b.subtitle}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingAdId(b.id);
+                                  setAdPlaceName(b.title);
+                                  setAdCategoryOrSub(b.subtitle || '');
+                                  setAdLocationUrl(b.locationUrl || '');
+                                  setAdPhone(b.phone || b.whatsappPhone || '');
+                                  setAdDurationDays(b.durationDays || 5);
+                                  setAdMainImage(b.imageUrl);
+                                  setAdMenuImages(b.menuImages || []);
+                                }}
+                                className="p-1.5 rounded bg-sky-600/20 text-sky-400 hover:bg-sky-600 hover:text-white cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDeleteTopBanner(b.id)}
+                                className="p-1.5 rounded bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1906,169 +2074,27 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                 </form>
               </FluentCard>
 
-              {/* Part B: ربط قاعدة البيانات (Firebase) */}
-              <FluentCard className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#334155]">
-                  <div>
-                    <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
-                      <Database className="w-5 h-5 text-emerald-400" />
-                      <span>ثانياً: ربط قاعدة البيانات السحابية (Firebase)</span>
-                    </h3>
-                    <p className="text-xs text-sky-400">{connMessage}</p>
-                  </div>
-
-                  <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#0A192F] border border-sky-400/40 text-xs font-extrabold text-sky-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={fbEnabled}
-                      onChange={(e) => setFbEnabled(e.target.checked)}
-                      className="w-4 h-4 accent-sky-500"
-                    />
-                    <span>تفعيل المزامنة السحابية اللحظية</span>
-                  </label>
-                </div>
-
-                {/* Smart JSON Snippet Extractor */}
-                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-2">
-                  <label className="block text-xs font-bold text-sky-400">
-                    لصق سريع لكود إعدادات Firebase (اختياري للاستخراج التلقائي)
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <textarea
-                      rows={2}
-                      value={fbPasteSnippet}
-                      onChange={(e) => setFbPasteSnippet(e.target.value)}
-                      placeholder='الصق كود firebaseConfig هنا مثل: { apiKey: "...", projectId: "..." }'
-                      className="flex-1 rounded-lg bg-[#112240] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] font-mono-tabular outline-none"
-                    />
-                    <FluentButton
-                      type="button"
-                      variant="secondary"
-                      onClick={handleExtractFirebaseSnippet}
-                    >
-                      استخراج المفاتيح
-                    </FluentButton>
-                  </div>
-                </div>
-
-                <form onSubmit={handleSaveFirebaseConfig} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                    <div>
-                      <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                        نوع قاعدة البيانات
-                      </label>
-                      <select
-                        value={fbMode}
-                        onChange={(e) =>
-                          setFbMode(e.target.value as 'firestore' | 'realtime')
-                        }
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] outline-none"
-                      >
-                        <option value="firestore">Cloud Firestore</option>
-                        <option value="realtime">Realtime Database</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                        apiKey
-                      </label>
-                      <input
-                        type="text"
-                        value={fbApiKey}
-                        onChange={(e) => setFbApiKey(e.target.value)}
-                        placeholder="AIzaSy..."
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] font-mono-tabular outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                        projectId
-                      </label>
-                      <input
-                        type="text"
-                        value={fbProjectId}
-                        onChange={(e) => setFbProjectId(e.target.value)}
-                        placeholder="my-project-id"
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] font-mono-tabular outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                        databaseURL
-                      </label>
-                      <input
-                        type="text"
-                        value={fbDatabaseURL}
-                        onChange={(e) => setFbDatabaseURL(e.target.value)}
-                        placeholder="https://my-project.firebaseio.com"
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] font-mono-tabular outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                        authDomain
-                      </label>
-                      <input
-                        type="text"
-                        value={fbAuthDomain}
-                        onChange={(e) => setFbAuthDomain(e.target.value)}
-                        placeholder="my-project.firebaseapp.com"
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] font-mono-tabular outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                        storageBucket
-                      </label>
-                      <input
-                        type="text"
-                        value={fbStorageBucket}
-                        onChange={(e) => setFbStorageBucket(e.target.value)}
-                        placeholder="my-project.appspot.com"
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] font-mono-tabular outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                        messagingSenderId
-                      </label>
-                      <input
-                        type="text"
-                        value={fbMessagingSenderId}
-                        onChange={(e) => setFbMessagingSenderId(e.target.value)}
-                        placeholder="1234567890"
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] font-mono-tabular outline-none"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                        appId
-                      </label>
-                      <input
-                        type="text"
-                        value={fbAppId}
-                        onChange={(e) => setFbAppId(e.target.value)}
-                        placeholder="1:1234567890:web:abcdef"
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] font-mono-tabular outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end pt-2">
-                    <FluentButton type="submit" variant="primary" size="lg">
-                      <Save className="w-4 h-4" />
-                      <span>حفظ وتفعيل ربط Firebase</span>
-                    </FluentButton>
-                  </div>
+              {/* Part B: التسجيل السحابي مخفي ويعمل تلقائياً في الخلفية ولا يظهر للجميع */}
+              <div className="hidden" aria-hidden="true">
+                <span>{connStatus}</span>
+                <span>{connMessage}</span>
+                <button type="button" onClick={handleExtractFirebaseSnippet} />
+                <form onSubmit={handleSaveFirebaseConfig}>
+                  <input value={fbPasteSnippet} onChange={(e) => setFbPasteSnippet(e.target.value)} />
+                  <input type="checkbox" checked={fbEnabled} onChange={(e) => setFbEnabled(e.target.checked)} />
+                  <select value={fbMode} onChange={(e) => setFbMode(e.target.value as 'firestore' | 'realtime')}>
+                    <option value="firestore">firestore</option>
+                    <option value="realtime">realtime</option>
+                  </select>
+                  <input value={fbApiKey} onChange={(e) => setFbApiKey(e.target.value)} />
+                  <input value={fbProjectId} onChange={(e) => setFbProjectId(e.target.value)} />
+                  <input value={fbDatabaseURL} onChange={(e) => setFbDatabaseURL(e.target.value)} />
+                  <input value={fbAuthDomain} onChange={(e) => setFbAuthDomain(e.target.value)} />
+                  <input value={fbStorageBucket} onChange={(e) => setFbStorageBucket(e.target.value)} />
+                  <input value={fbMessagingSenderId} onChange={(e) => setFbMessagingSenderId(e.target.value)} />
+                  <input value={fbAppId} onChange={(e) => setFbAppId(e.target.value)} />
                 </form>
-              </FluentCard>
+              </div>
             </div>
           )}
         </div>

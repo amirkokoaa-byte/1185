@@ -37,6 +37,10 @@ import {
   parseStoresFromExcelFile,
   parseStoresFromPDFFile,
 } from '../services/exportService';
+import {
+  ABUSIVE_CONTENT_WARNING_MESSAGE,
+  containsAbusiveWords,
+} from '../services/profanityFilter';
 
 interface DirectoryStoresViewProps {
   stores: StoreListingItem[];
@@ -125,6 +129,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
   const [replyDraftText, setReplyDraftText] = useState<string>('');
   const [activeMenuPageIdx, setActiveMenuPageIdx] = useState<number>(0);
+  const [profanityWarning, setProfanityWarning] = useState<string>('');
 
   const activeStore = stores.find((s) => s.id === activeStoreId) || null;
 
@@ -396,6 +401,11 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               size="sm"
               onClick={() => {
                 if (!replyDraftText.trim()) return;
+                if (containsAbusiveWords(replyDraftText)) {
+                  setProfanityWarning(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                  return;
+                }
+                setProfanityWarning('');
                 onAddCommentReply(store.id, comment.id, {
                   id: `rep-${Date.now()}`,
                   authorId: currentVisitorId,
@@ -418,85 +428,79 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
   return (
     <div className="space-y-6 w-full overflow-x-hidden">
-      {/* 1. Top Action Bar: "أضف محل" Button + Excel/PDF Import + Admin Export */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#112240]/95 border border-[#334155] rounded-2xl p-4 sm:p-5 shadow-lg">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
-            <Store className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-lg sm:text-xl font-extrabold text-[#F8FAFC]">
-              أضف محل / الدليل التجاري والخدمي الشامل
+      {/* 1. Top Action Bar: "أضف محل / الدليل التجاري" + "أضف محل" Button on 1 line + Admin Only Excel/PDF Import & Export */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#112240]/95 border border-[#334155] rounded-2xl p-3.5 sm:p-5 shadow-lg">
+        <div className="flex items-center justify-between sm:justify-start gap-2.5 flex-nowrap w-full lg:w-auto">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
+              <Store className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <h1 className="text-sm sm:text-xl font-extrabold text-[#F8FAFC] truncate">
+              أضف محل / الدليل التجاري
             </h1>
-            <p className="text-xs text-[#94A3B8]">
-              تصفح المنيوهات والأسعار واللوكيشن أو أضف محلك فوراً
-            </p>
           </div>
 
-          {/* Primary "أضف محل" Button right beside the title */}
+          {/* Primary "أضف محل" Button right beside the title on the same line */}
           <FluentButton
             variant="primary"
-            size="md"
+            size="sm"
             onClick={() => {
               setStoreCategory(settings.storeCategories[0] || 'سوبر ماركت');
               setIsAddModalOpen(true);
             }}
-            className="mr-2"
+            className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 shrink-0" />
             <span>أضف محل</span>
           </FluentButton>
         </div>
 
-        {/* Import (All Users) & Export (Admin Only) Toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* أضف إكسيل */}
-          <label className="fluent-reveal inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-emerald-300 border border-emerald-500/40 cursor-pointer">
-            <Upload className="w-3.5 h-3.5 text-emerald-400" />
-            <span>أضف إكسيل</span>
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleExcelImport}
-              className="hidden"
-            />
-          </label>
+        {/* Import & Export Toolbar: Strictly Admin Only ("زر اضف اكسيل او بي دي اف صلاحيات admin فقط") */}
+        {currentUser?.role === 'admin' && (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* أضف إكسيل */}
+            <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-emerald-300 border border-emerald-500/40 cursor-pointer">
+              <Upload className="w-3.5 h-3.5 text-emerald-400" />
+              <span>أضف إكسيل</span>
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleExcelImport}
+                className="hidden"
+              />
+            </label>
 
-          {/* أضف PDF */}
-          <label className="fluent-reveal inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-sky-300 border border-sky-500/40 cursor-pointer">
-            <Upload className="w-3.5 h-3.5 text-sky-400" />
-            <span>أضف PDF</span>
-            <input
-              type="file"
-              accept=".pdf"
-              onChange={handlePDFImport}
-              className="hidden"
-            />
-          </label>
+            {/* أضف PDF */}
+            <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-sky-300 border border-sky-500/40 cursor-pointer">
+              <Upload className="w-3.5 h-3.5 text-sky-400" />
+              <span>أضف PDF</span>
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={handlePDFImport}
+                className="hidden"
+              />
+            </label>
 
-          {/* Admin Only: تصدير إكسيل & تصدير PDF */}
-          {isAdmin && (
-            <>
-              <FluentButton
-                variant="secondary"
-                size="sm"
-                onClick={() => exportStoresToExcel(filteredStores)}
-              >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                <span>تصدير إكسيل</span>
-              </FluentButton>
+            <FluentButton
+              variant="secondary"
+              size="sm"
+              onClick={() => exportStoresToExcel(filteredStores)}
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>تصدير إكسيل</span>
+            </FluentButton>
 
-              <FluentButton
-                variant="secondary"
-                size="sm"
-                onClick={() => exportStoresToPDF(filteredStores)}
-              >
-                <FileText className="w-4 h-4 text-rose-400" />
-                <span>تصدير PDF</span>
-              </FluentButton>
-            </>
-          )}
-        </div>
+            <FluentButton
+              variant="secondary"
+              size="sm"
+              onClick={() => exportStoresToPDF(filteredStores)}
+            >
+              <FileText className="w-4 h-4 text-rose-400" />
+              <span>تصدير PDF</span>
+            </FluentButton>
+          </div>
+        )}
       </div>
 
       {importNotice && (
@@ -506,34 +510,30 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         </div>
       )}
 
-      {/* 3. Instant Search Bar & Category Filter Dropdown/Sidebar Strip */}
-      <div className="bg-[#112240]/80 border border-[#334155] rounded-2xl p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Search Input + Search Button */}
-          <div className="relative flex-1 flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+      {/* 3. Instant Search Bar & Category Filter Dropdown in a Single Row */}
+      <div className="bg-[#112240]/80 border border-[#334155] rounded-2xl p-3 sm:p-4 space-y-2.5">
+        <div className="flex flex-row items-center gap-2 sm:gap-3 flex-nowrap">
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-0 flex items-center gap-1.5">
+            <div className="relative flex-1 min-w-0">
+              <Search className="w-4 h-4 text-sky-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="ابحث عن أي اسم مكان، سوبر ماركت، مطعم، صيدلية، أو إعلان مسجل لحظياً..."
-                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
+                placeholder="ابحث عن محل أو قسم..."
+                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-9 pl-2.5 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] outline-none"
               />
             </div>
-            <FluentButton variant="primary" size="md">
-              <Search className="w-4 h-4" />
-              <span>بحث</span>
-            </FluentButton>
           </div>
 
-          {/* Category Dropdown Filter */}
-          <div className="flex items-center gap-2 shrink-0">
-            <Filter className="w-4 h-4 text-sky-400 shrink-0" />
+          {/* Category Dropdown Filter beside Search in 1 line */}
+          <div className="flex items-center gap-1.5 shrink-0 w-[135px] sm:w-56">
+            <Filter className="w-4 h-4 text-sky-400 shrink-0 hidden sm:block" />
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full sm:w-56 rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-[#F8FAFC] font-bold outline-none"
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-2.5 sm:px-3.5 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] font-bold outline-none"
             >
               <option value="all">جميع الأقسام ({stores.length})</option>
               {settings.storeCategories.map((cat) => (
@@ -545,12 +545,12 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           </div>
         </div>
 
-        {/* Quick Horizontal Category Pills/Buttons for 1-Tap Filtering */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
+        {/* Only "الكل" Button (Categories horizontal scrolling strip hidden per instructions) */}
+        <div className="flex items-center gap-2 pt-0.5">
           <button
             type="button"
             onClick={() => setSelectedCategory('all')}
-            className={`fluent-reveal px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer ${
+            className={`fluent-reveal px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer ${
               selectedCategory === 'all'
                 ? 'bg-sky-600 text-white'
                 : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
@@ -558,23 +558,6 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           >
             الكل ({stores.length})
           </button>
-          {settings.storeCategories.map((cat) => {
-            const isSelected = selectedCategory === cat;
-            return (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setSelectedCategory(cat)}
-                className={`fluent-reveal px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer ${
-                  isSelected
-                    ? 'bg-sky-600 text-white'
-                    : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
-                }`}
-              >
-                {cat}
-              </button>
-            );
-          })}
         </div>
       </div>
 
@@ -1115,11 +1098,20 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 ))}
               </div>
 
+              {profanityWarning && (
+                <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-400 text-rose-200 text-xs font-extrabold">
+                  {profanityWarning}
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row gap-2.5">
                 <input
                   type="text"
                   value={newCommentText}
-                  onChange={(e) => setNewCommentText(e.target.value)}
+                  onChange={(e) => {
+                    setNewCommentText(e.target.value);
+                    if (profanityWarning) setProfanityWarning('');
+                  }}
                   placeholder="أضف تعليقك هنا ليظهر لحظياً لجميع المستخدمين..."
                   className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-[#F8FAFC] outline-none"
                 />
@@ -1127,6 +1119,11 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   variant="primary"
                   onClick={() => {
                     if (!newCommentText.trim()) return;
+                    if (containsAbusiveWords(newCommentText)) {
+                      setProfanityWarning(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                      return;
+                    }
+                    setProfanityWarning('');
                     const createdComment: StoreCommentItem = {
                       id: `cmt-${Date.now()}`,
                       authorId: currentVisitorId,

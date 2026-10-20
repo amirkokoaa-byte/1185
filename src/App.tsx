@@ -11,12 +11,12 @@ import {
   Users,
   Settings,
   X,
-  Database,
   CheckCircle2,
   Radio,
 } from 'lucide-react';
 import {
   AdminMessage,
+  ChatModerationPenalty,
   CommentEmojiReactionType,
   CommunityCommentItem,
   CommunityCommentReply,
@@ -28,6 +28,9 @@ import {
   PlatformDatabaseState,
   PlatformSettings,
   PopupAdConfig,
+  PrivateChatMessageItem,
+  PrivateChatReportItem,
+  PrivateChatStatus,
   ServicePhoneEntry,
   SquareMovingAd,
   StoreCommentItem,
@@ -112,6 +115,17 @@ export default function App() {
     };
     const handleBeforeUnload = () => {
       removeCurrentTabPresence();
+      try {
+        // Upon exiting the site, clear ephemeral private chat history from local storage
+        const currentLocal = storageEngine.loadLocalState();
+        storageEngine.saveLocalState({
+          ...currentLocal,
+          privateChatMessages: [],
+          privateChatStatuses: {},
+        });
+      } catch {
+        // Ignore unload storage errors
+      }
     };
 
     window.addEventListener('storage', refreshOnline);
@@ -128,6 +142,42 @@ export default function App() {
       window.removeEventListener('pagehide', handleBeforeUnload);
     };
   }, [currentUser]);
+
+  // Automatic Public Chat Clear Timer controlled by Admin Gear (liveChatAutoClearMinutes)
+  useEffect(() => {
+    const autoClearMins = dbState.settings.liveChatAutoClearMinutes ?? 0;
+    if (autoClearMins <= 0) return;
+
+    const checkAndAutoClear = () => {
+      setDbState((prev) => {
+        const mins = prev.settings.liveChatAutoClearMinutes ?? 0;
+        if (mins <= 0) return prev;
+        const lastClearedMs = prev.settings.liveChatLastClearedAt
+          ? new Date(prev.settings.liveChatLastClearedAt).getTime()
+          : 0;
+        const nowMs = Date.now();
+        if (nowMs - lastClearedMs >= mins * 60 * 1000) {
+          if ((prev.liveChatMessages || []).length === 0) {
+            return prev;
+          }
+          const nextState: PlatformDatabaseState = {
+            ...prev,
+            liveChatMessages: [],
+            settings: {
+              ...prev.settings,
+              liveChatLastClearedAt: new Date(nowMs).toISOString(),
+            },
+          };
+          storageEngine.persistState(nextState, currentUser?.id);
+          return nextState;
+        }
+        return prev;
+      });
+    };
+
+    const timer = setInterval(checkAndAutoClear, 10000);
+    return () => clearInterval(timer);
+  }, [dbState.settings.liveChatAutoClearMinutes, currentUser?.id]);
 
   useEffect(() => {
     const unsubData = storageEngine.subscribe((nextState) => {
@@ -189,6 +239,12 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     storageEngine.saveAuthenticatedUser(null, false);
+    // Clear private chats when logging out
+    updateAndPersist((prev) => ({
+      ...prev,
+      privateChatMessages: [],
+      privateChatStatuses: {},
+    }));
     if (activeSection === 'settings') {
       setActiveSection('directory');
     }
@@ -660,7 +716,12 @@ export default function App() {
   };
 
   // --- Live Community Chat Handlers ("محادثة لايف") ---
-  const handleSendChatMessage = (text: string, textColor: string) => {
+  const handleSendChatMessage = (
+    text: string,
+    textColor: string,
+    isSystemNotification?: boolean,
+    targetUsername?: string
+  ) => {
     const newMsg: LiveChatMessageItem = {
       id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       authorId: visitorId,
@@ -669,10 +730,12 @@ export default function App() {
       textColor: textColor || '#F8FAFC',
       reports: [],
       createdAt: new Date().toISOString(),
+      isSystemNotification,
+      targetUsername,
     };
     updateAndPersist((prev) => ({
       ...prev,
-      liveChatMessages: [...(prev.liveChatMessages || []).slice(-149), newMsg],
+      liveChatMessages: [...(prev.liveChatMessages || []).slice(-49), newMsg],
     }));
   };
 
@@ -690,6 +753,19 @@ export default function App() {
             senderUsername: `بلاغ محادثة لايف (${reporterName})`,
             content: `بلاغ (${reason}) ضد رسالة "${targetMsg.authorUsername}": "${targetMsg.text}"`,
             isRead: false,
+            createdAt: new Date().toISOString(),
+          }
+        : null;
+
+      const privateRep: PrivateChatReportItem | null = targetMsg
+        ? {
+            id: `pcrep-pub-${Date.now()}`,
+            reporterId: visitorId,
+            reporterUsername: reporterName,
+            reportedUserId: targetMsg.authorId,
+            reportedUsername: targetMsg.authorUsername,
+            reason,
+            sampleMessage: targetMsg.text,
             createdAt: new Date().toISOString(),
           }
         : null;
@@ -713,17 +789,325 @@ export default function App() {
               }
             : m
         ),
+        privateChatReports: privateRep
+          ? [privateRep, ...(prev.privateChatReports || [])]
+          : prev.privateChatReports || [],
         messages: reportAlert ? [reportAlert, ...prev.messages] : prev.messages,
       };
     });
   };
 
-  const handleDeleteChatMessage = (msgId: string) => {
+  const handleDeleteChatMessage = (msgId: string, notifyUsername?: string) => {
+    updateAndPersist((prev) => {
+      const filtered = (prev.liveChatMessages || []).filter(
+        (m) => m.id !== msgId
+      );
+      if (notifyUsername) {
+        const sysMsg: LiveChatMessageItem = {
+          id: `chat-sys-${Date.now()}`,
+          authorId: 'system-admin',
+          authorUsername: 'النظام',
+          text: `تم حذف رسالة المستخدم "${notifyUsername}" بواسطة الإدارة`,
+          textColor: '#F87171',
+          reports: [],
+          createdAt: new Date().toISOString(),
+          isSystemNotification: true,
+          targetUsername: notifyUsername,
+        };
+        return {
+          ...prev,
+          liveChatMessages: [...filtered.slice(-49), sysMsg],
+        };
+      }
+      return {
+        ...prev,
+        liveChatMessages: filtered.slice(-50),
+      };
+    });
+  };
+
+  const handleUpdateChatCooldown = (seconds: number) => {
     updateAndPersist((prev) => ({
       ...prev,
-      liveChatMessages: (prev.liveChatMessages || []).filter(
-        (m) => m.id !== msgId
+      settings: {
+        ...prev.settings,
+        liveChatCooldownSeconds: Math.max(0, seconds),
+      },
+    }));
+  };
+
+  const handleUpdateAutoClearMinutes = (minutes: number) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        liveChatAutoClearMinutes: Math.max(0, minutes),
+        liveChatLastClearedAt: new Date().toISOString(),
+      },
+    }));
+  };
+
+  const handleClearPublicChatNow = () => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      liveChatMessages: [],
+      settings: {
+        ...prev.settings,
+        liveChatLastClearedAt: new Date().toISOString(),
+      },
+    }));
+  };
+
+  const handleClearPrivateChatSession = (keepOnlyPartnerUsername?: string) => {
+    const myName = (currentUser?.username || 'زائر').trim().toLowerCase();
+    updateAndPersist((prev) => {
+      if (!keepOnlyPartnerUsername) {
+        // Delete all private chat messages & statuses involving current user
+        const remainingMsgs = (prev.privateChatMessages || []).filter((m) => {
+          const sName = m.senderUsername.trim().toLowerCase();
+          const rName = m.receiverUsername.trim().toLowerCase();
+          const involvesMe =
+            m.senderId === visitorId ||
+            m.receiverId === visitorId ||
+            sName === myName ||
+            rName === myName;
+          return !involvesMe;
+        });
+        return {
+          ...prev,
+          privateChatMessages: remainingMsgs,
+        };
+      } else {
+        const keepPartnerNorm = keepOnlyPartnerUsername.trim().toLowerCase();
+        // Keep only messages with `keepOnlyPartnerUsername`, delete any previously open private chat with other partners
+        const remainingMsgs = (prev.privateChatMessages || []).filter((m) => {
+          const sName = m.senderUsername.trim().toLowerCase();
+          const rName = m.receiverUsername.trim().toLowerCase();
+          const involvesMe =
+            m.senderId === visitorId ||
+            m.receiverId === visitorId ||
+            sName === myName ||
+            rName === myName;
+          if (!involvesMe) return true;
+          const involvesKeepPartner =
+            sName === keepPartnerNorm || rName === keepPartnerNorm;
+          return involvesKeepPartner;
+        });
+        return {
+          ...prev,
+          privateChatMessages: remainingMsgs,
+        };
+      }
+    });
+  };
+
+  const handleApplyChatPenalty = (
+    targetUserId: string,
+    targetUsername: string,
+    actionType: 'ban' | 'suspend',
+    durationLabel: 'ساعة' | 'ساعتين' | 'يوم'
+  ) => {
+    const durationMs =
+      durationLabel === 'ساعة'
+        ? 3600 * 1000
+        : durationLabel === 'ساعتين'
+        ? 2 * 3600 * 1000
+        : 24 * 3600 * 1000;
+    const expiresAt = new Date(Date.now() + durationMs).toISOString();
+    const penalty: ChatModerationPenalty = {
+      id: `pen-${Date.now()}`,
+      targetUserId,
+      targetUsername,
+      actionType,
+      durationLabel,
+      expiresAt,
+      createdAt: new Date().toISOString(),
+    };
+    const actionArabic = actionType === 'ban' ? 'حظره' : 'تعليقه';
+    const sysMsg: LiveChatMessageItem = {
+      id: `chat-pen-${Date.now()}`,
+      authorId: 'system-admin',
+      authorUsername: 'النظام',
+      text: `تنبيه إداري: المستخدم (${targetUsername}) تم ${actionArabic} لمدة ${durationLabel}`,
+      textColor: '#F87171',
+      reports: [],
+      createdAt: new Date().toISOString(),
+      isSystemNotification: true,
+      targetUsername,
+    };
+
+    updateAndPersist((prev) => ({
+      ...prev,
+      chatPenalties: [
+        ...(prev.chatPenalties || []).filter(
+          (p) =>
+            p.targetUserId !== targetUserId &&
+            p.targetUsername.trim().toLowerCase() !==
+              targetUsername.trim().toLowerCase()
+        ),
+        penalty,
+      ],
+      liveChatMessages: [...(prev.liveChatMessages || []).slice(-49), sysMsg],
+    }));
+  };
+
+  const handleSendPrivateMessage = (
+    receiverId: string,
+    receiverUsername: string,
+    text: string,
+    textColor?: string
+  ) => {
+    const senderName = currentUser?.username || 'زائر';
+    const senderKeyId = visitorId;
+    const senderKeyName = senderName.trim().toLowerCase();
+    const receiverKeyId = receiverId;
+    const receiverKeyName = receiverUsername.trim().toLowerCase();
+
+    const newPrivMsg: PrivateChatMessageItem = {
+      id: `pm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      senderId: senderKeyId,
+      senderUsername: senderName,
+      receiverId: receiverKeyId,
+      receiverUsername,
+      text,
+      textColor: textColor || '#F8FAFC',
+      createdAt: new Date().toISOString(),
+    };
+
+    updateAndPersist((prev) => {
+      const nextStatuses: Record<string, PrivateChatStatus> = {
+        ...(prev.privateChatStatuses || {}),
+      };
+
+      // If the current sender had previously rejected receiver ("لا"), and now sender initiates a message to receiver, re-open chat!
+      const myRejectKey1 = `${senderKeyId}__${receiverKeyId}`;
+      const myRejectKey2 = `${senderKeyName}__${receiverKeyName}`;
+      if (
+        nextStatuses[myRejectKey1] === 'rejected' ||
+        nextStatuses[myRejectKey2] === 'rejected'
+      ) {
+        nextStatuses[myRejectKey1] = 'accepted';
+        nextStatuses[myRejectKey2] = 'accepted';
+      }
+
+      // If receiver hasn't responded to sender yet, mark request as 'pending'
+      const recKey1 = `${receiverKeyId}__${senderKeyId}`;
+      const recKey2 = `${receiverKeyName}__${senderKeyName}`;
+      if (!nextStatuses[recKey1] && !nextStatuses[recKey2]) {
+        nextStatuses[recKey1] = 'pending';
+        nextStatuses[recKey2] = 'pending';
+      }
+
+      return {
+        ...prev,
+        privateChatMessages: [
+          ...(prev.privateChatMessages || []).slice(-299),
+          newPrivMsg,
+        ],
+        privateChatStatuses: nextStatuses,
+      };
+    });
+  };
+
+  const handleRespondPrivateChatRequest = (
+    partnerKey: string,
+    status: PrivateChatStatus
+  ) => {
+    const myNameKey = (currentUser?.username || 'زائر').trim().toLowerCase();
+    updateAndPersist((prev) => ({
+      ...prev,
+      privateChatStatuses: {
+        ...(prev.privateChatStatuses || {}),
+        [`${visitorId}__${partnerKey}`]: status,
+        [`${myNameKey}__${partnerKey.trim().toLowerCase()}`]: status,
+      },
+    }));
+  };
+
+  const handleBlockUserInChat = (
+    blockedUserId: string,
+    blockedUsername: string,
+    reportReason?: string,
+    sampleMessage?: string
+  ) => {
+    const myName = currentUser?.username || 'زائر';
+    const myNameKey = myName.trim().toLowerCase();
+    const targetNameKey = blockedUsername.trim().toLowerCase();
+
+    const newReport: PrivateChatReportItem = {
+      id: `pcrep-${Date.now()}`,
+      reporterId: visitorId,
+      reporterUsername: myName,
+      reportedUserId: blockedUserId,
+      reportedUsername: blockedUsername,
+      reason: reportReason || 'حظر وإبلاغ عن إزعاج أو إساءة في المحادثة',
+      sampleMessage: sampleMessage || 'تم حظر المستخدم من الشات الخاص',
+      createdAt: new Date().toISOString(),
+    };
+
+    updateAndPersist((prev) => {
+      const prevMap = prev.userBlockedMap || {};
+      const myBlocked1 = new Set(prevMap[visitorId] || []);
+      const myBlocked2 = new Set(prevMap[myNameKey] || []);
+      myBlocked1.add(blockedUserId);
+      myBlocked1.add(targetNameKey);
+      myBlocked2.add(blockedUserId);
+      myBlocked2.add(targetNameKey);
+
+      return {
+        ...prev,
+        userBlockedMap: {
+          ...prevMap,
+          [visitorId]: Array.from(myBlocked1),
+          [myNameKey]: Array.from(myBlocked2),
+        },
+        privateChatReports: [newReport, ...(prev.privateChatReports || [])],
+      };
+    });
+  };
+
+  const handleDeleteUserAccountFromChat = (
+    targetUserId: string,
+    targetUsername: string
+  ) => {
+    const sysMsg: LiveChatMessageItem = {
+      id: `chat-del-usr-${Date.now()}`,
+      authorId: 'system-admin',
+      authorUsername: 'النظام',
+      text: `تنبيه إداري: المستخدم (${targetUsername}) تم حظره وحذف حسابه من الموقع`,
+      textColor: '#F87171',
+      reports: [],
+      createdAt: new Date().toISOString(),
+      isSystemNotification: true,
+      targetUsername,
+    };
+
+    const permPenalty: ChatModerationPenalty = {
+      id: `pen-perm-${Date.now()}`,
+      targetUserId,
+      targetUsername,
+      actionType: 'ban',
+      durationLabel: 'يوم',
+      expiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+
+    updateAndPersist((prev) => ({
+      ...prev,
+      users: prev.users.filter(
+        (u) =>
+          u.id !== targetUserId &&
+          u.username.trim().toLowerCase() !==
+            targetUsername.trim().toLowerCase()
       ),
+      chatPenalties: [...(prev.chatPenalties || []), permPenalty],
+      privateChatReports: (prev.privateChatReports || []).filter(
+        (r) =>
+          r.reportedUserId !== targetUserId &&
+          r.reportedUsername.trim().toLowerCase() !==
+            targetUsername.trim().toLowerCase()
+      ),
+      liveChatMessages: [...(prev.liveChatMessages || []).slice(-49), sysMsg],
     }));
   };
 
@@ -1033,18 +1417,6 @@ export default function App() {
                 </div>
               )}
             </div>
-
-            <div className="fluent-reveal p-3 rounded-xl bg-[#0A192F] border border-[#334155] text-xs space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-[#F8FAFC] relative z-10">
-                {connStatus === 'firebase_connected' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                ) : (
-                  <Database className="w-4 h-4 text-sky-400 shrink-0" />
-                )}
-                <span>حالة الربط البرمجي</span>
-              </div>
-              <p className="text-[11px] text-[#94A3B8] relative z-10">{connMessage}</p>
-            </div>
           </div>
         </aside>
 
@@ -1150,7 +1522,6 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                <div>{connMessage}</div>
               </div>
             </div>
           </div>
@@ -1163,12 +1534,24 @@ export default function App() {
             squareAds={dbState.squareAds}
             stores={dbState.stores}
             popupAd={dbState.popupAd}
+            isAdmin={isAdmin}
             showBannersAndSquareAds={
               isAdmin
                 ? activeSection === 'directory' || activeSection === 'settings'
                 : true
             }
             onNavigateSection={setActiveSection}
+            onBulkDeleteAds={(squareAdIds, topBannerIds, storeIds) => {
+              const sqSet = new Set(squareAdIds);
+              const tbSet = new Set(topBannerIds);
+              const stSet = new Set(storeIds);
+              updateAndPersist((prev) => ({
+                ...prev,
+                squareAds: prev.squareAds.filter((a) => !sqSet.has(a.id)),
+                topBanners: prev.topBanners.filter((b) => !tbSet.has(b.id)),
+                stores: prev.stores.filter((s) => !stSet.has(s.id)),
+              }));
+            }}
             onEntryPopupClosed={() => {
               if (!currentUser) {
                 setIsAuthModalOpen(true);
@@ -1222,6 +1605,15 @@ export default function App() {
             onSendChatMessage={handleSendChatMessage}
             onReportChatMessage={handleReportChatMessage}
             onDeleteChatMessage={handleDeleteChatMessage}
+            onUpdateChatCooldown={handleUpdateChatCooldown}
+            onUpdateAutoClearMinutes={handleUpdateAutoClearMinutes}
+            onClearPublicChatNow={handleClearPublicChatNow}
+            onClearPrivateChatSession={handleClearPrivateChatSession}
+            onApplyChatPenalty={handleApplyChatPenalty}
+            onSendPrivateMessage={handleSendPrivateMessage}
+            onRespondPrivateChatRequest={handleRespondPrivateChatRequest}
+            onBlockUserInChat={handleBlockUserInChat}
+            onDeleteUserAccountFromChat={handleDeleteUserAccountFromChat}
             onUpdateSettings={handleUpdateSettings}
             onUpdateUserAccount={handleUpdateUserAccount}
             onDeleteUserAccount={handleDeleteUserAccount}

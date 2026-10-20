@@ -448,83 +448,78 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
 
   return (
     <div className="space-y-6 w-full overflow-x-hidden">
-      {/* 1. Top Header Bar: Title + "أضف سواق" Button + Admin Policy Toggle & Exports */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#112240]/95 border border-[#334155] rounded-2xl p-4 sm:p-5 shadow-lg">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400 shrink-0">
-            <Car className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-lg sm:text-xl font-extrabold text-[#F8FAFC] flex items-center gap-2">
-              <span>توصيلة — التتبع اللحظي للسائقين</span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
-                <Radio className="w-3.5 h-3.5 animate-pulse" />
+      {/* 1. Top Header Bar: "توصيلة LIVE GPS" + "أضف سواق" Button in 1 line + Admin Policy Toggle & Exports */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#112240]/95 border border-[#334155] rounded-2xl p-3.5 sm:p-5 shadow-lg">
+        <div className="flex items-center justify-between sm:justify-start gap-2.5 flex-nowrap w-full lg:w-auto">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400 shrink-0">
+              <Car className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <h1 className="text-sm sm:text-xl font-extrabold text-[#F8FAFC] flex items-center gap-1.5 sm:gap-2 truncate">
+              <span>توصيلة</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[10px] sm:text-xs font-bold shrink-0">
+                <Radio className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-pulse" />
                 LIVE GPS
               </span>
             </h1>
-            <p className="text-xs text-[#94A3B8]">
-              تتبع حركة السائقين لايف على الخريطة، تواصل فوراً، أو سجل كسائق معتمد
-            </p>
           </div>
 
           <FluentButton
             variant="primary"
-            size="md"
+            size="sm"
             onClick={openAddDriverModal}
-            className="mr-2"
+            className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 shrink-0" />
             <span>أضف سواق</span>
           </FluentButton>
         </div>
 
         {/* Admin Export PDF/Excel + Approval Policy Switch */}
-        <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && (
-            <>
-              <button
-                type="button"
-                onClick={() =>
-                  onUpdateSettings({
-                    ...settings,
-                    requireDriverCriminalRecordApproval:
-                      !settings.requireDriverCriminalRecordApproval,
-                  })
-                }
-                className={`fluent-reveal px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer transition-colors ${
-                  settings.requireDriverCriminalRecordApproval
-                    ? 'bg-amber-500/20 border-amber-400 text-amber-300'
-                    : 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>
-                  {settings.requireDriverCriminalRecordApproval
-                    ? 'النظام الحالي: اشتراط موافقة الإدارة وصورة الفيش'
-                    : 'النظام الحالي: تفعيل مباشر + مهلة 3 أيام للفيش'}
-                </span>
-              </button>
+        {isAdmin && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                onUpdateSettings({
+                  ...settings,
+                  requireDriverCriminalRecordApproval:
+                    !settings.requireDriverCriminalRecordApproval,
+                })
+              }
+              className={`fluent-reveal px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer transition-colors ${
+                settings.requireDriverCriminalRecordApproval
+                  ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                  : 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>
+                {settings.requireDriverCriminalRecordApproval
+                  ? 'النظام الحالي: اشتراط موافقة الإدارة وصورة الفيش'
+                  : 'النظام الحالي: تفعيل مباشر + مهلة 3 أيام للفيش'}
+              </span>
+            </button>
 
-              <FluentButton
-                variant="secondary"
-                size="sm"
-                onClick={() => exportTawsilaToExcel(displayedDrivers)}
-              >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                <span>تصدير إكسيل</span>
-              </FluentButton>
+            <FluentButton
+              variant="secondary"
+              size="sm"
+              onClick={() => exportTawsilaToExcel(displayedDrivers)}
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>تصدير إكسيل</span>
+            </FluentButton>
 
-              <FluentButton
-                variant="secondary"
-                size="sm"
-                onClick={() => exportTawsilaToPDF(displayedDrivers)}
-              >
-                <FileText className="w-4 h-4 text-rose-400" />
-                <span>تصدير PDF</span>
-              </FluentButton>
-            </>
-          )}
-        </div>
+            <FluentButton
+              variant="secondary"
+              size="sm"
+              onClick={() => exportTawsilaToPDF(displayedDrivers)}
+            >
+              <FileText className="w-4 h-4 text-rose-400" />
+              <span>تصدير PDF</span>
+            </FluentButton>
+          </div>
+        )}
       </div>
 
       {/* Geolocation Status Notification */}
@@ -545,16 +540,16 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
       )}
 
       {/* 2. Top Controls: Driver Filter Dropdown ("إظهار الكل" + Drivers) & Work Status Buttons ("شغل" / "نهاية عمل") */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Dropdown Filter */}
-        <div className="lg:col-span-5 bg-[#112240]/90 border border-[#334155] rounded-2xl p-4 space-y-2">
-          <label className="block text-xs font-extrabold text-sky-400">
-            اختر السائق أو إظهار الكل:
+        <div className="lg:col-span-5 bg-[#112240]/90 border border-[#334155] rounded-2xl p-3 sm:p-4 flex items-center gap-2">
+          <label className="text-xs font-extrabold text-sky-400 whitespace-nowrap shrink-0">
+            اختر السائق:
           </label>
           <select
             value={selectedDriverFilter}
             onChange={(e) => setSelectedDriverFilter(e.target.value)}
-            className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-[#F8FAFC] font-bold outline-none"
+            className="flex-1 min-w-0 rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs sm:text-sm text-[#F8FAFC] font-bold outline-none"
           >
             <option value="all">إظهار الكل ({rides.length} سائق)</option>
             {rides.map((drv) => (
@@ -565,42 +560,36 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
           </select>
         </div>
 
-        {/* Driver Work Status Control Bar: "شغل" (Start Work) & "نهاية عمل" (End Work) with Geolocation API */}
-        <div className="lg:col-span-7 bg-[#112240]/90 border border-[#334155] rounded-2xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-          <div className="space-y-1.5 flex-1">
-            <div className="text-xs font-extrabold text-amber-300 flex items-center gap-1.5">
-              <Compass className="w-4 h-4 text-amber-400" />
-              <span>تحديث حالة عمل السائق واللوكيشن اللحظي (Geolocation):</span>
-            </div>
-            <select
-              value={controlDriverId}
-              onChange={(e) => setControlDriverId(e.target.value)}
-              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs text-[#F8FAFC] font-bold outline-none"
-            >
-              {rides.map((drv) => (
-                <option key={drv.id} value={drv.id}>
-                  السائق: {drv.driverName} ({drv.phone})
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* Driver Work Status Control Bar: "شغل" (Start Work) & "نهاية عمل" (End Work) in 1 line */}
+        <div className="lg:col-span-7 bg-[#112240]/90 border border-[#334155] rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-2 flex-nowrap overflow-x-auto no-scrollbar">
+          <select
+            value={controlDriverId}
+            onChange={(e) => setControlDriverId(e.target.value)}
+            className="flex-1 min-w-[120px] rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-2.5 py-2 text-xs text-[#F8FAFC] font-bold outline-none"
+          >
+            {rides.map((drv) => (
+              <option key={drv.id} value={drv.id}>
+                السائق: {drv.driverName}
+              </option>
+            ))}
+          </select>
 
           {activeControlDriver && (
-            <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               {/* زر "شغل" (بدء العمل) */}
               <button
                 type="button"
                 onClick={() =>
                   handleDriverWorkStatusChange(activeControlDriver, true)
                 }
-                className={`fluent-reveal px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 border cursor-pointer transition-all ${
+                className={`fluent-reveal px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border cursor-pointer transition-all whitespace-nowrap ${
                   activeControlDriver.availableNow
                     ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.5)]'
                     : 'bg-[#0A192F] text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/20'
                 }`}
               >
-                <Play className="w-4 h-4 fill-current" />
-                <span>شغل (بدء العمل)</span>
+                <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                <span>شغل</span>
               </button>
 
               {/* زر "نهاية عمل" */}
@@ -609,13 +598,13 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
                 onClick={() =>
                   handleDriverWorkStatusChange(activeControlDriver, false)
                 }
-                className={`fluent-reveal px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 border cursor-pointer transition-all ${
+                className={`fluent-reveal px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border cursor-pointer transition-all whitespace-nowrap ${
                   !activeControlDriver.availableNow
                     ? 'bg-rose-600 text-white border-rose-400 shadow-[0_0_16px_rgba(225,29,72,0.4)]'
                     : 'bg-[#0A192F] text-rose-300 border-rose-500/40 hover:bg-rose-600/20'
                 }`}
               >
-                <Square className="w-4 h-4 fill-current" />
+                <Square className="w-3.5 h-3.5 fill-current shrink-0" />
                 <span>نهاية عمل</span>
               </button>
             </div>
@@ -623,58 +612,91 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
         </div>
       </div>
 
-      {/* 3. "السائقين المتاحين حالياً" Section */}
-      <div className="bg-[#112240]/90 border border-[#334155] rounded-2xl p-4 sm:p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#334155]/80 pb-3">
+      {/* 3. "السائقين المتاحين حالياً" Section — Clicking any driver opens Google Maps Live Location */}
+      <div className="bg-[#112240]/90 border border-[#334155] rounded-2xl p-3.5 sm:p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#334155]/80 pb-2.5">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
-            <h2 className="text-base font-extrabold text-[#F8FAFC]">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+            <h2 className="text-sm sm:text-base font-extrabold text-[#F8FAFC]">
               السائقين المتاحين حالياً ({availableDriversNow.length})
             </h2>
           </div>
-          <span className="text-xs text-[#94A3B8]">
-            يتم تحديث الإحداثيات وحركة السيارات لحظياً عبر الـ GPS
+          <span className="text-[11px] text-sky-300 font-bold">
+            اضغط على أي سائق لفتح جوجل ماب لايف لوكيشن لمعرفة مكانه بالتحديد 📍
           </span>
         </div>
 
         {availableDriversNow.length === 0 ? (
-          <div className="p-6 text-center text-xs text-[#94A3B8] bg-[#0A192F]/60 rounded-xl border border-[#334155]">
-            لا يوجد سائقون في وضع &quot;شغل&quot; حالياً. اضغط على زر &quot;شغل (بدء العمل)&quot; لتفعيل السائق.
+          <div className="p-5 text-center text-xs text-[#94A3B8] bg-[#0A192F]/60 rounded-xl border border-[#334155]">
+            لا يوجد سائقون في وضع &quot;شغل&quot; حالياً. اضغط على زر &quot;شغل&quot; لتفعيل السائق.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          <div className="flex flex-col space-y-2.5">
             {availableDriversNow.map((drv) => {
               const liveCoords = getDriverLiveCoords(drv);
               return (
                 <div
                   key={drv.id}
-                  className="fluent-reveal p-3.5 rounded-xl bg-[#0A192F] border border-emerald-500/40 flex items-center justify-between gap-3"
+                  onClick={() => {
+                    setControlDriverId(drv.id);
+                    setLiveModalDriverId(drv.id);
+                    setSingleMapZoom(17);
+                    setSingleMapPan({ x: 0, y: 0 });
+                  }}
+                  title={`اضغط لفتح جوجل ماب لايف لوكيشن للسائق ${drv.driverName}`}
+                  className="fluent-reveal p-3 rounded-xl bg-[#0A192F] hover:bg-[#1E293B]/90 border border-emerald-500/40 hover:border-sky-400 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 cursor-pointer transition-all"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-lg shrink-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-base shrink-0">
                       🚗
                     </div>
                     <div className="min-w-0">
-                      <div className="text-sm font-extrabold text-[#F8FAFC] truncate">
-                        {drv.driverName}
+                      <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate flex items-center gap-1.5">
+                        <span>{drv.driverName}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30">
+                          اضغط للموقع لايف 📍
+                        </span>
                       </div>
-                      <div className="text-[11px] text-emerald-400 font-mono-tabular">
-                        متاح الآن · {liveCoords.lat.toFixed(4)}, {liveCoords.lng.toFixed(4)}
+                      <div className="text-[10px] sm:text-[11px] text-emerald-400 font-mono-tabular truncate">
+                        متاح الآن · {liveCoords.lat.toFixed(5)}, {liveCoords.lng.toFixed(5)}
                       </div>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLiveModalDriverId(drv.id);
-                      setSingleMapZoom(17);
-                      setSingleMapPan({ x: 0, y: 0 });
-                    }}
-                    className="fluent-reveal px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shrink-0 cursor-pointer shadow"
+                  <div
+                    className="flex items-center gap-1.5 shrink-0 mr-auto sm:mr-0"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    أظهر المكان الآن
-                  </button>
+                    <a
+                      href={`tel:${drv.phone}`}
+                      className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-600/25 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-400/40 text-xs font-bold"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>اتصال</span>
+                    </a>
+                    <a
+                      href={`https://wa.me/${formatWhatsappNumber(drv.phone)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600/25 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-400/40 text-xs font-bold"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>واتساب</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setControlDriverId(drv.id);
+                        setLiveModalDriverId(drv.id);
+                        setSingleMapZoom(17);
+                        setSingleMapPan({ x: 0, y: 0 });
+                      }}
+                      className="fluent-reveal px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold shrink-0 cursor-pointer shadow flex items-center gap-1 whitespace-nowrap"
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                      <span>جوجل ماب لايف</span>
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -682,187 +704,204 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
         )}
       </div>
 
-      {/* 4. Drivers Table (Displays Selected Driver or All Drivers) */}
-      <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl overflow-hidden shadow-lg">
-        <div className="px-5 py-3.5 bg-[#0A192F] border-b border-[#334155] flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-extrabold text-sky-400">
-            جدول السائقين وبيانات التواصل والتتبع اللحظي ({displayedDrivers.length})
-          </h3>
-          <span className="text-[11px] text-[#94A3B8]">
-            مهلة 3 أيام من تاريخ التسجيل لرفع صورة الفيش والتشبيه في حال عدم اشتراط الموافقة المسبقة
-          </span>
-        </div>
+      {/* 4. Drivers Table & Criminal Record Status — Strictly visible to Admin ONLY ("جدول السائقين وبيانات التواصل والتتبع اللحظي وحالة التفعيل والفيش والتشبيه تظهر لـ Admin فقط") */}
+      {isAdmin && (
+        <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl overflow-hidden shadow-lg">
+          <div className="px-5 py-3.5 bg-[#0A192F] border-b border-[#334155] flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-extrabold text-sky-400">
+              جدول السائقين وبيانات التواصل والتتبع اللحظي ({displayedDrivers.length}) — خاص بـ Admin
+            </h3>
+            <span className="text-[11px] text-[#94A3B8]">
+              مهلة 3 أيام من تاريخ التسجيل لرفع صورة الفيش والتشبيه في حال عدم اشتراط الموافقة المسبقة
+            </span>
+          </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-right border-collapse">
-            <thead>
-              <tr className="bg-[#0A192F]/90 text-[#94A3B8] text-xs border-b border-[#334155]">
-                <th className="py-3.5 px-4 font-bold border-l border-[#334155]/60">
-                  اسم السائق والتتبع المباشر
-                </th>
-                <th className="py-3.5 px-4 font-bold border-l border-[#334155]/60">
-                  رقم الهاتف (اتصال / واتساب)
-                </th>
-                <th className="py-3.5 px-4 font-bold border-l border-[#334155]/60">
-                  حالة التفعيل والفيش والتشبيه
-                </th>
-                <th className="py-3.5 px-4 font-bold border-l border-[#334155]/60 text-center">
-                  حالة العمل (GPS)
-                </th>
-                {isAdmin && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-right border-collapse">
+              <thead>
+                <tr className="bg-[#0A192F]/90 text-[#94A3B8] text-xs border-b border-[#334155]">
+                  <th className="py-3.5 px-4 font-bold border-l border-[#334155]/60">
+                    اسم السائق والتتبع المباشر
+                  </th>
+                  <th className="py-3.5 px-4 font-bold border-l border-[#334155]/60">
+                    رقم الهاتف (اتصال / واتساب)
+                  </th>
+                  <th className="py-3.5 px-4 font-bold border-l border-[#334155]/60">
+                    حالة التفعيل والفيش والتشبيه
+                  </th>
+                  <th className="py-3.5 px-4 font-bold border-l border-[#334155]/60 text-center">
+                    حالة العمل (GPS)
+                  </th>
                   <th className="py-3.5 px-4 font-bold text-center">
                     صلاحيات Admin
                   </th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#334155]/70 text-sm">
-              {displayedDrivers.map((drv) => {
-                const activation = evaluateDriverActivation(
-                  drv,
-                  settings.requireDriverCriminalRecordApproval
-                );
-                const isWorkingNow = drv.availableNow && activation.canWork;
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#334155]/70 text-sm">
+                {displayedDrivers.map((drv) => {
+                  const activation = evaluateDriverActivation(
+                    drv,
+                    settings.requireDriverCriminalRecordApproval
+                  );
+                  const isWorkingNow = drv.availableNow && activation.canWork;
 
-                return (
-                  <tr
-                    key={drv.id}
-                    className="hover:bg-[#1E293B]/70 transition-colors"
-                  >
-                    {/* Driver Name + "أظهر المكان الآن" Button right next to the name */}
-                    <td className="py-3.5 px-4 border-l border-[#334155]/40">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <div className="font-extrabold text-[#F8FAFC] flex items-center gap-1.5">
-                            <span>🚗</span>
-                            <span>{drv.driverName}</span>
+                  return (
+                    <tr
+                      key={drv.id}
+                      onClick={() => {
+                        setControlDriverId(drv.id);
+                        setLiveModalDriverId(drv.id);
+                        setSingleMapZoom(17);
+                      }}
+                      className="hover:bg-[#1E293B]/70 transition-colors cursor-pointer"
+                    >
+                      {/* Driver Name + "أظهر المكان الآن" Button right next to the name */}
+                      <td className="py-3.5 px-4 border-l border-[#334155]/40">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="font-extrabold text-[#F8FAFC] flex items-center gap-1.5">
+                              <span>🚗</span>
+                              <span>{drv.driverName}</span>
+                            </div>
+                            <div className="text-[11px] text-[#94A3B8] font-mono-tabular">
+                              بطاقة: {drv.nationalId || 'غير مسجل'}
+                            </div>
                           </div>
-                          <div className="text-[11px] text-[#94A3B8] font-mono-tabular">
-                            بطاقة: {drv.nationalId || 'غير مسجل'}
-                          </div>
-                        </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLiveModalDriverId(drv.id);
-                            setSingleMapZoom(17);
-                            setSingleMapPan({ x: 0, y: 0 });
-                          }}
-                          className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold cursor-pointer shadow"
-                        >
-                          <MapPin className="w-3.5 h-3.5" />
-                          <span>أظهر المكان الآن</span>
-                        </button>
-                      </div>
-                    </td>
-
-                    {/* Phone Number + Call & Direct WhatsApp */}
-                    <td className="py-3.5 px-4 border-l border-[#334155]/40">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-mono-tabular font-extrabold text-sky-400">
-                          {drv.phone}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <a
-                            href={`tel:${drv.phone}`}
-                            className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold"
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setControlDriverId(drv.id);
+                              setLiveModalDriverId(drv.id);
+                              setSingleMapZoom(17);
+                              setSingleMapPan({ x: 0, y: 0 });
+                            }}
+                            className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold cursor-pointer shadow"
                           >
-                            <Phone className="w-3.5 h-3.5" />
-                            <span>اتصال</span>
-                          </a>
-                          <a
-                            href={`https://wa.me/${formatWhatsappNumber(drv.phone)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>واتساب</span>
-                          </a>
+                            <MapPin className="w-3.5 h-3.5" />
+                            <span>جوجل ماب لايف</span>
+                          </button>
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Driver Activation Status & 3-Day Grace Period / Criminal Record Upload */}
-                    <td className="py-3.5 px-4 border-l border-[#334155]/40">
-                      <div className="space-y-1.5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {activation.status === 'active_verified' && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {activation.badgeLabel}
-                            </span>
-                          )}
-
-                          {activation.status === 'active_grace_period' && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-bold">
-                              <Clock className="w-3.5 h-3.5" />
-                              {activation.badgeLabel}
-                            </span>
-                          )}
-
-                          {(activation.status === 'pending_admin' ||
-                            activation.status === 'suspended_expired') && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-bold">
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                              {activation.badgeLabel}
-                            </span>
-                          )}
-                        </div>
-
-                        {activation.remainingText && (
-                          <div className="text-[11px] text-amber-300 font-bold">
-                            ⏳ {activation.remainingText}
+                      {/* Phone Number + Call & Direct WhatsApp */}
+                      <td
+                        className="py-3.5 px-4 border-l border-[#334155]/40"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono-tabular font-extrabold text-sky-400">
+                            {drv.phone}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <a
+                              href={`tel:${drv.phone}`}
+                              className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold"
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                              <span>اتصال</span>
+                            </a>
+                            <a
+                              href={`https://wa.me/${formatWhatsappNumber(drv.phone)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>واتساب</span>
+                            </a>
                           </div>
-                        )}
+                        </div>
+                      </td>
 
-                        {!drv.criminalRecordImageUrl && (
-                          <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/40 text-[11px] font-bold cursor-pointer">
-                            <Upload className="w-3 h-3" />
-                            <span>إرفاق صورة الفيش والتشبيه</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => handleCriminalRecordFileUpload(e, drv)}
-                              className="hidden"
-                            />
-                          </label>
-                        )}
-                      </div>
-                    </td>
+                      {/* Driver Activation Status & 3-Day Grace Period / Criminal Record Upload */}
+                      <td
+                        className="py-3.5 px-4 border-l border-[#334155]/40"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {activation.status === 'active_verified' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {activation.badgeLabel}
+                              </span>
+                            )}
 
-                    {/* Quick Work Status Toggle ("شغل" / "نهاية عمل") */}
-                    <td className="py-3.5 px-4 border-l border-[#334155]/40 text-center">
-                      <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleDriverWorkStatusChange(drv, true)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                            isWorkingNow
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
-                          }`}
-                        >
-                          شغل
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDriverWorkStatusChange(drv, false)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                            !isWorkingNow
-                              ? 'bg-rose-600 text-white'
-                              : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
-                          }`}
-                        >
-                          نهاية عمل
-                        </button>
-                      </div>
-                    </td>
+                            {activation.status === 'active_grace_period' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-bold">
+                                <Clock className="w-3.5 h-3.5" />
+                                {activation.badgeLabel}
+                              </span>
+                            )}
 
-                    {/* Admin Controls */}
-                    {isAdmin && (
-                      <td className="py-3.5 px-4 text-center">
+                            {(activation.status === 'pending_admin' ||
+                              activation.status === 'suspended_expired') && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-bold">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                {activation.badgeLabel}
+                              </span>
+                            )}
+                          </div>
+
+                          {activation.remainingText && (
+                            <div className="text-[11px] text-amber-300 font-bold">
+                              ⏳ {activation.remainingText}
+                            </div>
+                          )}
+
+                          {!drv.criminalRecordImageUrl && (
+                            <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/40 text-[11px] font-bold cursor-pointer">
+                              <Upload className="w-3 h-3" />
+                              <span>إرفاق صورة الفيش والتشبيه</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => handleCriminalRecordFileUpload(e, drv)}
+                                className="hidden"
+                              />
+                            </label>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Quick Work Status Toggle ("شغل" / "نهاية عمل") */}
+                      <td
+                        className="py-3.5 px-4 border-l border-[#334155]/40 text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleDriverWorkStatusChange(drv, true)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                              isWorkingNow
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
+                            }`}
+                          >
+                            شغل
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDriverWorkStatusChange(drv, false)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                              !isWorkingNow
+                                ? 'bg-rose-600 text-white'
+                                : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border border-[#334155]'
+                            }`}
+                          >
+                            نهاية عمل
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* Admin Controls */}
+                      <td
+                        className="py-3.5 px-4 text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="inline-flex flex-wrap items-center justify-center gap-1.5">
                           <button
                             type="button"
@@ -900,206 +939,136 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
                           </button>
                         </div>
                       </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* 5. Bottom Embedded Live Fleet Map (Shown when "إظهار الكل" is selected) */}
-      {selectedDriverFilter === 'all' && (
-        <div className="bg-[#112240]/95 border border-sky-400/40 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-extrabold text-[#F8FAFC] flex items-center gap-2">
-                <span>🗺️ خريطة تتبع جميع السائقين المتاحين لايف</span>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-mono-tabular">
-                  {availableDriversNow.length} سيارة نشطة 🚗
-                </span>
-              </h3>
-              <p className="text-xs text-[#94A3B8]">
-                تظهر جميع السيارات المتاحة حالياً مع اسم السائق وموقعه المحدث لحظياً (معزولة الزووم عن الصفحة)
-              </p>
-            </div>
-
-            {/* Isolated Map Zoom In / Zoom Out Controls */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setFleetMapZoom((z) => Math.min(20, z + 1))}
-                className="fluent-reveal px-3 py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-400 border border-[#334155] text-xs font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <ZoomIn className="w-4 h-4" />
-                <span>تقريب (+)</span>
-              </button>
-              <span className="px-2.5 py-1.5 rounded-lg bg-[#0A192F] border border-[#334155] text-xs font-mono-tabular font-bold text-[#F8FAFC]">
-                {fleetMapZoom}x
-              </span>
-              <button
-                type="button"
-                onClick={() => setFleetMapZoom((z) => Math.max(10, z - 1))}
-                className="fluent-reveal px-3 py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-400 border border-[#334155] text-xs font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <ZoomOut className="w-4 h-4" />
-                <span>تبعيد (-)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Isolated Interactive Map Viewport (Strict Mobile Anti-Zoom Isolation) */}
-          <div
-            className="isolated-map-viewport relative w-full h-[400px] sm:h-[460px] rounded-2xl overflow-hidden bg-[#071120] border-2 border-[#334155] select-none"
-            style={{ touchAction: 'none', overscrollBehavior: 'contain' }}
-            onWheel={(e) => {
-              e.stopPropagation();
-            }}
-            onTouchMove={(e) => {
-              e.stopPropagation();
-            }}
-          >
-            {/* Dynamic Radar & Street Grid Scaled by fleetMapZoom */}
-            <div
-              className="w-full h-full relative transition-transform duration-300 ease-out"
-              style={{
-                transform: `scale(${1 + (fleetMapZoom - 15) * 0.14}) translate(${fleetMapPan.x}px, ${fleetMapPan.y}px)`,
-              }}
-            >
-              <svg
-                viewBox="0 0 1000 600"
-                className="w-full h-full object-cover opacity-55"
-              >
-                <defs>
-                  <pattern
-                    id="fleetGrid"
-                    width="50"
-                    height="50"
-                    patternUnits="userSpaceOnUse"
-                  >
-                    <path
-                      d="M 50 0 L 0 0 0 50"
-                      fill="none"
-                      stroke="#1E293B"
-                      strokeWidth="1.2"
-                    />
-                  </pattern>
-                </defs>
-                <rect width="1000" height="600" fill="url(#fleetGrid)" />
-                {/* Main arterial roads */}
-                <path
-                  d="M 0 180 Q 450 220 1000 150"
-                  stroke="#334155"
-                  strokeWidth="16"
-                  fill="none"
-                />
-                <path
-                  d="M 0 420 Q 520 370 1000 440"
-                  stroke="#334155"
-                  strokeWidth="14"
-                  fill="none"
-                />
-                <path
-                  d="M 280 0 L 340 600"
-                  stroke="#334155"
-                  strokeWidth="14"
-                  fill="none"
-                />
-                <path
-                  d="M 720 0 L 660 600"
-                  stroke="#334155"
-                  strokeWidth="18"
-                  fill="none"
-                />
-                <path
-                  d="M 0 300 L 1000 300"
-                  stroke="#38BDF8"
-                  strokeOpacity="0.25"
-                  strokeWidth="4"
-                  strokeDasharray="10 8"
-                  fill="none"
-                />
-              </svg>
-
-              {/* Plot All Available Drivers as Car Icon 🚗 with Driver Name & Live Coordinates */}
-              {availableDriversNow.map((drv, idx) => {
-                const live = getDriverLiveCoords(drv);
-                // Convert lat/lng delta around city center (30.0444, 31.2357) into % position on map
-                const relX = 50 + (live.lng - 31.2357) * 4200 + (idx - 1) * 8;
-                const relY = 50 - (live.lat - 30.0444) * 4200 + (idx % 2 === 0 ? -6 : 6);
-                const clampedX = Math.max(12, Math.min(88, relX));
-                const clampedY = Math.max(16, Math.min(84, relY));
-
-                return (
-                  <div
-                    key={drv.id}
-                    onClick={() => {
-                      setLiveModalDriverId(drv.id);
-                      setSingleMapZoom(17);
-                    }}
-                    style={{
-                      left: `${clampedX}%`,
-                      top: `${clampedY}%`,
-                    }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer group transition-all duration-700"
-                  >
-                    {/* Pulse Ring */}
-                    <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-400/50 animate-ping absolute -inset-2 pointer-events-none" />
-
-                    {/* Driver Name Floating Label + Car Icon 🚗 */}
-                    <div className="relative flex flex-col items-center">
-                      <div className="px-2.5 py-1 rounded-xl bg-[#0A192F]/95 border border-sky-400 text-[#F8FAFC] shadow-lg whitespace-nowrap flex items-center gap-1.5 mb-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                        <span className="text-xs font-extrabold">{drv.driverName}</span>
-                      </div>
-
-                      <div className="w-11 h-11 rounded-2xl bg-emerald-600 group-hover:bg-sky-500 border-2 border-white shadow-[0_0_20px_rgba(16,185,129,0.8)] flex items-center justify-center text-xl transition-transform group-hover:scale-110">
-                        🚗
-                      </div>
-
-                      <div className="mt-1 px-2 py-0.5 rounded bg-[#0A192F]/90 border border-[#334155] text-[10px] font-mono-tabular text-sky-300">
-                        {live.lat.toFixed(4)}, {live.lng.toFixed(4)}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Map Pan / Reset Controls Overlay */}
-            <div className="absolute bottom-3 right-3 left-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-              <div className="px-3 py-1.5 rounded-xl bg-[#0A192F]/90 border border-[#334155] text-[11px] text-[#94A3B8] pointer-events-auto">
-                اضغط على أي سيارة 🚗 لفتح شاشة التتبع القريب للسائق
-              </div>
-
-              <div className="flex items-center gap-1.5 pointer-events-auto">
-                <button
-                  type="button"
-                  onClick={() => setFleetMapPan((p) => ({ ...p, x: p.x + 30 }))}
-                  className="px-2.5 py-1 rounded-lg bg-[#0A192F]/90 border border-[#334155] text-xs text-white cursor-pointer"
-                >
-                  يمين
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFleetMapPan({ x: 0, y: 0 })}
-                  className="px-2.5 py-1 rounded-lg bg-sky-600 text-xs font-bold text-white cursor-pointer"
-                >
-                  توسيط الخريطة
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFleetMapPan((p) => ({ ...p, x: p.x - 30 }))}
-                  className="px-2.5 py-1 rounded-lg bg-[#0A192F]/90 border border-[#334155] text-xs text-white cursor-pointer"
-                >
-                  يسار
-                </button>
-              </div>
-            </div>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
+
+      {/* 5. Bottom Real Google Maps Live Driver Tracking ("🗺️ خريطة تتبع جميع السائقين المتاحين لايف — يظهر جوجل ماب ويظهر فيها لايف لوكيشن للسواق المختار") */}
+      {(() => {
+        const focusedDriver =
+          (selectedDriverFilter !== 'all'
+            ? rides.find((r) => r.id === selectedDriverFilter)
+            : availableDriversNow.find((r) => r.id === controlDriverId) ||
+              availableDriversNow[0] ||
+              activeControlDriver ||
+              rides[0]) || null;
+
+        const focusedCoords = focusedDriver
+          ? getDriverLiveCoords(focusedDriver)
+          : { lat: 30.0444, lng: 31.2357 };
+
+        const googleMapEmbedUrl = `https://maps.google.com/maps?q=${focusedCoords.lat},${focusedCoords.lng}&z=${fleetMapZoom}&hl=ar&output=embed`;
+        const googleMapDirectUrl = `https://www.google.com/maps/search/?api=1&query=${focusedCoords.lat},${focusedCoords.lng}`;
+
+        return (
+          <div className="bg-[#112240]/95 border border-sky-400/40 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                  <span>🗺️ خريطة تتبع جميع السائقين المتاحين لايف (Google Maps)</span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-mono-tabular">
+                    {availableDriversNow.length} سيارة نشطة 🚗
+                  </span>
+                </h3>
+                <p className="text-xs text-[#94A3B8]">
+                  {focusedDriver
+                    ? `الموقع المباشر الآن على Google Maps للسائق المختار: ${focusedDriver.driverName} (${focusedCoords.lat.toFixed(
+                        5
+                      )}, ${focusedCoords.lng.toFixed(5)})`
+                    : 'اختر أي سائق لعرض موقعه المباشر الآن على خريطة جوجل ماب'}
+                </p>
+              </div>
+
+              {/* Isolated Map Zoom In / Zoom Out Controls + Direct Open in Google Maps */}
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={googleMapDirectUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="fluent-reveal px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow"
+                >
+                  <Compass className="w-4 h-4" />
+                  <span>فتح في Google Maps</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setFleetMapZoom((z) => Math.min(20, z + 1))}
+                  className="fluent-reveal px-3 py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-400 border border-[#334155] text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                  <span>تقريب (+)</span>
+                </button>
+                <span className="px-2.5 py-1.5 rounded-lg bg-[#0A192F] border border-[#334155] text-xs font-mono-tabular font-bold text-[#F8FAFC]">
+                  {fleetMapZoom}x
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setFleetMapZoom((z) => Math.max(10, z - 1))}
+                  className="fluent-reveal px-3 py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-400 border border-[#334155] text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                  <span>تبعيد (-)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Clickable Driver Selector Pills above Google Maps */}
+            {availableDriversNow.length > 0 && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {availableDriversNow.map((drv) => {
+                  const isFocused = focusedDriver?.id === drv.id;
+                  return (
+                    <button
+                      key={drv.id}
+                      type="button"
+                      onClick={() => {
+                        setControlDriverId(drv.id);
+                        setLiveModalDriverId(drv.id);
+                        setSingleMapZoom(17);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border transition-all ${
+                        isFocused
+                          ? 'bg-emerald-600 text-white border-emerald-300 shadow-lg'
+                          : 'bg-[#0A192F] text-[#94A3B8] hover:text-white border-[#334155]'
+                      }`}
+                    >
+                      <span>🚗</span>
+                      <span>{drv.driverName}</span>
+                      <span className="text-[10px] opacity-85">(فتح اللوكيشن لايف)</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Embedded Real Google Maps Iframe Showing Selected Driver's Exact Live Location */}
+            <div className="relative w-full h-[400px] sm:h-[460px] rounded-2xl overflow-hidden bg-[#071120] border-2 border-sky-400/50 shadow-inner">
+              <iframe
+                key={`${focusedCoords.lat.toFixed(4)}-${focusedCoords.lng.toFixed(4)}-${fleetMapZoom}`}
+                title="Google Maps Live Driver Location"
+                src={googleMapEmbedUrl}
+                className="w-full h-full border-0"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                allowFullScreen
+              />
+              {focusedDriver && (
+                <div className="absolute top-3 right-3 px-3 py-1.5 rounded-xl bg-[#0A192F]/95 border border-emerald-400 text-xs font-extrabold text-white shadow-xl flex items-center gap-2 pointer-events-none">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                  <span>
+                    موقع السائق على Google Maps: {focusedDriver.driverName}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ================= MODAL 1: ADD / EDIT DRIVER ("أضف سواق") ================= */}
       <FluentModal
@@ -1239,17 +1208,20 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
         </form>
       </FluentModal>
 
-      {/* ================= MODAL 2: CLOSE-UP LIVE DRIVER MAP ("أظهر المكان الآن") ================= */}
+      {/* ================= MODAL 2: GOOGLE MAPS LIVE DRIVER LOCATION ("جوجل ماب لايف لوكيشن للسواق لمعرفة مكانه بالتحديد") ================= */}
       {liveModalDriver && (
         <FluentModal
           isOpen={!!liveModalDriver}
           onClose={() => setLiveModalDriverId(null)}
-          title={`المكان المباشر الآن — ${liveModalDriver.driverName}`}
-          subtitle="تتبع تحرك السائق لايف على الخريطة بصورة قريبة"
+          title={`جوجل ماب لايف لوكيشن — ${liveModalDriver.driverName}`}
+          subtitle="الموقع الجغرافي المباشر للسائق الآن على Google Maps بالتحديد"
           maxWidth="3xl"
         >
           {(() => {
             const live = getDriverLiveCoords(liveModalDriver);
+            const modalGoogleMapEmbed = `https://maps.google.com/maps?q=${live.lat},${live.lng}&z=${singleMapZoom}&hl=ar&output=embed`;
+            const modalGoogleMapExternal = `https://www.google.com/maps/search/?api=1&query=${live.lat},${live.lng}`;
+
             return (
               <div className="space-y-4">
                 {/* Top Status & Zoom Bar */}
@@ -1270,20 +1242,29 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
                         </span>
                       </div>
                       <div className="text-xs font-mono-tabular text-sky-400">
-                        الإحداثيات اللحظية: {live.lat.toFixed(5)}, {live.lng.toFixed(5)}
+                        إحداثيات Google Maps اللحظية: {live.lat.toFixed(5)}, {live.lng.toFixed(5)}
                       </div>
                     </div>
                   </div>
 
-                  {/* Zoom In & Zoom Out Buttons */}
-                  <div className="flex items-center gap-2">
+                  {/* Zoom In & Zoom Out Buttons + Direct Google Maps Link */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a
+                      href={modalGoogleMapExternal}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="fluent-reveal px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow"
+                    >
+                      <MapPin className="w-4 h-4" />
+                      <span>فتح في تطبيق Google Maps</span>
+                    </a>
                     <button
                       type="button"
                       onClick={() => setSingleMapZoom((z) => Math.min(21, z + 1))}
-                      className="fluent-reveal px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow"
+                      className="fluent-reveal px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow"
                     >
                       <ZoomIn className="w-4 h-4" />
-                      <span>Zoom In (+)</span>
+                      <span>تقريب (+)</span>
                     </button>
                     <span className="px-2.5 py-1.5 rounded-lg bg-[#112240] border border-[#334155] text-xs font-mono-tabular font-bold text-[#F8FAFC]">
                       {singleMapZoom}x
@@ -1291,107 +1272,25 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setSingleMapZoom((z) => Math.max(12, z - 1))}
-                      className="fluent-reveal px-3.5 py-2 rounded-xl bg-[#1E293B] hover:bg-[#334155] text-sky-300 border border-[#334155] text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                      className="fluent-reveal px-3 py-2 rounded-xl bg-[#1E293B] hover:bg-[#334155] text-sky-300 border border-[#334155] text-xs font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <ZoomOut className="w-4 h-4" />
-                      <span>Zoom Out (-)</span>
+                      <span>تبعيد (-)</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Close-up Live Map Viewport (Strict Anti-Zoom Mobile Isolation) */}
-                <div
-                  className="isolated-map-viewport relative w-full h-[340px] sm:h-[380px] rounded-2xl overflow-hidden bg-[#071120] border-2 border-sky-400/50 select-none"
-                  style={{ touchAction: 'none', overscrollBehavior: 'contain' }}
-                  onWheel={(e) => e.stopPropagation()}
-                  onTouchMove={(e) => e.stopPropagation()}
-                >
-                  <div
-                    className="w-full h-full relative transition-transform duration-300 ease-out"
-                    style={{
-                      transform: `scale(${1 + (singleMapZoom - 17) * 0.16}) translate(${singleMapPan.x}px, ${singleMapPan.y}px)`,
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 800 500"
-                      className="w-full h-full object-cover opacity-65"
-                    >
-                      <defs>
-                        <pattern
-                          id="closeGrid"
-                          width="40"
-                          height="40"
-                          patternUnits="userSpaceOnUse"
-                        >
-                          <path
-                            d="M 40 0 L 0 0 0 40"
-                            fill="none"
-                            stroke="#1E293B"
-                            strokeWidth="1.5"
-                          />
-                        </pattern>
-                      </defs>
-                      <rect width="800" height="500" fill="url(#closeGrid)" />
-                      <path
-                        d="M 0 250 L 800 250"
-                        stroke="#334155"
-                        strokeWidth="26"
-                        fill="none"
-                      />
-                      <path
-                        d="M 400 0 L 400 500"
-                        stroke="#334155"
-                        strokeWidth="24"
-                        fill="none"
-                      />
-                      <path
-                        d="M 120 0 L 680 500"
-                        stroke="#1E293B"
-                        strokeWidth="16"
-                        fill="none"
-                      />
-                      {/* Radar Circles around Driver */}
-                      <circle
-                        cx="400"
-                        cy="250"
-                        r="110"
-                        fill="none"
-                        stroke="#38BDF8"
-                        strokeOpacity="0.25"
-                        strokeWidth="2"
-                        strokeDasharray="6 6"
-                      />
-                      <circle
-                        cx="400"
-                        cy="250"
-                        r="55"
-                        fill="#10B981"
-                        fillOpacity="0.1"
-                        stroke="#10B981"
-                        strokeOpacity="0.4"
-                        strokeWidth="2"
-                      />
-                    </svg>
-
-                    {/* Live Moving Driver Marker in Center with Micro-Offset */}
-                    <div
-                      style={{
-                        left: `${50 + (live.lng - liveModalDriver.lng) * 9000}%`,
-                        top: `${50 - (live.lat - liveModalDriver.lat) * 9000}%`,
-                      }}
-                      className="absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-700"
-                    >
-                      <div className="w-20 h-20 rounded-full bg-emerald-500/25 border border-emerald-400 animate-ping absolute -inset-3 pointer-events-none" />
-                      <div className="relative flex flex-col items-center">
-                        <div className="px-3 py-1 rounded-xl bg-[#0A192F] border-2 border-emerald-400 text-white text-xs font-extrabold shadow-xl mb-1.5 whitespace-nowrap">
-                          {liveModalDriver.driverName} — هنا الآن
-                        </div>
-                        <div className="w-14 h-14 rounded-2xl bg-emerald-600 border-2 border-white shadow-[0_0_25px_rgba(16,185,129,0.9)] flex items-center justify-center text-2xl">
-                          🚗
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                {/* Real Google Maps Live Location Iframe */}
+                <div className="relative w-full h-[360px] sm:h-[420px] rounded-2xl overflow-hidden bg-[#071120] border-2 border-sky-400/60 shadow-xl">
+                  <iframe
+                    key={`${live.lat.toFixed(4)}-${live.lng.toFixed(4)}-${singleMapZoom}`}
+                    title={`Google Maps Live - ${liveModalDriver.driverName}`}
+                    src={modalGoogleMapEmbed}
+                    className="w-full h-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    allowFullScreen
+                  />
                 </div>
 
                 {/* Quick Call & WhatsApp Bar inside Modal */}

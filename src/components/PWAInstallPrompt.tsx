@@ -82,8 +82,9 @@ export const PWAInstallButton: React.FC = () => {
           }
         }}
         title="تثبيت التطبيق على الجهاز (PWA)"
+        className="px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs whitespace-nowrap shrink-0 rounded-xl"
       >
-        <Download className="w-4 h-4 text-sky-400" />
+        <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-400 shrink-0" />
         <span>تثبيت التطبيق</span>
       </FluentButton>
 

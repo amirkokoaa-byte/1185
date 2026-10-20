@@ -9,6 +9,8 @@ import {
   ExternalLink,
   Compass,
   X,
+  Trash2,
+  CheckSquare,
 } from 'lucide-react';
 import {
   MainSectionId,
@@ -24,9 +26,15 @@ interface TopBannersAndSquareAdsProps {
   squareAds: SquareMovingAd[];
   stores: StoreListingItem[];
   popupAd: PopupAdConfig;
+  isAdmin?: boolean;
   showBannersAndSquareAds?: boolean;
   onNavigateSection?: (section: MainSectionId) => void;
   onEntryPopupClosed?: () => void;
+  onBulkDeleteAds?: (
+    squareAdIds: string[],
+    topBannerIds: string[],
+    storeIds: string[]
+  ) => void;
 }
 
 const ROTATION_STORAGE_KEY = 'fluent_square_ads_rotation_v2';
@@ -37,9 +45,11 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   squareAds,
   stores,
   popupAd,
+  isAdmin = false,
   showBannersAndSquareAds = true,
   onNavigateSection,
   onEntryPopupClosed,
+  onBulkDeleteAds,
 }) => {
   // Re-evaluate expiration every 30 seconds so expired ads automatically disappear
   const [nowTick, setNowTick] = useState<number>(Date.now());
@@ -65,6 +75,18 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   const [selectedTopBanner, setSelectedTopBanner] = useState<TopBannerAd | null>(null);
   const [fullImagePreviewUrl, setFullImagePreviewUrl] = useState<string | null>(null);
 
+  // Admin Bulk Selection & Delete Confirmation States
+  const [isBulkSelectMode, setIsBulkSelectMode] = useState(false);
+  const [selectedAdKeys, setSelectedAdKeys] = useState<string[]>([]);
+  const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false);
+
+  const toggleSelectAdKey = (key: string) => {
+    setSelectedAdKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+    setConfirmingBulkDelete(false);
+  };
+
   // Entry Pop-up Ad state (opens automatically on entry if active and not expired)
   const [showEntryPopup, setShowEntryPopup] = useState<boolean>(() => {
     if (!popupAd || !popupAd.active) return false;
@@ -83,12 +105,12 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
   // 1. Auto-advance Top Banner every 2 seconds (2000ms) with smooth transition
   useEffect(() => {
-    if (activeBanners.length <= 1 || isBannerPaused) return;
+    if (activeBanners.length <= 1 || isBannerPaused || isBulkSelectMode) return;
     const interval = setInterval(() => {
       setCurrentBannerIndex((prev) => (prev + 1) % activeBanners.length);
     }, 2000);
     return () => clearInterval(interval);
-  }, [activeBanners.length, isBannerPaused]);
+  }, [activeBanners.length, isBannerPaused, isBulkSelectMode]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     setIsBannerPaused(true);
@@ -154,6 +176,28 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     return selectRandomPerCategoryEvery3Hours(combinedPool, nowTick);
   }, [squareAds, stores, nowTick]);
 
+  const handleConfirmExecuteBulkDelete = () => {
+    if (!onBulkDeleteAds || selectedAdKeys.length === 0) return;
+    const sqIds: string[] = [];
+    const tbIds: string[] = [];
+    const stIds: string[] = [];
+
+    selectedAdKeys.forEach((key) => {
+      if (key.startsWith('tb:')) {
+        tbIds.push(key.slice(3));
+      } else if (key.startsWith('sq:store-sq-')) {
+        stIds.push(key.slice('sq:store-sq-'.length));
+      } else if (key.startsWith('sq:')) {
+        sqIds.push(key.slice(3));
+      }
+    });
+
+    onBulkDeleteAds(sqIds, tbIds, stIds);
+    setSelectedAdKeys([]);
+    setConfirmingBulkDelete(false);
+    setIsBulkSelectMode(false);
+  };
+
   const currentBanner = activeBanners[currentBannerIndex] || activeBanners[0];
 
   const formatWhatsapp = (rawPhone: string) => {
@@ -189,6 +233,22 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
           onTouchEnd={handleTouchEnd}
         >
           <div className="relative w-full">
+            {/* Admin Checkbox on Top Banner when in Bulk Select Mode */}
+            {isAdmin && isBulkSelectMode && (
+              <label
+                onClick={(e) => e.stopPropagation()}
+                className="absolute top-3 right-3 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#0A192F]/95 border border-rose-400 text-xs font-extrabold text-white cursor-pointer shadow-lg"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedAdKeys.includes(`tb:${currentBanner.id}`)}
+                  onChange={() => toggleSelectAdKey(`tb:${currentBanner.id}`)}
+                  className="w-4 h-4 accent-rose-500"
+                />
+                <span>تحديد هذا البنر للحذف</span>
+              </label>
+            )}
+
             {/* Full Uncropped Banner Image Container */}
             <div
               onClick={() => setSelectedTopBanner(currentBanner)}
@@ -311,7 +371,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         </div>
       )}
 
-      {/* 2. Moving Square Ads Strip Below Top Banner (Full image + Full text without truncation) */}
+      {/* 2. Moving Square Ads Strip Below Top Banner (Full image + Full text + Admin Bulk Delete) */}
       {showBannersAndSquareAds && displayedSquareAds.length > 0 && (
         <div className="fluent-reveal w-full rounded-2xl bg-[#112240]/90 border border-sky-400/40 p-3.5 shadow-lg overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1 relative z-10">
@@ -321,52 +381,161 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                 قائمة الإعلانات المربعة المتحركة
               </h3>
             </div>
+
+            {/* Admin Only: Multi-Select & Bulk Delete Ads with Confirmation Button */}
+            {isAdmin && (
+              <div className="flex flex-wrap items-center gap-2">
+                {!isBulkSelectMode ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsBulkSelectMode(true);
+                      setSelectedAdKeys([]);
+                      setConfirmingBulkDelete(false);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+                    <span>تحديد إعلانات للحذف</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allKeys = [
+                          ...displayedSquareAds.map((a) => `sq:${a.id}`),
+                          ...activeBanners.map((b) => `tb:${b.id}`),
+                        ];
+                        if (selectedAdKeys.length === allKeys.length) {
+                          setSelectedAdKeys([]);
+                        } else {
+                          setSelectedAdKeys(allKeys);
+                        }
+                        setConfirmingBulkDelete(false);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-amber-300 border border-amber-400/40 text-xs font-bold cursor-pointer"
+                    >
+                      تحديد الكل ({selectedAdKeys.length})
+                    </button>
+
+                    {selectedAdKeys.length > 0 && !confirmingBulkDelete && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingBulkDelete(true)}
+                        className="px-3 py-1.5 rounded-xl bg-rose-600/85 hover:bg-rose-600 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>حذف المحدد ({selectedAdKeys.length})</span>
+                      </button>
+                    )}
+
+                    {confirmingBulkDelete && (
+                      <button
+                        type="button"
+                        onClick={handleConfirmExecuteBulkDelete}
+                        className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border-2 border-white/60 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer animate-pulse shadow-lg"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>تأكيد الحذف ({selectedAdKeys.length})</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsBulkSelectMode(false);
+                        setSelectedAdKeys([]);
+                        setConfirmingBulkDelete(false);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#1E293B] text-[#94A3B8] hover:text-white text-xs font-bold cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Continuous Slow Moving Square Cards Track */}
+          {/* Continuous Slow Moving Square Cards Track (Paused during Admin Bulk Select Mode for easy selection) */}
           <div className="w-full overflow-x-auto sm:overflow-hidden py-1 relative z-10">
-            <div className="animate-square-ads gap-3.5 items-stretch">
-              {[...displayedSquareAds, ...displayedSquareAds].map((ad, idx) => (
-                <div
-                  key={`${ad.id}-${idx}`}
-                  onClick={() => setSelectedSquareAd(ad)}
-                  className="fluent-reveal w-48 sm:w-56 shrink-0 rounded-xl bg-[#0A192F] border border-[#334155] hover:border-sky-400 overflow-hidden cursor-pointer flex flex-col justify-between"
-                >
-                  {/* Full Uncropped Ad Image */}
-                  <div className="relative w-full h-36 sm:h-40 bg-[#0A192F] border-b border-[#334155]/70 flex items-center justify-center overflow-hidden p-1">
-                    <img
-                      src={ad.imageUrl}
-                      alt={ad.title}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-contain"
-                    />
-                    {ad.isAdminPinned && (
-                      <div
-                        title="إعلان مثبت من الإدارة"
-                        className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-amber-500/90 text-[#0A192F] text-[10px] font-extrabold flex items-center gap-0.5 shadow"
-                      >
-                        <Pin className="w-2.5 h-2.5" />
-                        <span>مثبت</span>
-                      </div>
-                    )}
-                  </div>
+            <div
+              className={
+                isBulkSelectMode
+                  ? 'flex flex-wrap gap-3.5 items-stretch'
+                  : 'animate-square-ads gap-3.5 items-stretch'
+              }
+            >
+              {(isBulkSelectMode
+                ? displayedSquareAds
+                : [...displayedSquareAds, ...displayedSquareAds]
+              ).map((ad, idx) => {
+                const adKey = `sq:${ad.id}`;
+                const isSelectedForDelete = selectedAdKeys.includes(adKey);
+                return (
+                  <div
+                    key={`${ad.id}-${idx}`}
+                    onClick={() => {
+                      if (isAdmin && isBulkSelectMode) {
+                        toggleSelectAdKey(adKey);
+                      } else {
+                        setSelectedSquareAd(ad);
+                      }
+                    }}
+                    className={`fluent-reveal w-48 sm:w-56 shrink-0 rounded-xl bg-[#0A192F] border overflow-hidden cursor-pointer flex flex-col justify-between ${
+                      isSelectedForDelete
+                        ? 'border-2 border-rose-500 ring-2 ring-rose-500/40'
+                        : 'border-[#334155] hover:border-sky-400'
+                    }`}
+                  >
+                    {/* Full Uncropped Ad Image */}
+                    <div className="relative w-full h-36 sm:h-40 bg-[#0A192F] border-b border-[#334155]/70 flex items-center justify-center overflow-hidden p-1">
+                      <img
+                        src={ad.imageUrl}
+                        alt={ad.title}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-contain"
+                      />
+                      {isAdmin && isBulkSelectMode && (
+                        <div className="absolute top-1.5 left-1.5 z-20 bg-[#0A192F]/90 p-1 rounded-lg border border-rose-400">
+                          <input
+                            type="checkbox"
+                            checked={isSelectedForDelete}
+                            onChange={() => toggleSelectAdKey(adKey)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-4 h-4 accent-rose-500 cursor-pointer block"
+                          />
+                        </div>
+                      )}
+                      {ad.isAdminPinned && (
+                        <div
+                          title="إعلان مثبت من الإدارة"
+                          className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-amber-500/90 text-[#0A192F] text-[10px] font-extrabold flex items-center gap-0.5 shadow"
+                        >
+                          <Pin className="w-2.5 h-2.5" />
+                          <span>مثبت</span>
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Full Uncut Written Text (No truncate or ellipsis) */}
-                  <div className="p-3 space-y-1 text-right relative z-10 flex-1 flex flex-col justify-center">
-                    <div className="text-[11px] text-sky-400 font-bold break-words whitespace-normal leading-snug">
-                      {ad.category}
-                    </div>
-                    <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] break-words whitespace-normal leading-snug">
-                      {ad.title}
-                    </div>
-                    {ad.description && (
-                      <div className="text-[11px] text-[#94A3B8] break-words whitespace-normal leading-relaxed pt-0.5">
-                        {ad.description}
+                    {/* Full Uncut Written Text (No truncate or ellipsis) */}
+                    <div className="p-3 space-y-1 text-right relative z-10 flex-1 flex flex-col justify-center">
+                      <div className="text-[11px] text-sky-400 font-bold break-words whitespace-normal leading-snug">
+                        {ad.category}
                       </div>
-                    )}
+                      <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] break-words whitespace-normal leading-snug">
+                        {ad.title}
+                      </div>
+                      {ad.description && (
+                        <div className="text-[11px] text-[#94A3B8] break-words whitespace-normal leading-relaxed pt-0.5">
+                          {ad.description}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

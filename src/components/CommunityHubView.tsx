@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Users,
   Smile,
@@ -22,6 +22,7 @@ import {
   Radio,
 } from 'lucide-react';
 import {
+  ChatModerationPenalty,
   CommentEmojiReactionType,
   CommunityCommentItem,
   CommunityCommentReply,
@@ -30,16 +31,31 @@ import {
   CommunityPostType,
   CommunityReportReason,
   LiveChatMessageItem,
+  PrivateChatMessageItem,
+  PrivateChatReportItem,
+  PrivateChatStatus,
   UserAccount,
 } from '../types';
 import { FluentButton, FluentCard } from './FluentUI';
 import { LiveCommunityChatModal } from './LiveCommunityChatModal';
+import {
+  ABUSIVE_CONTENT_WARNING_MESSAGE,
+  containsAbusiveWords,
+} from '../services/profanityFilter';
 
 interface CommunityHubViewProps {
   posts: CommunityPostItem[];
   liveChatMessages: LiveChatMessageItem[];
   onlineCount: number;
   currentUser: UserAccount | null;
+  users?: UserAccount[];
+  cooldownConfigSeconds?: number;
+  autoClearMinutes?: number;
+  chatPenalties?: ChatModerationPenalty[];
+  privateChatMessages?: PrivateChatMessageItem[];
+  privateChatStatuses?: Record<string, PrivateChatStatus>;
+  userBlockedMap?: Record<string, string[]>;
+  privateChatReports?: PrivateChatReportItem[];
   onOpenAuthModal: () => void;
   onAddCommunityPost: (post: CommunityPostItem) => void;
   onUpdatePostStatus: (postId: string, status: CommunityPostStatus) => void;
@@ -68,9 +84,44 @@ interface CommunityHubViewProps {
   onDeleteComment: (postId: string, commentId: string) => void;
   onRestoreReportedComment: (postId: string, commentId: string) => void;
   onTogglePinComment: (postId: string, commentId: string) => void;
-  onSendChatMessage: (text: string, textColor: string) => void;
+  onSendChatMessage: (
+    text: string,
+    textColor: string,
+    isSystemNotification?: boolean,
+    targetUsername?: string
+  ) => void;
   onReportChatMessage: (msgId: string, reason: CommunityReportReason) => void;
-  onDeleteChatMessage: (msgId: string) => void;
+  onDeleteChatMessage: (msgId: string, notifyUsername?: string) => void;
+  onUpdateChatCooldown?: (seconds: number) => void;
+  onUpdateAutoClearMinutes?: (minutes: number) => void;
+  onClearPublicChatNow?: () => void;
+  onClearPrivateChatSession?: (keepOnlyPartnerUsername?: string) => void;
+  onApplyChatPenalty?: (
+    targetUserId: string,
+    targetUsername: string,
+    actionType: 'ban' | 'suspend',
+    durationLabel: 'ساعة' | 'ساعتين' | 'يوم'
+  ) => void;
+  onSendPrivateMessage?: (
+    receiverId: string,
+    receiverUsername: string,
+    text: string,
+    textColor?: string
+  ) => void;
+  onRespondPrivateChatRequest?: (
+    senderKey: string,
+    status: PrivateChatStatus
+  ) => void;
+  onBlockUserInChat?: (
+    blockedUserId: string,
+    blockedUsername: string,
+    reportReason?: string,
+    sampleMessage?: string
+  ) => void;
+  onDeleteUserAccountFromChat?: (
+    targetUserId: string,
+    targetUsername: string
+  ) => void;
 }
 
 const REPORT_REASONS: CommunityReportReason[] = [
@@ -170,6 +221,14 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   liveChatMessages,
   onlineCount,
   currentUser,
+  users = [],
+  cooldownConfigSeconds = 5,
+  autoClearMinutes = 60,
+  chatPenalties = [],
+  privateChatMessages = [],
+  privateChatStatuses = {},
+  userBlockedMap = {},
+  privateChatReports = [],
   onOpenAuthModal,
   onAddCommunityPost,
   onUpdatePostStatus,
@@ -189,6 +248,15 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   onSendChatMessage,
   onReportChatMessage,
   onDeleteChatMessage,
+  onUpdateChatCooldown,
+  onUpdateAutoClearMinutes,
+  onClearPublicChatNow,
+  onClearPrivateChatSession,
+  onApplyChatPenalty,
+  onSendPrivateMessage,
+  onRespondPrivateChatRequest,
+  onBlockUserInChat,
+  onDeleteUserAccountFromChat,
 }) => {
   const isStrictAdmin = currentUser?.role === 'admin';
   const isAdmin =
@@ -233,6 +301,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState<boolean>(false);
   const [activeEmojiGroupIdx, setActiveEmojiGroupIdx] = useState<number>(0);
   const [submissionNotice, setSubmissionNotice] = useState<string>('');
+  const [profanityAlert, setProfanityAlert] = useState<string>('');
 
   // Per-Post Interactive UI States
   const [openReportMenuId, setOpenReportMenuId] = useState<string | null>(null);
@@ -249,8 +318,19 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [reportFeedbackBanner, setReportFeedbackBanner] = useState<string>('');
 
-  // Approved Posts Filtered by Type
-  const approvedPosts = posts.filter((p) => p.status === 'approved');
+  const myBlockedUserKeys = useMemo(() => {
+    const list1 = userBlockedMap[visitorId] || [];
+    const list2 = userBlockedMap[visitorName.trim().toLowerCase()] || [];
+    return new Set([...list1, ...list2]);
+  }, [userBlockedMap, visitorId, visitorName]);
+
+  // Approved Posts Filtered by Type (and hidden for current user only if author is blocked by current user)
+  const approvedPosts = posts.filter(
+    (p) =>
+      p.status === 'approved' &&
+      !myBlockedUserKeys.has(p.authorId) &&
+      !myBlockedUserKeys.has(p.authorUsername.trim().toLowerCase())
+  );
   const filteredApprovedPosts = approvedPosts.filter((p) =>
     selectedPostTypeFilter === 'الكل' ? true : p.postType === selectedPostTypeFilter
   );
@@ -314,7 +394,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     reportedPostsList.length +
     reportedCommentsList.length;
 
-  // Handle New Post Submission ("انشر" - Requires Login)
+  // Handle New Post Submission ("انشر" - Requires Login + Profanity Filter)
   const handlePublishPostSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) {
@@ -322,6 +402,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       return;
     }
     if (!composerText.trim()) return;
+
+    if (containsAbusiveWords(composerText)) {
+      setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
+      return;
+    }
+    setProfanityAlert('');
 
     const newPost: CommunityPostItem = {
       id: `post-${Date.now()}`,
@@ -715,26 +801,26 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
   return (
     <div className="space-y-6 w-full max-w-4xl mx-auto overflow-x-hidden">
-      {/* 1. Top Bar: Title on Right + Filter Dropdown & Admin "إدارة" Button on Left */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#112240]/95 border border-[#334155] rounded-2xl p-4 sm:p-5 shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
-            <Users className="w-6 h-6" />
+      {/* 1. Top Bar: Title + Filter Dropdown & "محادثة لايف" & Admin "إدارة" Button in 1 line without clipping any button on mobile */}
+      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-[#112240]/95 border border-[#334155] rounded-2xl p-2.5 sm:p-5 shadow-lg">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
+            <Users className="w-4 h-4 sm:w-6 sm:h-6" />
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-extrabold text-[#F8FAFC]">
-              مجتمع المنصة التفاعلي
+            <h1 className="text-xs sm:text-xl font-extrabold text-[#F8FAFC] whitespace-nowrap">
+              مجتمع
             </h1>
-            <p className="text-xs text-[#94A3B8]">
+            <p className="text-xs text-[#94A3B8] hidden sm:block">
               شارك استفساراتك، اقتراحاتك، وإعلانات البيع والشراء مع أهالي المنطقة
             </p>
           </div>
         </div>
 
-        {/* Left Side Controls: Post Type Filter Dropdown + "محادثة لايف" Button + Admin "إدارة" Button */}
-        <div className="flex flex-wrap items-center gap-2.5 mr-auto">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-sky-400 shrink-0" />
+        {/* Left Side Controls in 1 single line: Post Type Filter Dropdown + "محادثة لايف" Button + Admin "إدارة" Button */}
+        <div className="flex items-center gap-1 sm:gap-2.5 flex-wrap sm:flex-nowrap justify-end">
+          <div className="flex items-center gap-1 shrink-0">
+            <Filter className="w-4 h-4 text-sky-400 shrink-0 hidden sm:block" />
             <select
               value={selectedPostTypeFilter}
               onChange={(e) =>
@@ -742,7 +828,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   e.target.value as 'الكل' | CommunityPostType
                 )
               }
-              className="rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2 text-xs sm:text-sm text-[#F8FAFC] font-extrabold outline-none"
+              className="rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-2 sm:px-3.5 py-1.5 sm:py-2 text-[11px] sm:text-sm text-[#F8FAFC] font-extrabold outline-none"
             >
               <option value="الكل">الكل ({approvedPosts.length})</option>
               <option value="استفسار">
@@ -757,13 +843,13 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             </select>
           </div>
 
-          {/* زر على اليسار يظهر في قسم المجتمع فقط باسم "محادثة لايف" */}
+          {/* زر على اليسار يظهر في قسم المجتمع فقط باسم "محادثة لايف" بشكل كامل وواضح على الهاتف */}
           <button
             type="button"
             onClick={() => setIsLiveChatOpen(true)}
-            className="fluent-reveal px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold flex items-center gap-2 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)]"
+            className="fluent-reveal px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-sm font-extrabold flex items-center gap-1 sm:gap-1.5 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap shrink-0"
           >
-            <Radio className="w-4 h-4 animate-pulse relative z-10" />
+            <Radio className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-pulse relative z-10 shrink-0" />
             <span className="relative z-10">محادثة لايف</span>
             <span className="relative z-10 px-1.5 py-0.5 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[10px] font-mono-tabular">
               {liveChatMessages.length}
@@ -774,12 +860,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             <button
               type="button"
               onClick={() => setIsAdminManagementView(true)}
-              className="fluent-reveal px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer shadow-lg"
+              className="fluent-reveal px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[11px] sm:text-sm font-extrabold flex items-center gap-1 sm:gap-1.5 cursor-pointer shadow-lg whitespace-nowrap shrink-0"
             >
-              <ShieldCheck className="w-4 h-4" />
+              <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
               <span>إدارة</span>
               {totalAdminAlertsCount > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-[#0A192F] text-amber-300 text-xs font-mono-tabular">
+                <span className="px-1.5 py-0.5 rounded-full bg-[#0A192F] text-amber-300 text-[10px] sm:text-xs font-mono-tabular">
                   {totalAdminAlertsCount}
                 </span>
               )}
@@ -787,6 +873,23 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Profanity Warning Banner */}
+      {profanityAlert && (
+        <div className="p-3.5 rounded-xl bg-rose-500/20 border border-rose-400 text-rose-200 text-xs font-extrabold flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{profanityAlert}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setProfanityAlert('')}
+            className="text-xs text-rose-200 underline cursor-pointer shrink-0"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
 
       {/* Report Feedback Banner */}
       {reportFeedbackBanner && (
@@ -1182,6 +1285,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     onClick={() => {
                       const txt = (commentDrafts[post.id] || '').trim();
                       if (!txt) return;
+                      if (containsAbusiveWords(txt)) {
+                        setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                        return;
+                      }
+                      setProfanityAlert('');
                       onAddCommentToPost(post.id, {
                         id: `cmt-${Date.now()}`,
                         authorId: visitorId,
@@ -1440,6 +1548,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onClick={() => {
                                 const txt = (replyDrafts[replyKey] || '').trim();
                                 if (!txt) return;
+                                if (containsAbusiveWords(txt)) {
+                                  setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                                  return;
+                                }
+                                setProfanityAlert('');
                                 onAddReplyToComment(post.id, cmt.id, {
                                   id: `rep-c-${Date.now()}`,
                                   authorId: visitorId,
@@ -1494,11 +1607,28 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         onClose={() => setIsLiveChatOpen(false)}
         messages={liveChatMessages}
         currentUser={currentUser}
+        users={users}
         onlineCount={onlineCount}
+        cooldownConfigSeconds={cooldownConfigSeconds}
+        autoClearMinutes={autoClearMinutes}
+        chatPenalties={chatPenalties}
+        privateChatMessages={privateChatMessages}
+        privateChatStatuses={privateChatStatuses}
+        userBlockedMap={userBlockedMap}
+        privateChatReports={privateChatReports}
         onOpenAuthModal={onOpenAuthModal}
         onSendChatMessage={onSendChatMessage}
         onReportChatMessage={onReportChatMessage}
         onDeleteChatMessage={onDeleteChatMessage}
+        onUpdateChatCooldown={onUpdateChatCooldown}
+        onUpdateAutoClearMinutes={onUpdateAutoClearMinutes}
+        onClearPublicChatNow={onClearPublicChatNow}
+        onClearPrivateChatSession={onClearPrivateChatSession}
+        onApplyChatPenalty={onApplyChatPenalty}
+        onSendPrivateMessage={onSendPrivateMessage}
+        onRespondPrivateChatRequest={onRespondPrivateChatRequest}
+        onBlockUserInChat={onBlockUserInChat}
+        onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
       />
     </div>
   );

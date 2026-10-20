@@ -132,39 +132,39 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
 
   return (
     <div className="space-y-6 w-full overflow-x-hidden">
-      {/* Top Header Bar: Title + "أضف خدمة" Button + Admin Export PDF/Excel */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#112240]/95 border border-[#334155] rounded-2xl p-4 sm:p-5 shadow-lg">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
-            <PhoneCall className="w-6 h-6" />
+      {/* Top Header Bar: Title + ("أضف خدمة" Button + "الكل | بطاقات | جدول" in 1 line) + Admin Export PDF/Excel */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#112240]/95 border border-[#334155] rounded-2xl p-3.5 sm:p-5 shadow-lg">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
+            <PhoneCall className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-extrabold text-[#F8FAFC]">
+            <h1 className="text-sm sm:text-xl font-extrabold text-[#F8FAFC]">
               أرقام الخدمات ومقدمي الخدمة
             </h1>
-            <p className="text-xs text-[#94A3B8]">
+            <p className="text-[11px] sm:text-xs text-[#94A3B8] hidden sm:block">
               دليل أرقام الفنيين، الطوارئ، ومقدمي الخدمات مع الاتصال والمراسلة واللوكيشن المباشر
             </p>
           </div>
-
-          <FluentButton
-            variant="primary"
-            size="md"
-            onClick={openAddModal}
-            className="mr-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>أضف خدمة</span>
-          </FluentButton>
         </div>
 
-        {/* Admin Export Buttons (Strict A4 PDF & Excel) + View Switcher */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center rounded-xl bg-[#0A192F] border border-[#334155] p-1">
+        {/* Single Line: "أضف خدمة" beside "الكل | بطاقات | جدول" + Admin Export */}
+        <div className="flex items-center justify-between sm:justify-start gap-2 flex-nowrap overflow-x-auto no-scrollbar">
+          <FluentButton
+            variant="primary"
+            size="sm"
+            onClick={openAddModal}
+            className="shrink-0 whitespace-nowrap px-3 py-1.5 text-xs sm:text-sm"
+          >
+            <Plus className="w-4 h-4 shrink-0" />
+            <span>أضف خدمة</span>
+          </FluentButton>
+
+          <div className="flex items-center rounded-xl bg-[#0A192F] border border-[#334155] p-1 shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('both')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors whitespace-nowrap ${
                 viewMode === 'both'
                   ? 'bg-sky-600 text-white'
                   : 'text-[#94A3B8] hover:text-white'
@@ -175,25 +175,25 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('cards')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
                 viewMode === 'cards'
                   ? 'bg-sky-600 text-white'
                   : 'text-[#94A3B8] hover:text-white'
               }`}
             >
-              <LayoutGrid className="w-3.5 h-3.5" />
+              <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
               <span>بطاقات</span>
             </button>
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
                 viewMode === 'table'
                   ? 'bg-sky-600 text-white'
                   : 'text-[#94A3B8] hover:text-white'
               }`}
             >
-              <TableIcon className="w-3.5 h-3.5" />
+              <TableIcon className="w-3.5 h-3.5 shrink-0" />
               <span>جدول</span>
             </button>
           </div>
@@ -204,6 +204,7 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
                 variant="secondary"
                 size="sm"
                 onClick={() => exportServiceNumbersToExcel(filteredServices)}
+                className="shrink-0 whitespace-nowrap"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
                 <span>تصدير إكسيل</span>
@@ -213,6 +214,7 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
                 variant="secondary"
                 size="sm"
                 onClick={() => exportServiceNumbersToPDF(filteredServices)}
+                className="shrink-0 whitespace-nowrap"
               >
                 <FileText className="w-4 h-4 text-rose-400" />
                 <span>تصدير PDF</span>
@@ -223,7 +225,7 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
       </div>
 
       {/* Search Bar */}
-      <div className="bg-[#112240]/80 border border-[#334155] rounded-2xl p-4">
+      <div className="bg-[#112240]/80 border border-[#334155] rounded-2xl p-3 sm:p-4">
         <div className="relative flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -232,10 +234,10 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="ابحث عن اسم مقدم الخدمة أو رقم الهاتف..."
-              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-4 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] outline-none"
             />
           </div>
-          <FluentButton variant="primary" size="md">
+          <FluentButton variant="primary" size="sm" className="shrink-0">
             <Search className="w-4 h-4" />
             <span>بحث</span>
           </FluentButton>
@@ -254,37 +256,68 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
         </FluentCard>
       ) : (
         <>
-          {/* 1. Formatted Cards View */}
+          {/* 1. Single-Line Stacked Services View ("أي خدمة يتم تسجيلها تظهر في سطر واحد ثم أسفلها الباقي") */}
           {(viewMode === 'both' || viewMode === 'cards') && (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="flex flex-col space-y-2.5">
               {filteredServices.map((srv) => (
                 <FluentCard
                   key={srv.id}
                   onClick={() => setInspectingEntryId(srv.id)}
-                  className="p-5 flex flex-col justify-between gap-4 border-[#334155] hover:border-sky-400/70"
+                  className="p-3 sm:p-4 border-[#334155] hover:border-sky-400/70"
                 >
-                  {/* Provider Name + Admin Quick Actions */}
-                  <div className="flex items-start justify-between gap-3 border-b border-[#334155]/80 pb-3">
-                    <div className="space-y-1 min-w-0">
-                      <span className="text-[11px] font-bold text-sky-400 block">
-                        اسم مقدم الخدمة
-                      </span>
-                      <h3 className="text-base font-extrabold text-[#F8FAFC] leading-snug">
+                  <div className="flex items-center justify-between gap-2 sm:gap-3 flex-nowrap overflow-x-auto no-scrollbar">
+                    {/* Provider Name */}
+                    <div className="flex items-center gap-2 min-w-0 shrink-0">
+                      <PhoneCall className="w-4 h-4 text-sky-400 shrink-0" />
+                      <h3 className="text-xs sm:text-base font-extrabold text-[#F8FAFC] whitespace-nowrap">
                         {srv.title}
                       </h3>
                     </div>
 
+                    {/* Phone + Call + WhatsApp + Location + Admin Actions in 1 line */}
                     <div
-                      className="flex items-center gap-1.5 shrink-0"
+                      className="flex items-center gap-1.5 sm:gap-2 shrink-0"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <span className="text-xs sm:text-sm font-extrabold text-sky-400 font-mono-tabular whitespace-nowrap px-2 py-1 rounded-lg bg-[#0A192F] border border-[#334155]">
+                        {srv.phone}
+                      </span>
+
+                      <a
+                        href={`tel:${srv.phone}`}
+                        className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] sm:text-xs font-bold shadow whitespace-nowrap shrink-0"
+                      >
+                        <Phone className="w-3.5 h-3.5 shrink-0" />
+                        <span>اتصال</span>
+                      </a>
+
+                      <a
+                        href={`https://wa.me/${formatWhatsappNumber(srv.phone)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold shadow whitespace-nowrap shrink-0"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>مراسلة</span>
+                      </a>
+
+                      <a
+                        href={srv.locationUrl || 'https://maps.google.com'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-bold shrink-0 shadow whitespace-nowrap"
+                      >
+                        <MapPin className="w-3.5 h-3.5 shrink-0" />
+                        <span>فتح الرابط</span>
+                      </a>
+
                       <button
                         type="button"
                         onClick={() => setInspectingEntryId(srv.id)}
                         title="عرض التفاصيل"
-                        className="p-2 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-sky-400 border border-[#334155] cursor-pointer"
+                        className="p-1.5 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-sky-400 border border-[#334155] cursor-pointer shrink-0"
                       >
-                        <Eye className="w-4 h-4" />
+                        <Eye className="w-3.5 h-3.5" />
                       </button>
 
                       {isAdmin && (
@@ -293,79 +326,21 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
                             type="button"
                             onClick={() => openEditModal(srv)}
                             title="تعديل الخدمة (Admin)"
-                            className="p-2 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-[#0A192F] border border-amber-400/40 cursor-pointer transition-colors"
+                            className="p-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-[#0A192F] border border-amber-400/40 cursor-pointer transition-colors shrink-0"
                           >
-                            <Edit3 className="w-4 h-4" />
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
                             onClick={() => onDeleteServiceNumber(srv.id)}
                             title="حذف الخدمة (Admin)"
-                            className="p-2 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/30 cursor-pointer transition-colors"
+                            className="p-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/30 cursor-pointer transition-colors shrink-0"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </>
                       )}
                     </div>
-                  </div>
-
-                  {/* Phone Row: Number + "اتصال" + "مراسلة" */}
-                  <div
-                    className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex flex-wrap items-center justify-between gap-2"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div>
-                      <span className="text-[11px] text-[#94A3B8] block">رقم الهاتف:</span>
-                      <span className="text-sm font-extrabold text-sky-400 font-mono-tabular">
-                        {srv.phone}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={`tel:${srv.phone}`}
-                        className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                        <span>اتصال</span>
-                      </a>
-                      <a
-                        href={`https://wa.me/${formatWhatsappNumber(srv.phone)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span>مراسلة</span>
-                      </a>
-                    </div>
-                  </div>
-
-                  {/* Location Row: Google Maps + "فتح الرابط" */}
-                  <div
-                    className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="min-w-0 flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-indigo-400 shrink-0" />
-                      <div className="min-w-0">
-                        <span className="text-[11px] text-[#94A3B8] block">اللوكيشن:</span>
-                        <span className="text-xs text-[#E2E8F0] font-mono-tabular truncate block">
-                          {srv.locationUrl || 'https://maps.google.com'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <a
-                      href={srv.locationUrl || 'https://maps.google.com'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shrink-0 shadow"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>فتح الرابط</span>
-                    </a>
                   </div>
                 </FluentCard>
               ))}

@@ -224,6 +224,42 @@ export interface LiveChatMessageItem {
   textColor: string;
   reports: CommunityReportEntry[];
   createdAt: string;
+  isSystemNotification?: boolean;
+  targetUsername?: string;
+}
+
+export interface ChatModerationPenalty {
+  id: string;
+  targetUserId: string;
+  targetUsername: string;
+  actionType: 'ban' | 'suspend'; // حظر أو تعليق
+  durationLabel: 'ساعة' | 'ساعتين' | 'يوم';
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface PrivateChatMessageItem {
+  id: string;
+  senderId: string;
+  senderUsername: string;
+  receiverId: string;
+  receiverUsername: string;
+  text: string;
+  textColor?: string;
+  createdAt: string;
+}
+
+export type PrivateChatStatus = 'pending' | 'accepted' | 'rejected';
+
+export interface PrivateChatReportItem {
+  id: string;
+  reporterId: string;
+  reporterUsername: string;
+  reportedUserId: string;
+  reportedUsername: string;
+  reason: string;
+  sampleMessage?: string;
+  createdAt: string;
 }
 
 export interface FirebaseConfigSettings {
@@ -236,6 +272,7 @@ export interface FirebaseConfigSettings {
   storageBucket: string;
   messagingSenderId: string;
   appId: string;
+  measurementId?: string;
 }
 
 export interface PlatformSettings {
@@ -249,6 +286,9 @@ export interface PlatformSettings {
   googleMapsApiKey?: string;
   storeCategories: string[]; // Dynamic store categories updatable in real-time from Settings
   requireDriverCriminalRecordApproval?: boolean; // اشتراط موافقة الإدارة على صورة الفيش قبل التفعيل أم فتح الخدمة مع مهلة 3 أيام
+  liveChatCooldownSeconds?: number; // المدة بين كل رسالة في الشات العام (ثواني)
+  liveChatAutoClearMinutes?: number; // مدة المسح التلقائي للشات العام (بالدقائق)
+  liveChatLastClearedAt?: string; // وقت آخر مسح للشات العام
   firebase: FirebaseConfigSettings;
 }
 
@@ -263,5 +303,10 @@ export interface PlatformDatabaseState {
   tawsilaRides: TawsilaRideItem[];
   communityPosts: CommunityPostItem[];
   liveChatMessages?: LiveChatMessageItem[];
+  chatPenalties?: ChatModerationPenalty[];
+  privateChatMessages?: PrivateChatMessageItem[];
+  privateChatStatuses?: Record<string, PrivateChatStatus>;
+  userBlockedMap?: Record<string, string[]>;
+  privateChatReports?: PrivateChatReportItem[];
   settings: PlatformSettings;
 }

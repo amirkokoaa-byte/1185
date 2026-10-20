@@ -80,9 +80,44 @@ interface PortalSectionsWorkspaceProps {
   onDeleteCommunityComment: (postId: string, commentId: string) => void;
   onRestoreReportedCommunityComment: (postId: string, commentId: string) => void;
   onTogglePinCommunityComment: (postId: string, commentId: string) => void;
-  onSendChatMessage: (text: string, textColor: string) => void;
+  onSendChatMessage: (
+    text: string,
+    textColor: string,
+    isSystemNotification?: boolean,
+    targetUsername?: string
+  ) => void;
   onReportChatMessage: (msgId: string, reason: CommunityReportReason) => void;
-  onDeleteChatMessage: (msgId: string) => void;
+  onDeleteChatMessage: (msgId: string, notifyUsername?: string) => void;
+  onUpdateChatCooldown?: (seconds: number) => void;
+  onUpdateAutoClearMinutes?: (minutes: number) => void;
+  onClearPublicChatNow?: () => void;
+  onClearPrivateChatSession?: (keepOnlyPartnerUsername?: string) => void;
+  onApplyChatPenalty?: (
+    targetUserId: string,
+    targetUsername: string,
+    actionType: 'ban' | 'suspend',
+    durationLabel: 'ساعة' | 'ساعتين' | 'يوم'
+  ) => void;
+  onSendPrivateMessage?: (
+    receiverId: string,
+    receiverUsername: string,
+    text: string,
+    textColor?: string
+  ) => void;
+  onRespondPrivateChatRequest?: (
+    senderKey: string,
+    status: 'pending' | 'accepted' | 'rejected'
+  ) => void;
+  onBlockUserInChat?: (
+    blockedUserId: string,
+    blockedUsername: string,
+    reportReason?: string,
+    sampleMessage?: string
+  ) => void;
+  onDeleteUserAccountFromChat?: (
+    targetUserId: string,
+    targetUsername: string
+  ) => void;
   onUpdateSettings: (settings: PlatformSettings) => void;
   onUpdateUserAccount: (user: UserAccount) => void;
   onDeleteUserAccount: (id: string) => void;
@@ -143,6 +178,15 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onSendChatMessage,
   onReportChatMessage,
   onDeleteChatMessage,
+  onUpdateChatCooldown,
+  onUpdateAutoClearMinutes,
+  onClearPublicChatNow,
+  onClearPrivateChatSession,
+  onApplyChatPenalty,
+  onSendPrivateMessage,
+  onRespondPrivateChatRequest,
+  onBlockUserInChat,
+  onDeleteUserAccountFromChat,
   onUpdateSettings,
   onUpdateUserAccount,
   onDeleteUserAccount,
@@ -221,6 +265,14 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         liveChatMessages={state.liveChatMessages || []}
         onlineCount={onlineCount}
         currentUser={currentUser}
+        users={state.users}
+        cooldownConfigSeconds={state.settings.liveChatCooldownSeconds ?? 5}
+        autoClearMinutes={state.settings.liveChatAutoClearMinutes ?? 60}
+        chatPenalties={state.chatPenalties || []}
+        privateChatMessages={state.privateChatMessages || []}
+        privateChatStatuses={state.privateChatStatuses || {}}
+        userBlockedMap={state.userBlockedMap || {}}
+        privateChatReports={state.privateChatReports || []}
         onOpenAuthModal={onOpenAuthModal}
         onAddCommunityPost={onAddCommunityPost}
         onUpdatePostStatus={onUpdatePostStatus}
@@ -240,6 +292,15 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onSendChatMessage={onSendChatMessage}
         onReportChatMessage={onReportChatMessage}
         onDeleteChatMessage={onDeleteChatMessage}
+        onUpdateChatCooldown={onUpdateChatCooldown}
+        onUpdateAutoClearMinutes={onUpdateAutoClearMinutes}
+        onClearPublicChatNow={onClearPublicChatNow}
+        onClearPrivateChatSession={onClearPrivateChatSession}
+        onApplyChatPenalty={onApplyChatPenalty}
+        onSendPrivateMessage={onSendPrivateMessage}
+        onRespondPrivateChatRequest={onRespondPrivateChatRequest}
+        onBlockUserInChat={onBlockUserInChat}
+        onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
       />
     );
   }

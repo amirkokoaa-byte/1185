@@ -5,9 +5,14 @@ import {
   User,
   Lock,
   Radio,
+  AlertTriangle,
 } from 'lucide-react';
 import { PlatformSettings, UserAccount } from '../types';
 import { FluentButton, FluentModal } from './FluentUI';
+import {
+  ABUSIVE_CONTENT_WARNING_MESSAGE,
+  containsAbusiveWords,
+} from '../services/profanityFilter';
 
 interface FooterAndContactModalProps {
   settings: PlatformSettings;
@@ -27,6 +32,7 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [messageContent, setMessageContent] = useState('');
   const [sentNotice, setSentNotice] = useState(false);
+  const [profanityError, setProfanityError] = useState('');
 
   const readonlyUsername = currentUser ? currentUser.username : 'زائر (غير مسجل)';
 
@@ -43,6 +49,7 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
   const handleMessageTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     // Strictly cap at 1000 characters WITHOUT showing any character counter to the user
     const val = e.target.value;
+    setProfanityError('');
     if (val.length <= 1000) {
       setMessageContent(val);
     } else {
@@ -55,6 +62,11 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
     const clean = messageContent.trim();
     if (!clean) return;
 
+    if (containsAbusiveWords(clean)) {
+      setProfanityError(ABUSIVE_CONTENT_WARNING_MESSAGE);
+      return;
+    }
+
     onSendMessageToAdmin(
       clean.slice(0, 1000),
       readonlyUsername,
@@ -63,6 +75,7 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
 
     setSentNotice(true);
     setMessageContent('');
+    setProfanityError('');
     setTimeout(() => {
       setSentNotice(false);
       setIsMessageModalOpen(false);
@@ -94,11 +107,8 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
             </div>
 
             <div>
-              <div
-                dir="ltr"
-                className="pt-1 inline-block text-xs sm:text-sm font-mono-tabular font-bold text-sky-400 tracking-wide select-all"
-              >
-                With compliments of Programmer Amir Lamay
+              <div className="pt-1 inline-block text-xs sm:text-sm font-bold text-sky-400 tracking-wide select-all">
+                مع تحيات المطور Amir Lamay
               </div>
             </div>
           </div>
@@ -239,6 +249,13 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
                 className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 p-3.5 text-[#F8FAFC] outline-none resize-none"
               />
             </div>
+
+            {profanityError && (
+              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-400 text-rose-200 text-xs font-extrabold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{profanityError}</span>
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#334155]">
               <FluentButton

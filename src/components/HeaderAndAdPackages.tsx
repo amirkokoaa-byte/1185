@@ -6,7 +6,6 @@ import {
   Menu,
   Clock,
   Calendar,
-  Megaphone,
   CheckCircle2,
   MessageCircle,
   ShieldCheck,
@@ -98,13 +97,9 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
   return (
     <>
       <header className="sticky top-0 z-40 w-full fluent-acrylic border-b border-[#334155] shadow-lg">
-        {/* 1. Very Top Moving News / Ad Ticker (Marquee at medium speed) */}
-        <div className="w-full bg-[#0A192F] border-b border-[#334155]/80 py-1.5 px-3 overflow-hidden flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-bold shrink-0 z-10">
-            <Megaphone className="w-3.5 h-3.5 text-sky-400" />
-            <span>شريط الإعلانات والأخبار</span>
-          </div>
-          <div className="flex-1 overflow-hidden relative">
+        {/* 1. Very Top Moving News / Ad Ticker (Full width marquee without label) */}
+        <div className="w-full bg-[#0A192F] border-b border-[#334155]/80 py-1.5 px-3 overflow-hidden flex items-center">
+          <div className="w-full overflow-hidden relative">
             <div className="animate-news-marquee text-xs sm:text-sm font-semibold text-[#F8FAFC]">
               {settings.marqueeText}
             </div>
@@ -112,21 +107,21 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
         </div>
 
         {/* 2. Main Header Row */}
-        <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3">
-          {/* Right Side (RTL Start): Mobile Drawer Button + Brand + Auth + Crown "للإعلانات" */}
-          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+        <div className="max-w-[1600px] mx-auto px-2 sm:px-6 py-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+          {/* Row 1 on Mobile / Right Side on Desktop: Mobile Drawer Button + Brand + Auth + Crown "للإعلانات" + PWA Install (100% visible, no clipping) */}
+          <div className="flex items-center justify-between lg:justify-start gap-1 sm:gap-3 flex-wrap sm:flex-nowrap w-full lg:w-auto">
             {/* Mobile Sidebar Trigger */}
             <button
               type="button"
               onClick={onOpenMobileSidebar}
               aria-label="فتح القائمة الجانبية"
-              className="lg:hidden fluent-reveal w-11 h-11 rounded-xl bg-[#1E293B] border border-[#334155] flex items-center justify-center text-[#F8FAFC] cursor-pointer shrink-0"
+              className="lg:hidden fluent-reveal w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#1E293B] border border-[#334155] flex items-center justify-center text-[#F8FAFC] cursor-pointer shrink-0"
             >
-              <Menu className="w-5 h-5 relative z-10" />
+              <Menu className="w-4 h-4 sm:w-5 sm:h-5 relative z-10" />
             </button>
 
             {/* Site Brand Title */}
-            <div className="hidden sm:flex flex-col">
+            <div className="hidden sm:flex flex-col shrink-0">
               <span className="text-sm sm:text-base font-extrabold text-[#F8FAFC] tracking-tight whitespace-nowrap">
                 {settings.siteName}
               </span>
@@ -137,12 +132,12 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
 
             {/* Auth Button (Register/Login OR Logged-in Username + Logout) */}
             {currentUser ? (
-              <div className="flex items-center gap-2 bg-[#0A192F]/90 border border-[#334155] rounded-xl px-3 py-1.5">
-                <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1 sm:gap-2 bg-[#0A192F]/90 border border-[#334155] rounded-xl px-2 sm:px-3 py-1 sm:py-1.5 shrink-0">
+                <div className="flex items-center gap-1">
                   {currentUser.role === 'admin' && (
-                    <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                    <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
                   )}
-                  <span className="text-xs sm:text-sm font-bold text-sky-300">
+                  <span className="text-[11px] sm:text-sm font-bold text-sky-300 truncate max-w-[68px] sm:max-w-none">
                     {currentUser.username}
                   </span>
                 </div>
@@ -150,52 +145,49 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                   type="button"
                   onClick={onLogout}
                   title="تسجيل الخروج"
-                  className="fluent-reveal px-2.5 py-1 rounded-lg bg-rose-600/85 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  className="fluent-reveal px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-rose-600/85 hover:bg-rose-500 text-white text-[10px] sm:text-xs font-bold flex items-center gap-0.5 cursor-pointer shrink-0"
                 >
-                  <LogOut className="w-3.5 h-3.5 relative z-10" />
+                  <LogOut className="w-3 h-3 sm:w-3.5 sm:h-3.5 relative z-10" />
                   <span className="relative z-10">خروج</span>
                 </button>
               </div>
             ) : (
               <FluentButton
                 variant="primary"
-                size="md"
+                size="sm"
                 onClick={onOpenAuthModal}
-                className="rounded-xl"
+                className="rounded-xl px-2 sm:px-3.5 py-1.5 text-[11px] sm:text-xs whitespace-nowrap shrink-0"
               >
-                <UserPlus className="w-4 h-4" />
-                <span>تسجيل حساب</span>
+                <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span>تسجيل الدخول</span>
               </FluentButton>
             )}
 
-            {/* Crown Icon Button with "للإعلانات" underneath */}
+            {/* Crown Icon Button with "للإعلانات" */}
             <button
               type="button"
               onClick={() => setIsAdModalOpen(true)}
-              className="fluent-reveal flex flex-col items-center justify-center px-3 py-1 rounded-xl bg-gradient-to-b from-amber-500/20 to-[#1E293B] border border-amber-400/50 hover:border-amber-300 text-amber-300 cursor-pointer min-w-[68px]"
+              className="fluent-reveal flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-xl bg-gradient-to-b from-amber-500/20 to-[#1E293B] border border-amber-400/50 hover:border-amber-300 text-amber-300 cursor-pointer shrink-0 whitespace-nowrap"
             >
-              <div className="relative z-10 flex items-center gap-1">
-                <Crown className="w-4 h-4 text-amber-400 fill-amber-400/30" />
-                <span className="text-sm leading-none">👑</span>
-              </div>
-              <span className="relative z-10 text-[11px] font-extrabold text-amber-200 mt-0.5 whitespace-nowrap">
-                للإعلانات
+              <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 fill-amber-400/30 relative z-10 shrink-0" />
+              <span className="relative z-10 text-[11px] sm:text-xs font-extrabold text-amber-200 whitespace-nowrap">
+                👑 للإعلانات
               </span>
             </button>
 
             <PWAInstallButton />
           </div>
 
-          {/* Left Side (RTL End): Live Day, Date, and 12-hour Clock with Seconds */}
-          <div className="mr-auto lg:mr-0 flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-[#0A192F]/90 border border-[#334155] text-xs sm:text-sm">
+          {/* Row 2 on Mobile (Directly Below Buttons) / Left Side on Desktop: Live Day, Date, and 12-hour Clock with Seconds */}
+          <div className="w-full lg:w-auto flex items-center justify-center lg:justify-end gap-2 sm:gap-2.5 px-3 py-1.5 sm:py-2 rounded-xl bg-[#0A192F]/90 border border-[#334155] text-[11px] sm:text-sm whitespace-nowrap">
             <div className="flex items-center gap-1.5 text-[#94A3B8]">
-              <Calendar className="w-4 h-4 text-sky-400 shrink-0" />
+              <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-400 shrink-0" />
               <span className="font-bold text-[#F8FAFC]">{dayName}</span>
               <span className="font-mono-tabular text-[#94A3B8]">{formattedDate}</span>
             </div>
             <span className="text-[#334155]">|</span>
             <div className="flex items-center gap-1.5 text-sky-400 font-bold">
-              <Clock className="w-4 h-4 shrink-0" />
+              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
               <span className="font-mono-tabular tracking-wide" dir="ltr">
                 {formattedTime}
               </span>

@@ -103,12 +103,12 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     }
   };
 
-  // 1. Auto-advance Top Banner every 2 seconds (2000ms) with smooth transition
+  // 1. Auto-advance Top Banner every 5 seconds (5000ms) with smooth transition
   useEffect(() => {
     if (activeBanners.length <= 1 || isBannerPaused || isBulkSelectMode) return;
     const interval = setInterval(() => {
       setCurrentBannerIndex((prev) => (prev + 1) % activeBanners.length);
-    }, 2000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [activeBanners.length, isBannerPaused, isBulkSelectMode]);
 

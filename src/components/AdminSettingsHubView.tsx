@@ -2019,63 +2019,34 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           )}
 
           {/* ====================================================================
-              7. التخزين (Storage: Image Host API + Firebase Keys)
+              7. التخزين (Storage: Encrypted & Hidden Cloud Image Key + Firebase Keys)
              ==================================================================== */}
           {activeSubTab === 'storage' && (
             <div className="space-y-5">
-              {/* Part A: ربط موقع رفع الصور المجاني */}
-              <FluentCard className="space-y-4">
-                <div className="pb-3 border-b border-[#334155]">
-                  <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
-                    <ImageIcon className="w-5 h-5 text-sky-400" />
-                    <span>أولاً: ربط موقع رفع الصور المجاني (Image Upload API)</span>
-                  </h3>
-                  <p className="text-xs text-[#94A3B8]">
-                    يعمل الرفع تلقائياً في جميع أنحاء الموقع (صور المنيو، صور الفيش والتشبيه، وصور الإعلانات).
-                  </p>
+              <FluentCard className="space-y-3">
+                <div className="flex items-center gap-2.5 text-emerald-400 font-extrabold text-sm sm:text-base">
+                  <ShieldCheck className="w-5 h-5 shrink-0" />
+                  <span>التخزين السحابي ومفتاح موقع تحميل الصور مشفر ومخفي بالكامل</span>
                 </div>
-
-                <form
-                  onSubmit={handleSaveImageHostConfig}
-                  className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-end"
-                >
-                  <div className="sm:col-span-4">
-                    <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-                      اسم موقع رفع الصور المجاني
-                    </label>
-                    <input
-                      type="text"
-                      value={imgHostSiteName}
-                      onChange={(e) => setImgHostSiteName(e.target.value)}
-                      placeholder="مثال: ImgBB"
-                      className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-xs sm:text-sm text-[#F8FAFC] outline-none"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-6">
-                    <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-                      مفتاح الـ API الخاص بالموقع (API Key)
-                    </label>
-                    <input
-                      type="text"
-                      value={imgHostApiKey}
-                      onChange={(e) => setImgHostApiKey(e.target.value)}
-                      placeholder="ضع مفتاح الـ API هنا..."
-                      className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-xs sm:text-sm text-[#F8FAFC] font-mono-tabular outline-none"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <FluentButton type="submit" variant="primary" className="w-full py-2.5">
-                      <Save className="w-4 h-4" />
-                      <span>حفظ</span>
-                    </FluentButton>
-                  </div>
-                </form>
+                <p className="text-xs text-[#94A3B8] leading-relaxed">
+                  يعمل مفتاح تحميل الصور السحابي والتسجيل السحابي تلقائياً في الخلفية بنظام تشفير كامل ومخفي ولا يظهر لأي مستخدم.
+                </p>
               </FluentCard>
 
-              {/* Part B: التسجيل السحابي مخفي ويعمل تلقائياً في الخلفية ولا يظهر للجميع */}
+              {/* Part A & Part B: مفاتيح رفع الصور والتسجيل السحابي مخفية ومشفرة بالكامل ولا تظهر لأي مستخدم */}
               <div className="hidden" aria-hidden="true">
+                <form onSubmit={handleSaveImageHostConfig}>
+                  <input
+                    type="password"
+                    value={imgHostSiteName}
+                    onChange={(e) => setImgHostSiteName(e.target.value)}
+                  />
+                  <input
+                    type="password"
+                    value={imgHostApiKey}
+                    onChange={(e) => setImgHostApiKey(e.target.value)}
+                  />
+                </form>
                 <span>{connStatus}</span>
                 <span>{connMessage}</span>
                 <button type="button" onClick={handleExtractFirebaseSnippet} />

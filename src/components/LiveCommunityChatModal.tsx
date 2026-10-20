@@ -727,20 +727,47 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     [messages]
   );
 
-  // Auto-select the active private partner if user switches to Private Chat tab and has an existing conversation
+  // Auto-select the active private partner if user switches to Private Chat tab and has an existing conversation or someone typing to them
   useEffect(() => {
-    if (activeChatTab === 'private' && !activePrivatePartner && privatePartnersList.length > 0) {
-      const accepted =
-        privatePartnersList.find((p) => p.status === 'accepted') ||
-        privatePartnersList[0];
-      if (accepted) {
+    if (activeChatTab === 'private' && !activePrivatePartner) {
+      if (privatePartnersList.length > 0) {
+        const accepted =
+          privatePartnersList.find((p) => p.status === 'accepted') ||
+          privatePartnersList[0];
+        if (accepted) {
+          setActivePrivatePartner({
+            userId: accepted.userId,
+            username: accepted.username,
+          });
+          return;
+        }
+      }
+      // If someone is currently typing a private message to me (even before the first message is sent), auto-select them!
+      const incomingTyper = Object.values(chatTypingMap).find((entry) => {
+        if (!entry || nowMs - entry.updatedAt >= 8000) return false;
+        const entryUserNorm = (entry.username || '').trim().toLowerCase();
+        if (!entryUserNorm || entryUserNorm === myUsernameNorm) return false;
+        const targetNorm = (entry.targetKey || entry.targetUsername || '')
+          .replace(/^private:/i, '')
+          .trim()
+          .toLowerCase();
+        return targetNorm === myUsernameNorm || entry.chatType === 'private';
+      });
+      if (incomingTyper) {
         setActivePrivatePartner({
-          userId: accepted.userId,
-          username: accepted.username,
+          userId: incomingTyper.userId,
+          username: incomingTyper.username,
         });
       }
     }
-  }, [activeChatTab, activePrivatePartner, privatePartnersList]);
+  }, [
+    activeChatTab,
+    activePrivatePartner,
+    privatePartnersList,
+    chatTypingMap,
+    nowMs,
+    myUsernameNorm,
+  ]);
 
   // Automatically mark incoming private messages from activePrivatePartner as read when viewing Private Chat
   useEffect(() => {
@@ -799,7 +826,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   };
 
   // Check if the other person in private chat is currently typing to me
-  const otherPrivateTyperName = useMemo(() => {
+  const otherPrivateTyperEntry = useMemo(() => {
     const TYPING_TTL_MS = 8000;
     const entries = Object.values(chatTypingMap);
     const activeOtherEntries = entries.filter((entry) => {
@@ -815,6 +842,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
       const matchedPartner = activeOtherEntries.find((entry) => {
         const entryUserNorm = entry.username.trim().toLowerCase();
         const targetNorm = (entry.targetKey || entry.targetUsername || '')
+          .replace(/^private:/i, '')
           .trim()
           .toLowerCase();
         const isFromPartner =
@@ -831,13 +859,17 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
         return isFromPartner && isTargetingMeOrPrivate;
       });
       if (matchedPartner) {
-        return activePrivatePartner.username;
+        return {
+          userId: matchedPartner.userId || activePrivatePartner.userId,
+          username: activePrivatePartner.username,
+        };
       }
     }
 
     // Also check if any other user is typing a private message specifically targeting me
     const targetingMe = activeOtherEntries.find((entry) => {
       const targetNorm = (entry.targetKey || entry.targetUsername || '')
+        .replace(/^private:/i, '')
         .trim()
         .toLowerCase();
       return (
@@ -846,7 +878,10 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
       );
     });
     if (targetingMe) {
-      return targetingMe.username;
+      return {
+        userId: targetingMe.userId,
+        username: targetingMe.username,
+      };
     }
 
     return null;
@@ -859,44 +894,57 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     activeChatTab,
   ]);
 
-  // Compute active typing indicator text showing the OTHER person while they are typing
-  const activeTypingBannerText = useMemo(() => {
+  const otherPrivateTyperName = otherPrivateTyperEntry?.username || null;
+
+  const activePublicTyperName = useMemo(() => {
     const TYPING_TTL_MS = 8000;
+    const activePublicTypers = Object.values(chatTypingMap).filter(
+      (entry) =>
+        entry &&
+        nowMs - entry.updatedAt < TYPING_TTL_MS &&
+        (entry.targetKey === 'public' || entry.chatType === 'public') &&
+        entry.username.trim().toLowerCase() !== myUsernameNorm &&
+        (!currentUser || entry.userId !== currentUser.id)
+    );
+    return activePublicTypers.length > 0 ? activePublicTypers[0].username : null;
+  }, [chatTypingMap, nowMs, myUsernameNorm, currentUser]);
+
+  // Compute active typing indicator text showing the OTHER person while they are typing (or showing me typing)
+  const activeTypingBannerText = useMemo(() => {
+    const isMeTypingNow = draftText.trim().length > 0;
 
     if (activeChatTab === 'private') {
       if (otherPrivateTyperName) {
-        return `${otherPrivateTyperName} يكتب الآن...`;
+        return `💬 ${otherPrivateTyperName} يكتب رسالة الآن...`;
+      }
+      if (isMeTypingNow && activePrivatePartner) {
+        return `✍️ جاري الكتابة إلى ${activePrivatePartner.username} (يكتب الآن...)`;
       }
       return null;
     }
 
     // Public chat typing check (other users typing in public chat or private targeting me)
     if (otherPrivateTyperName) {
-      return `${otherPrivateTyperName} يكتب لك في الشات الخاص الآن...`;
+      return `💬 ${otherPrivateTyperName} يكتب لك رسالة في الشات الخاص الآن... (اضغط للفتح)`;
     }
 
-    const activePublicTypers = Object.values(chatTypingMap).filter(
-      (entry) =>
-        entry &&
-        nowMs - entry.updatedAt < TYPING_TTL_MS &&
-        entry.targetKey === 'public' &&
-        entry.username.trim().toLowerCase() !== myUsernameNorm &&
-        (!currentUser || entry.userId !== currentUser.id)
-    );
-    if (activePublicTypers.length > 0) {
-      return `${activePublicTypers[0].username} يكتب الآن...`;
+    if (activePublicTyperName) {
+      return `💬 ${activePublicTyperName} يكتب رسالة الآن...`;
+    }
+    if (isMeTypingNow) {
+      return `✍️ ${myUsername} يكتب الآن...`;
     }
     return null;
   }, [
     activeChatTab,
     otherPrivateTyperName,
-    chatTypingMap,
-    nowMs,
-    myUsernameNorm,
-    currentUser,
+    activePublicTyperName,
+    draftText,
+    activePrivatePartner,
+    myUsername,
   ]);
 
-  // Smooth scroll to bottom when new messages arrive
+  // Smooth scroll to bottom when new messages or typing bubbles arrive
   useEffect(() => {
     if (!isOpen) return;
     const el = feedContainerRef.current;
@@ -907,6 +955,8 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   }, [
     visiblePublicMessages.length,
     activePartnerMessages.length,
+    otherPrivateTyperName,
+    activePublicTyperName,
     activeChatTab,
     isOpen,
   ]);
@@ -938,7 +988,8 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
 
     if (val.trim().length > 0) {
       const now = Date.now();
-      if (now - lastTypingBroadcastRef.current > 1200) {
+      // Ultra-fast 350ms typing broadcast so the other person sees "يكتب الآن..." immediately like WhatsApp
+      if (now - lastTypingBroadcastRef.current > 350) {
         lastTypingBroadcastRef.current = now;
         onSetChatTypingStatus?.(targetKey, true);
       }
@@ -1888,7 +1939,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
               ref={feedContainerRef}
               className="flex-1 overflow-y-auto p-3.5 space-y-2.5"
             >
-              {!activePrivatePartner ? (
+              {!activePrivatePartner && !otherPrivateTyperName ? (
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2 text-[#94A3B8]">
                   <MessageSquare className="w-8 h-8 text-emerald-400 opacity-75" />
                   <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC]">
@@ -1900,9 +1951,10 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                   </p>
                 </div>
               ) : activePartnerMessages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2 text-[#94A3B8]">
+                <div className="py-6 flex flex-col items-center justify-center text-center p-4 space-y-2 text-[#94A3B8]">
                   <div className="text-xs font-extrabold text-[#F8FAFC]">
-                    ابدأ المحادثة الخاصة مع {activePrivatePartner.username}
+                    ابدأ المحادثة الخاصة مع{' '}
+                    {activePrivatePartner?.username || otherPrivateTyperName}
                   </div>
                   <p className="text-[11px]">
                     سيصل للمستقبل إشعار باسمك للاطلاع على رسالتك وقبول المحادثة.
@@ -1971,19 +2023,19 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                 })
               )}
 
-              {/* فقاعة فورية داخل الشات الخاص تظهر للشخص الآخر عندما يكتب الطرف المقابل */}
+              {/* فقاعة فورية مثل الواتساب تماماً داخل الشات الخاص تظهر للشخص الآخر عندما يكتب الطرف المقابل */}
               {otherPrivateTyperName && (
                 <div dir="ltr" className="w-full flex justify-end">
                   <div
                     dir="rtl"
-                    className="px-3.5 py-2 rounded-2xl rounded-tr-sm bg-[#0A192F] border border-sky-400/50 text-sky-300 text-xs font-extrabold flex items-center gap-2 shadow-md animate-pulse"
+                    className="px-4 py-2.5 rounded-2xl rounded-tr-sm bg-emerald-500/20 border-2 border-emerald-400/70 text-emerald-300 text-xs font-extrabold flex items-center gap-2.5 shadow-lg animate-pulse"
                   >
                     <span className="inline-flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:150ms]" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:300ms]" />
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" />
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce [animation-delay:150ms]" />
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce [animation-delay:300ms]" />
                     </span>
-                    <span>{otherPrivateTyperName} يكتب الآن...</span>
+                    <span>{otherPrivateTyperName} يكتب رسالة الآن...</span>
                   </div>
                 </div>
               )}
@@ -2030,6 +2082,23 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                   onClickUsernameForPrivateChat={handleOpenPrivateChatWithUser}
                 />
               ))
+            )}
+
+            {/* فقاعة فورية في الشات العام عندما يكتب شخص آخر */}
+            {activePublicTyperName && (
+              <div dir="ltr" className="w-full flex justify-end">
+                <div
+                  dir="rtl"
+                  className="px-3.5 py-2 rounded-2xl rounded-tr-sm bg-emerald-500/20 border border-emerald-400/60 text-emerald-300 text-xs font-extrabold flex items-center gap-2 shadow-md animate-pulse"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:300ms]" />
+                  </span>
+                  <span>{activePublicTyperName} يكتب رسالة الآن...</span>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -2105,15 +2174,30 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
             onSubmit={handleSend}
             className="p-3 bg-[#0A192F] border-t border-[#334155] space-y-2 shrink-0"
           >
-            {/* أعلى خانة تلوين النص: يظهر "يكتب الآن..." لحظياً عند كتابة المرسل أو المستقبل أي رسالة */}
+            {/* أعلى خانة تلوين النص: يظهر "يكتب الآن..." لحظياً مثل الواتساب عند كتابة المرسل أو المستقبل أي رسالة */}
             {activeTypingBannerText && (
-              <div className="px-3 py-1 rounded-xl bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[11px] font-extrabold flex items-center gap-2 animate-pulse">
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce [animation-delay:300ms]" />
+              <div
+                onClick={() => {
+                  if (activeChatTab === 'public' && otherPrivateTyperEntry) {
+                    setActivePrivatePartner({
+                      userId: otherPrivateTyperEntry.userId,
+                      username: otherPrivateTyperEntry.username,
+                    });
+                    setActiveChatTab('private');
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/60 text-emerald-300 text-[11px] font-extrabold flex items-center gap-2 animate-pulse ${
+                  activeChatTab === 'public' && otherPrivateTyperEntry
+                    ? 'cursor-pointer hover:bg-emerald-500/30'
+                    : ''
+                }`}
+              >
+                <span className="inline-flex items-center gap-1 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce [animation-delay:300ms]" />
                 </span>
-                <span>{activeTypingBannerText}</span>
+                <span className="truncate">{activeTypingBannerText}</span>
               </div>
             )}
 

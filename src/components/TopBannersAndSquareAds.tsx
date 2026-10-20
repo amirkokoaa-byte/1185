@@ -23,11 +23,7 @@ import { FluentButton, FluentModal } from './FluentUI';
 import { createSquareAdSvg } from '../services/storageService';
 
 const normalizeWhiteAdSvg = (imgUrl: string | undefined, title: string, category: string) => {
-  if (!imgUrl) return createSquareAdSvg(title, category, '#0284C7');
-  if (
-    imgUrl.startsWith('data:image/svg+xml') &&
-    (imgUrl.includes('%230A192F') || imgUrl.includes('#0A192F'))
-  ) {
+  if (!imgUrl || imgUrl.startsWith('data:image/svg+xml')) {
     return createSquareAdSvg(title, category, '#0284C7');
   }
   return imgUrl;
@@ -552,9 +548,9 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       )}
                     </div>
 
-                    {/* Outside Label: ONLY the registered store/place name (e.g., صيدلية / عيادة / مركز / اسم المسجل فقط) */}
+                    {/* Outside Label: ONLY the registered store/place name (if long, wraps in 2 lines stacked vertically) */}
                     <div className="px-2 py-1.5 bg-white border-t border-slate-200 text-center relative z-10">
-                      <div className="text-[11px] sm:text-xs font-extrabold text-black truncate">
+                      <div className="text-[11px] sm:text-xs font-extrabold text-black line-clamp-2 break-words leading-snug">
                         {outsideLabel}
                       </div>
                     </div>

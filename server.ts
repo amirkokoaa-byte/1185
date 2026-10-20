@@ -17,7 +17,10 @@ interface PresenceSession {
 
 // Authoritative in-memory state + disk persistence for instant multi-user sync
 let authoritativeState: Record<string, unknown> | null = null;
+let latestChatPatch: Record<string, unknown> | null = null;
 let stateVersion = Date.now();
+let chatVersion = Date.now();
+let lastChatSenderTabId: string | null = null;
 const presenceMap = new Map<string, PresenceSession>();
 
 try {
@@ -26,18 +29,32 @@ try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
       authoritativeState = parsed;
+      latestChatPatch = {
+        liveChatMessages: parsed.liveChatMessages || [],
+        privateChatMessages: parsed.privateChatMessages || [],
+        privateChatStatuses: parsed.privateChatStatuses || {},
+        chatTypingMap: parsed.chatTypingMap || {},
+        chatPenalties: parsed.chatPenalties || [],
+        userBlockedMap: parsed.userBlockedMap || {},
+      };
     }
   }
 } catch {
   authoritativeState = null;
 }
 
+let diskSaveTimer: ReturnType<typeof setTimeout> | null = null;
 function saveStateToDisk(state: Record<string, unknown>) {
-  try {
-    fs.writeFileSync(STATE_FILE_PATH, JSON.stringify(state), 'utf-8');
-  } catch {
-    // ignore disk write errors in read-only environments
+  if (diskSaveTimer) {
+    clearTimeout(diskSaveTimer);
   }
+  diskSaveTimer = setTimeout(() => {
+    fs.promises
+      .writeFile(STATE_FILE_PATH, JSON.stringify(state), 'utf-8')
+      .catch(() => {
+        // ignore disk write errors in read-only environments
+      });
+  }, 400);
 }
 
 function computeOnlineStats() {
@@ -70,12 +87,14 @@ function computeOnlineStats() {
 
 // Connected SSE clients for <10ms instant broadcast to all users
 const sseClients = new Set<express.Response>();
+const SSE_FLUSH_PADDING = `: ${' '.repeat(2048)}\n`;
 
 function broadcastSseEvent(eventType: string, payload: unknown) {
-  const dataString = `event: ${eventType}\ndata: ${JSON.stringify(payload)}\n\n`;
+  const dataString = `event: ${eventType}\ndata: ${JSON.stringify(payload)}\n${SSE_FLUSH_PADDING}\n`;
   for (const client of sseClients) {
     try {
       client.write(dataString);
+      (client as unknown as { flush?: () => void }).flush?.();
     } catch {
       sseClients.delete(client);
     }
@@ -93,6 +112,7 @@ async function startServer() {
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+    req.socket?.setNoDelay?.(true);
     res.flushHeaders?.();
 
     sseClients.add(res);
@@ -104,11 +124,11 @@ async function startServer() {
           version: stateVersion,
           state: authoritativeState,
           senderTabId: 'server_init',
-        })}\n\n`
+        })}\n${SSE_FLUSH_PADDING}\n`
       );
     }
     res.write(
-      `event: presence_update\ndata: ${JSON.stringify(computeOnlineStats())}\n\n`
+      `event: presence_update\ndata: ${JSON.stringify(computeOnlineStats())}\n${SSE_FLUSH_PADDING}\n`
     );
 
     const keepAliveTimer = setInterval(() => {
@@ -145,7 +165,16 @@ async function startServer() {
 
     authoritativeState = state;
     stateVersion = Date.now();
-    saveStateToDisk(state);
+    chatVersion = stateVersion;
+    lastChatSenderTabId = senderTabId || null;
+    latestChatPatch = {
+      liveChatMessages: state.liveChatMessages || [],
+      privateChatMessages: state.privateChatMessages || [],
+      privateChatStatuses: state.privateChatStatuses || {},
+      chatTypingMap: state.chatTypingMap || {},
+      chatPenalties: state.chatPenalties || [],
+      userBlockedMap: state.userBlockedMap || {},
+    };
 
     broadcastSseEvent('state_update', {
       version: stateVersion,
@@ -153,16 +182,47 @@ async function startServer() {
       senderTabId: senderTabId || null,
     });
 
+    saveStateToDisk(state);
     res.json({ ok: true, version: stateVersion });
   });
 
-  // 4. Ultra-fast Live Chat & Chat Settings delta endpoint
+  // 4. Ultra-fast Live Chat & Typing delta GET/POST endpoints (< 15ms)
+  app.get('/api/realtime/chat-fast', (req, res) => {
+    const since = Number(req.query.since || 0);
+    res.setHeader('Cache-Control', 'no-store');
+    if (since > 0 && since === chatVersion) {
+      res.json({ changed: false, version: chatVersion });
+      return;
+    }
+    res.json({
+      changed: true,
+      version: chatVersion,
+      chatPatch: latestChatPatch,
+      senderTabId: lastChatSenderTabId,
+    });
+  });
+
   app.post('/api/realtime/chat-fast', (req, res) => {
     const { chatPatch, senderTabId } = req.body || {};
     if (!chatPatch || typeof chatPatch !== 'object') {
       res.status(400).json({ error: 'Invalid chatPatch' });
       return;
     }
+
+    chatVersion = Date.now();
+    stateVersion = chatVersion;
+    lastChatSenderTabId = senderTabId || null;
+    latestChatPatch = {
+      ...(latestChatPatch || {}),
+      ...chatPatch,
+    };
+
+    // Broadcast to SSE clients FIRST before any disk work for 0ms latency
+    broadcastSseEvent('chat_fast_update', {
+      version: chatVersion,
+      chatPatch: latestChatPatch,
+      senderTabId: senderTabId || null,
+    });
 
     if (authoritativeState) {
       const prevSettings =
@@ -181,14 +241,7 @@ async function startServer() {
       saveStateToDisk(nextState);
     }
 
-    stateVersion = Date.now();
-    broadcastSseEvent('chat_fast_update', {
-      version: stateVersion,
-      chatPatch,
-      senderTabId: senderTabId || null,
-    });
-
-    res.json({ ok: true, version: stateVersion });
+    res.json({ ok: true, version: chatVersion });
   });
 
   // 5. Real-time multi-device online presence heartbeat

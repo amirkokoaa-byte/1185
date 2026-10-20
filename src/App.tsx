@@ -210,6 +210,18 @@ export default function App() {
     });
   };
 
+  const updateAndPersistChatFast = (
+    updater: (prev: PlatformDatabaseState) => PlatformDatabaseState
+  ) => {
+    setDbState((prev) => {
+      const next = updater(prev);
+      if (next !== prev) {
+        storageEngine.persistChatFast(next, currentUser?.id);
+      }
+      return next;
+    });
+  };
+
   const visitorId = currentUser?.id || 'guest-visitor';
 
   // --- Authentication Handlers (with Instant Browser Cache on Login) ---
@@ -762,7 +774,7 @@ export default function App() {
       ...(isSystemNotification ? { isSystemNotification: true } : {}),
       ...(targetUsername ? { targetUsername } : {}),
     };
-    updateAndPersist((prev) => {
+    updateAndPersistChatFast((prev) => {
       const nextTyping = { ...(prev.chatTypingMap || {}) };
       const myNorm = (currentUser?.username || 'زائر').trim().toLowerCase();
       delete nextTyping[visitorId];
@@ -834,7 +846,7 @@ export default function App() {
   };
 
   const handleDeleteChatMessage = (msgId: string, notifyUsername?: string) => {
-    updateAndPersist((prev) => {
+    updateAndPersistChatFast((prev) => {
       const filtered = (prev.liveChatMessages || []).filter(
         (m) => m.id !== msgId
       );
@@ -1011,7 +1023,7 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    updateAndPersist((prev) => {
+    updateAndPersistChatFast((prev) => {
       const nextStatuses: Record<string, PrivateChatStatus> = {
         ...(prev.privateChatStatuses || {}),
       };
@@ -1056,7 +1068,7 @@ export default function App() {
     const partnerNorm = partnerUsername.trim().toLowerCase();
     const myNorm = (currentUser?.username || 'زائر').trim().toLowerCase();
     const nowIso = new Date().toISOString();
-    updateAndPersist((prev) => {
+    updateAndPersistChatFast((prev) => {
       const currentList = prev.privateChatMessages || [];
       const hasUnreadFromPartner = currentList.some((m) => {
         const sNorm = m.senderUsername.trim().toLowerCase();
@@ -1090,10 +1102,14 @@ export default function App() {
     const senderName = currentUser?.username || 'زائر';
     const senderNorm = senderName.trim().toLowerCase();
     const nowMs = Date.now();
-    updateAndPersist((prev) => {
+    const cleanTargetNorm = (targetKey || 'public')
+      .replace(/^private:/i, '')
+      .trim()
+      .toLowerCase();
+    updateAndPersistChatFast((prev) => {
       const nextMap = { ...(prev.chatTypingMap || {}) };
       Object.keys(nextMap).forEach((k) => {
-        if (nowMs - nextMap[k].updatedAt > 6000) {
+        if (nowMs - nextMap[k].updatedAt > 6500) {
           delete nextMap[k];
         }
       });
@@ -1106,9 +1122,10 @@ export default function App() {
         nextMap[senderNorm] = {
           userId: visitorId,
           username: senderName,
-          targetKey,
-          chatType: targetKey === 'public' ? 'public' : 'private',
-          targetUsername: targetKey === 'public' ? undefined : targetKey,
+          targetKey: cleanTargetNorm,
+          chatType: cleanTargetNorm === 'public' ? 'public' : 'private',
+          targetUsername:
+            cleanTargetNorm === 'public' ? undefined : cleanTargetNorm,
           updatedAt: nowMs,
         };
       }
@@ -1125,7 +1142,7 @@ export default function App() {
     status: PrivateChatStatus
   ) => {
     const myNameKey = (currentUser?.username || 'زائر').trim().toLowerCase();
-    updateAndPersist((prev) => ({
+    updateAndPersistChatFast((prev) => ({
       ...prev,
       privateChatStatuses: {
         ...(prev.privateChatStatuses || {}),

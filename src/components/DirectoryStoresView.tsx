@@ -105,13 +105,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
   const getStoreCoverPhoto = (store: StoreListingItem): string => {
     const first = store.menuImages?.[0];
-    if (!first) {
-      return createSquareAdSvg(store.name, store.category, '#0284C7');
-    }
-    if (
-      first.startsWith('data:image/svg+xml') &&
-      (first.includes('%230A192F') || first.includes('#0A192F'))
-    ) {
+    if (!first || first.startsWith('data:image/svg+xml')) {
       return createSquareAdSvg(store.name, store.category, '#0284C7');
     }
     return first;
@@ -709,8 +703,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 {/* Left Side (RTL Second Child): الاسم المسجل والتفاصيل بخط أسود */}
                 <div className="p-2.5 sm:p-4 flex-1 min-w-0 flex flex-col justify-between space-y-2 relative z-10 bg-white text-black">
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <h3 className="text-xs sm:text-base font-extrabold text-black truncate">
+                    <div className="flex items-start justify-between gap-1.5">
+                      <h3 className="text-xs sm:text-base font-extrabold text-black line-clamp-2 break-words leading-snug">
                         {store.name}
                       </h3>
                       <span className="px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-300 text-black text-[10px] font-extrabold shrink-0">
@@ -849,7 +843,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 {/* Store Registered Name & Optional Details (White background + Black text) */}
                 <div className="p-2 sm:p-3.5 flex-1 flex flex-col justify-between space-y-2 bg-white text-black relative z-10">
                   <div className="space-y-0.5">
-                    <h3 className="text-xs sm:text-base font-extrabold text-black line-clamp-1">
+                    <h3 className="text-xs sm:text-base font-extrabold text-black line-clamp-2 break-words leading-snug">
                       {store.name}
                     </h3>
                     {cleanDetails && (

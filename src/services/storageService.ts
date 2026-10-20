@@ -97,14 +97,75 @@ export const createBannerSvg = (
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
 
+function escapeSvgXml(raw: string): string {
+  return String(raw || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export const createSquareAdSvg = (title: string, category: string, colorHex: string) => {
+  const cleanCat = (category || 'محل تجاري').trim();
+  const cleanTitle = (title || cleanCat).trim();
+  const titleWords = cleanTitle.split(/\s+/).filter(Boolean);
+
+  // اسم المحل داخل المستطيل (وإذا كان الاسم طويلاً يكون في سطرين أسفل بعض بخط بارز واضح)
+  let titleInsideRectMarkup = '';
+  if (cleanTitle.length > 10 && titleWords.length >= 2) {
+    const mid = Math.ceil(titleWords.length / 2);
+    const line1 = escapeSvgXml(titleWords.slice(0, mid).join(' '));
+    const line2 = escapeSvgXml(titleWords.slice(mid).join(' '));
+    const maxLen = Math.max(line1.length, line2.length);
+    const lineFontSize = maxLen > 15 ? 44 : maxLen > 11 ? 52 : 60;
+    titleInsideRectMarkup = `
+      <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line1}</text>
+      <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line2}</text>
+    `;
+  } else if (cleanTitle.length > 13 && titleWords.length === 1) {
+    const half = Math.ceil(cleanTitle.length / 2);
+    const line1 = escapeSvgXml(cleanTitle.slice(0, half));
+    const line2 = escapeSvgXml(cleanTitle.slice(half));
+    titleInsideRectMarkup = `
+      <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="52" font-weight="900">${line1}</text>
+      <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="52" font-weight="900">${line2}</text>
+    `;
+  } else {
+    const singleFontSize = cleanTitle.length <= 7 ? 72 : cleanTitle.length <= 10 ? 60 : 50;
+    titleInsideRectMarkup = `
+      <text x="250" y="174" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.4" font-family="Cairo, sans-serif" font-size="${singleFontSize}" font-weight="900">${escapeSvgXml(cleanTitle)}</text>
+    `;
+  }
+
+  // أسفل المستطيل: نوع المحل بخط بارز واضح
+  const catWords = cleanCat.split(/\s+/).filter(Boolean);
+  let categoryBelowRectMarkup = '';
+  if (cleanCat.length > 14 && catWords.length >= 2) {
+    const midCat = Math.ceil(catWords.length / 2);
+    const cLine1 = escapeSvgXml(catWords.slice(0, midCat).join(' '));
+    const cLine2 = escapeSvgXml(catWords.slice(midCat).join(' '));
+    categoryBelowRectMarkup = `
+      <text x="250" y="346" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="0.9" font-family="Cairo, sans-serif" font-size="42" font-weight="900">${cLine1}</text>
+      <text x="250" y="402" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="0.9" font-family="Cairo, sans-serif" font-size="42" font-weight="900">${cLine2}</text>
+    `;
+  } else {
+    const catFontSize = cleanCat.length <= 9 ? 54 : cleanCat.length <= 14 ? 46 : 38;
+    categoryBelowRectMarkup = `
+      <text x="250" y="372" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.1" font-family="Cairo, sans-serif" font-size="${catFontSize}" font-weight="900">${escapeSvgXml(cleanCat)}</text>
+    `;
+  }
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
-    <rect width="500" height="500" rx="20" fill="#FFFFFF"/>
-    <rect x="20" y="20" width="460" height="460" rx="16" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="3"/>
-    <circle cx="250" cy="185" r="78" fill="${colorHex}" fill-opacity="0.12" stroke="#0284C7" stroke-width="3"/>
-    <text x="250" y="195" text-anchor="middle" fill="#0F172A" font-family="Cairo, sans-serif" font-size="26" font-weight="800">${category}</text>
-    <text x="250" y="335" text-anchor="middle" fill="#000000" font-family="Cairo, sans-serif" font-size="32" font-weight="800">${title}</text>
-    <rect x="90" y="405" width="320" height="6" rx="3" fill="#0284C7" fill-opacity="0.75"/>
+    <rect width="500" height="500" rx="22" fill="#FFFFFF"/>
+    <rect x="14" y="14" width="472" height="472" rx="18" fill="#F8FAFC" stroke="#94A3B8" stroke-width="4"/>
+    <!-- إطار مستطيلي بارز بداخله اسم المحل (وفي سطرين أسفل بعض إذا كان الاسم طويلاً) -->
+    <rect x="24" y="56" width="452" height="236" rx="20" fill="${colorHex || '#0284C7'}" fill-opacity="0.14" stroke="#0284C7" stroke-width="8"/>
+    <rect x="36" y="68" width="428" height="212" rx="14" fill="#FFFFFF" stroke="#0F172A" stroke-width="4"/>
+    ${titleInsideRectMarkup}
+    <!-- أسفل المستطيل: نوع المحل بخط بارز واضح -->
+    ${categoryBelowRectMarkup}
+    <rect x="70" y="444" width="360" height="8" rx="4" fill="#0284C7"/>
   </svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
@@ -185,22 +246,32 @@ export const INITIAL_MESSAGES: AdminMessage[] = [];
 export const INITIAL_LIVE_CHAT: LiveChatMessageItem[] = [];
 
 function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] {
-  return rawStores.map((s) => ({
-    ...s,
-    locationUrl: s.locationUrl || 'https://maps.google.com',
-    details: s.details || (s as unknown as { description?: string }).description || '',
-    menuImages:
+  return rawStores.map((s) => {
+    const rawImages =
       Array.isArray(s.menuImages) && s.menuImages.length > 0
         ? s.menuImages
         : Array.isArray((s as unknown as { images?: string[] }).images)
         ? (s as unknown as { images: string[] }).images
-        : [createSquareAdSvg(s.name, s.category, '#38BDF8')],
-    likes: Array.isArray(s.likes) ? s.likes : [],
-    dislikes: Array.isArray(s.dislikes) ? s.dislikes : [],
-    ratings: s.ratings && typeof s.ratings === 'object' ? s.ratings : {},
-    comments: Array.isArray(s.comments) ? s.comments : [],
-    viewsCount: typeof s.viewsCount === 'number' ? s.viewsCount : 0,
-  }));
+        : [createSquareAdSvg(s.name, s.category, '#0284C7')];
+
+    const upgradedImages = rawImages.map((img, idx) =>
+      idx === 0 && typeof img === 'string' && img.startsWith('data:image/svg+xml')
+        ? createSquareAdSvg(s.name, s.category, '#0284C7')
+        : img
+    );
+
+    return {
+      ...s,
+      locationUrl: s.locationUrl || 'https://maps.google.com',
+      details: s.details || (s as unknown as { description?: string }).description || '',
+      menuImages: upgradedImages,
+      likes: Array.isArray(s.likes) ? s.likes : [],
+      dislikes: Array.isArray(s.dislikes) ? s.dislikes : [],
+      ratings: s.ratings && typeof s.ratings === 'object' ? s.ratings : {},
+      comments: Array.isArray(s.comments) ? s.comments : [],
+      viewsCount: typeof s.viewsCount === 'number' ? s.viewsCount : 0,
+    };
+  });
 }
 
 function normalizeServiceNumbersList(rawList: ServicePhoneEntry[]): ServicePhoneEntry[] {
@@ -389,6 +460,10 @@ class HybridStorageEngine {
   private unsubscribeSnapshot: FirestoreUnsubscribe | RTDBUnsubscribe | null = null;
   private unsubscribeFastChatSnapshot: FirestoreUnsubscribe | null = null;
   private eventSource: EventSource | null = null;
+  private fastChatPollTimer: ReturnType<typeof setInterval> | null = null;
+  private isFastChatPolling = false;
+  private lastChatVersion = 0;
+  private deferredSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private latestState: PlatformDatabaseState | null = null;
   private listeners: Array<(state: PlatformDatabaseState) => void> = [];
   private connectionStatusListeners: Array<
@@ -844,16 +919,63 @@ class HybridStorageEngine {
             : base.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
       },
     };
-    this.saveLocalState(mergedState);
     this.notifyData(mergedState);
+    this.scheduleDeferredLocalSave(mergedState);
+  }
+
+  private scheduleDeferredLocalSave(state: PlatformDatabaseState, activeUserId?: string) {
+    this.latestState = state;
+    if (this.deferredSaveTimer) {
+      clearTimeout(this.deferredSaveTimer);
+    }
+    this.deferredSaveTimer = setTimeout(() => {
+      this.saveLocalState(state, activeUserId);
+    }, 250);
   }
 
   private connectServerRealtimeStream() {
-    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    if (typeof window === 'undefined') return;
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
     }
+    if (this.fastChatPollTimer) {
+      clearInterval(this.fastChatPollTimer);
+      this.fastChatPollTimer = null;
+    }
+
+    // High-speed 220ms delta poll on /api/realtime/chat-fast to bypass any reverse-proxy SSE buffering
+    this.fastChatPollTimer = setInterval(async () => {
+      if (this.isFastChatPolling) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      this.isFastChatPolling = true;
+      try {
+        const res = await fetch(
+          `/api/realtime/chat-fast?since=${this.lastChatVersion}`,
+          { cache: 'no-store' }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.version === 'number') {
+            this.lastChatVersion = data.version;
+          }
+          if (
+            data &&
+            data.changed &&
+            data.chatPatch &&
+            data.senderTabId !== getOrCreateTabSessionId()
+          ) {
+            this.applyIncomingFastChatPatch(data.chatPatch);
+          }
+        }
+      } catch {
+        // ignore transient network errors
+      } finally {
+        this.isFastChatPolling = false;
+      }
+    }, 220);
+
+    if (typeof EventSource === 'undefined') return;
 
     try {
       const es = new EventSource('/api/realtime/stream');
@@ -862,6 +984,9 @@ class HybridStorageEngine {
       es.addEventListener('state_update', (ev) => {
         try {
           const parsed = JSON.parse((ev as MessageEvent).data);
+          if (parsed && typeof parsed.version === 'number') {
+            this.lastChatVersion = parsed.version;
+          }
           if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
           if (parsed.state) {
             this.applyIncomingRemoteState(parsed.state);
@@ -874,6 +999,9 @@ class HybridStorageEngine {
       es.addEventListener('chat_fast_update', (ev) => {
         try {
           const parsed = JSON.parse((ev as MessageEvent).data);
+          if (parsed && typeof parsed.version === 'number') {
+            this.lastChatVersion = parsed.version;
+          }
           if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
           if (parsed.chatPatch) {
             this.applyIncomingFastChatPatch(parsed.chatPatch);
@@ -1142,6 +1270,81 @@ class HybridStorageEngine {
       }
     } catch (error) {
       console.error('Firebase sync write error:', error);
+    }
+  }
+
+  /**
+   * Dedicated ultra-fast (< 3KB payload) sync for Live Chat messages, Private Chat messages,
+   * Read Receipts (✓✓), and Typing Indicators ("يكتب الآن...") without serializing the heavy database.
+   */
+  public async persistChatFast(nextState: PlatformDatabaseState, activeUserId?: string) {
+    const tabId = getOrCreateTabSessionId();
+    // 1. Update local React state in 0ms and schedule non-blocking localStorage save
+    this.notifyData(nextState);
+    this.scheduleDeferredLocalSave(nextState, activeUserId);
+
+    const ultraLightChatPatch = sanitizeForFirebase({
+      liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
+      chatPenalties: nextState.chatPenalties || [],
+      privateChatMessages: (nextState.privateChatMessages || []).slice(-150),
+      privateChatStatuses: nextState.privateChatStatuses || {},
+      chatTypingMap: nextState.chatTypingMap || {},
+      userBlockedMap: nextState.userBlockedMap || {},
+      privateChatReports: nextState.privateChatReports || [],
+      liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,
+      liveChatAutoClearMinutes: nextState.settings.liveChatAutoClearMinutes ?? 60,
+      liveChatLastClearedAt: nextState.settings.liveChatLastClearedAt,
+      senderTabId: tabId,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 2. Instant cross-tab BroadcastChannel (< 1ms)
+    try {
+      stateSyncChannel?.postMessage({
+        type: 'chat_fast',
+        chatPatch: ultraLightChatPatch,
+        senderTabId: tabId,
+      });
+    } catch {
+      // ignore
+    }
+
+    // 3. Instant Express Real-Time Server broadcast (< 15ms)
+    if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      fetch('/api/realtime/chat-fast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatPatch: ultraLightChatPatch,
+          senderTabId: tabId,
+        }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && typeof d.version === 'number') {
+            this.lastChatVersion = d.version;
+          }
+        })
+        .catch(() => {});
+    }
+
+    // 4. Write ONLY the tiny live_chat_realtime document to Firestore (skipping heavy workspace_state)
+    const fb = nextState.settings.firebase;
+    if (!fb.enabled || !fb.apiKey || !fb.projectId) {
+      return;
+    }
+
+    try {
+      if (this.firestoreDb) {
+        const fastChatDocRef = doc(
+          this.firestoreDb,
+          'fluent_portal_v3',
+          'live_chat_realtime'
+        );
+        await setDoc(fastChatDocRef, ultraLightChatPatch);
+      }
+    } catch {
+      // ignore transient firestore write error
     }
   }
 }

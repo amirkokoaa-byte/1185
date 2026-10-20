@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
+  ChatTypingEntry,
   CommentEmojiReactionType,
   CommunityCommentItem,
   CommunityCommentReply,
@@ -48,6 +49,7 @@ interface UtilitiesSubmissionsViewProps {
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];
   privateChatStatuses?: Record<string, PrivateChatStatus>;
+  chatTypingMap?: Record<string, ChatTypingEntry>;
   userBlockedMap?: Record<string, string[]>;
   privateChatReports?: PrivateChatReportItem[];
   onOpenAuthModal: () => void;
@@ -110,6 +112,8 @@ interface UtilitiesSubmissionsViewProps {
     text: string,
     textColor?: string
   ) => void;
+  onMarkPrivateMessagesRead?: (partnerUsername: string) => void;
+  onSetChatTypingStatus?: (targetKey: string, isTyping: boolean) => void;
   onRespondPrivateChatRequest?: (
     senderKey: string,
     status: PrivateChatStatus
@@ -175,6 +179,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   chatPenalties = [],
   privateChatMessages = [],
   privateChatStatuses = {},
+  chatTypingMap = {},
   userBlockedMap = {},
   privateChatReports = [],
   onOpenAuthModal,
@@ -206,6 +211,8 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   onClearPrivateChatSession,
   onApplyChatPenalty,
   onSendPrivateMessage,
+  onMarkPrivateMessagesRead,
+  onSetChatTypingStatus,
   onRespondPrivateChatRequest,
   onBlockUserInChat,
   onDeleteUserAccountFromChat,
@@ -223,23 +230,45 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   const [formTargetUtility, setFormTargetUtility] = useState<string>(
     availableTypes[0] || 'تقديم المياه'
   );
+  const [isEditFormOpen, setIsEditFormOpen] = useState<boolean>(false);
   const [utilityLayoutMode, setUtilityLayoutMode] = useState<'list' | 'grid'>('list');
   const [isAddUtilityTypeOpen, setIsAddUtilityTypeOpen] = useState<boolean>(false);
   const [newUtilityTypeName, setNewUtilityTypeName] = useState<string>('');
   const [isPdfPickerOpen, setIsPdfPickerOpen] = useState<boolean>(false);
 
-  // Form states for the selected utility (Admin / Moderator)
-  // Up to 3 (الاسم + لوكيشن) rows in one line
+  // Form states for the selected utility (Admin / Moderator) - only shown when clicking "تعديل"
   const [locations, setLocations] = useState<UtilityLocationEntry[]>([
     { name: '', locationUrl: '' },
   ]);
-  // Large screen-sized text box (up to 10,000 chars without showing the limit to user)
   const [detailsText, setDetailsText] = useState<string>('');
   const [saveNotice, setSaveNotice] = useState<string>('');
 
   // Popup modal state when any user clicks a utility submission card
   const [activeModalUtility, setActiveModalUtility] =
     useState<UtilitySubmissionItem | null>(null);
+
+  const openEditUtilityForm = (targetUtilityName: string) => {
+    const targetName =
+      targetUtilityName && targetUtilityName !== 'all'
+        ? targetUtilityName
+        : availableTypes[0] || 'تقديم المياه';
+    setFormTargetUtility(targetName);
+    const existing = utilitySubmissions.find(
+      (u) => u.utilityName === targetName
+    );
+    if (existing) {
+      setLocations(
+        existing.locations.length > 0
+          ? existing.locations.slice(0, 3)
+          : [{ name: '', locationUrl: '' }]
+      );
+      setDetailsText((existing.details || '').slice(0, 10000));
+    } else {
+      setLocations([{ name: '', locationUrl: '' }]);
+      setDetailsText('');
+    }
+    setIsEditFormOpen(true);
+  };
 
   // Sync formTargetUtility when user picks a specific utility from the top dropdown
   useEffect(() => {
@@ -248,8 +277,9 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
     }
   }, [selectedUtility]);
 
-  // When Admin switches the form target utility, load existing data for that utility if already saved, or empty fields
+  // If the edit form is already open and Admin switches the target utility inside the form, load its data
   useEffect(() => {
+    if (!isEditFormOpen) return;
     const existing = utilitySubmissions.find(
       (u) => u.utilityName === formTargetUtility
     );
@@ -264,7 +294,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
       setLocations([{ name: '', locationUrl: '' }]);
       setDetailsText('');
     }
-  }, [formTargetUtility, utilitySubmissions]);
+  }, [formTargetUtility, isEditFormOpen, utilitySubmissions]);
 
   // Keep activeModalUtility synced in real-time if updated while modal is open
   useEffect(() => {
@@ -335,6 +365,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
     };
 
     onSaveUtilitySubmission(itemToSave);
+    setIsEditFormOpen(false);
     setSaveNotice(`تم حفظ وتحديث "${targetName}" لحظياً لجميع المستخدمين.`);
     setTimeout(() => setSaveNotice(''), 3500);
   };
@@ -473,6 +504,35 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
               >
                 <Plus className="w-5 h-5 relative z-10" />
               </button>
+
+              {/* زر تعديل لإظهار بيانات المرفق للتعديل عند الحاجة فقط */}
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isEditFormOpen) {
+                      setIsEditFormOpen(false);
+                    } else {
+                      openEditUtilityForm(
+                        selectedUtility !== 'all'
+                          ? selectedUtility
+                          : formTargetUtility
+                      );
+                    }
+                  }}
+                  title="تعديل بيانات المرفق"
+                  className={`fluent-reveal px-3 h-10 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg transition-all ${
+                    isEditFormOpen
+                      ? 'bg-amber-500 text-[#0A192F] border-amber-300'
+                      : 'bg-[#112240] hover:bg-sky-600 text-sky-300 hover:text-white border-sky-400/50'
+                  }`}
+                >
+                  <Edit3 className="w-4 h-4 relative z-10" />
+                  <span className="relative z-10">
+                    {isEditFormOpen ? 'إغلاق التعديل' : 'تعديل'}
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* زرين طريقة العرض (عرضي + شبكي) بجانب بعض في سطر واحد */}
@@ -532,15 +592,22 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
           </form>
         )}
 
-        {/* 2. Admin / Moderator Input Form when adding/updating a utility */}
-        {canManage && (
+        {saveNotice && (
+          <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 text-xs font-extrabold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{saveNotice}</span>
+          </div>
+        )}
+
+        {/* 2. لا تظهر البيانات التي بالداخل عند فتح خانة تقديمات المرافق إلا في حالة الضغط على "تعديل" */}
+        {canManage && isEditFormOpen && (
           <form
             onSubmit={handleAdminSubmitUtility}
             className="p-3.5 sm:p-4 rounded-2xl bg-[#0A192F]/90 border border-sky-400/40 space-y-3.5"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 flex-wrap text-xs sm:text-sm font-extrabold text-sky-300">
-                <span>بيانات المرفق المختار للتسجيل/التعديل:</span>
+                <span>تعديل بيانات المرفق:</span>
                 <select
                   value={formTargetUtility}
                   onChange={(e) => setFormTargetUtility(e.target.value)}
@@ -553,16 +620,26 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
                   ))}
                 </select>
               </div>
-              {locations.length < 3 && (
+              <div className="flex items-center gap-2">
+                {locations.length < 3 && (
+                  <button
+                    type="button"
+                    onClick={handleAddLocationRow}
+                    className="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-300 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>إضافة اسم ولوكيشن آخر ({locations.length}/3)</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleAddLocationRow}
-                  className="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-300 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
+                  onClick={() => setIsEditFormOpen(false)}
+                  className="px-2.5 py-1 rounded-lg bg-[#1E293B] hover:bg-rose-600 text-[#94A3B8] hover:text-white text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>إضافة اسم ولوكيشن آخر ({locations.length}/3)</span>
+                  <X className="w-3.5 h-3.5" />
+                  <span>إغلاق</span>
                 </button>
-              )}
+              </div>
             </div>
 
             {/* خانتين في سطر واحد: الأول الاسم وبجانبه لوكيشن (حتى 3 مرات) */}
@@ -612,18 +689,19 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
               />
             </div>
 
-            {saveNotice && (
-              <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 text-xs font-extrabold flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>{saveNotice}</span>
-              </div>
-            )}
-
-            {/* زر أضف في الأسفل */}
-            <div className="flex justify-end">
+            {/* زر الحفظ / الإضافة في الأسفل */}
+            <div className="flex justify-end gap-2">
+              <FluentButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsEditFormOpen(false)}
+              >
+                إلغاء
+              </FluentButton>
               <FluentButton type="submit" variant="primary" size="md">
-                <Plus className="w-4 h-4" />
-                <span>أضف</span>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>حفظ التعديلات</span>
               </FluentButton>
             </div>
           </form>
@@ -677,19 +755,12 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
                     >
                       <button
                         type="button"
-                        onClick={() => {
-                          setFormTargetUtility(item.utilityName);
-                          setLocations(
-                            item.locations.length > 0
-                              ? item.locations.slice(0, 3)
-                              : [{ name: '', locationUrl: '' }]
-                          );
-                          setDetailsText(item.details || '');
-                        }}
+                        onClick={() => openEditUtilityForm(item.utilityName)}
                         title="تعديل بيانات المرفق"
-                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-sky-500/20 hover:bg-sky-500 text-sky-300 hover:text-white border border-sky-400/40 flex items-center justify-center cursor-pointer"
+                        className="px-2 h-7 sm:h-8 rounded-lg bg-sky-500/20 hover:bg-sky-500 text-sky-300 hover:text-white border border-sky-400/40 flex items-center justify-center gap-1 text-[10px] sm:text-xs font-extrabold cursor-pointer"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
+                        <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                        <span>تعديل</span>
                       </button>
                       {isStrictAdmin && (
                         <>
@@ -812,6 +883,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
         chatPenalties={chatPenalties}
         privateChatMessages={privateChatMessages}
         privateChatStatuses={privateChatStatuses}
+        chatTypingMap={chatTypingMap}
         userBlockedMap={userBlockedMap}
         privateChatReports={privateChatReports}
         onOpenAuthModal={onOpenAuthModal}
@@ -840,6 +912,8 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
         onClearPrivateChatSession={onClearPrivateChatSession}
         onApplyChatPenalty={onApplyChatPenalty}
         onSendPrivateMessage={onSendPrivateMessage}
+        onMarkPrivateMessagesRead={onMarkPrivateMessagesRead}
+        onSetChatTypingStatus={onSetChatTypingStatus}
         onRespondPrivateChatRequest={onRespondPrivateChatRequest}
         onBlockUserInChat={onBlockUserInChat}
         onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}

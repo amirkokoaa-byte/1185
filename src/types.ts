@@ -11,7 +11,8 @@ export type UserRoleType = 'admin' | 'moderator' | 'user';
 
 export interface UserAccount {
   id: string;
-  username: string;
+  accountName?: string; // اسم الحساب (الخاص بتسجيل الدخول واستعادة الباسورد)
+  username: string; // الاسم الذي يظهر للمستخدمين
   password: string;
   role: UserRoleType;
   phone?: string;
@@ -197,6 +198,7 @@ export interface CommunityCommentItem {
   authorUsername: string;
   text: string;
   isPinned?: boolean;
+  isHidden?: boolean; // إخفاء التعليق عن المستخدمين مع إمكانية إظهاره مرة أخرى
   likes: string[]; // User IDs who liked this comment
   reactions: {
     heart: string[]; // User IDs who reacted ❤️
@@ -216,6 +218,9 @@ export interface CommunityPostItem {
   status: CommunityPostStatus; // pending | approved | rejected
   content: string;
   imageUrl?: string;
+  isPinned?: boolean; // تثبيت المنشور بالاعلى (لصلاحيات Admin فقط)
+  isSold?: boolean; // تم البيع
+  commentsDisabled?: boolean; // إيقاف التعليقات على المنشور
   likes: string[]; // User IDs for Like 👍
   dislikes: string[]; // User IDs for Dislike 👎
   comments: CommunityCommentItem[];

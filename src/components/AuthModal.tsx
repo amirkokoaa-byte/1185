@@ -32,7 +32,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [viewMode, setViewMode] = useState<'main' | 'forgot_password'>('main');
 
   // Main Auth State
-  const [username, setUsername] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState<boolean>(true); // Checked by default
   const [feedback, setFeedback] = useState<{
@@ -44,35 +45,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [forgotUsername, setForgotUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // Check if `forgotUsername` matches an existing registered user in the database
-  const matchedForgotUser = users.find(
-    (u) =>
-      u.username.trim().toLowerCase() === forgotUsername.trim().toLowerCase() &&
-      forgotUsername.trim().length > 0
-  );
+  // Check if `forgotUsername` matches an existing registered user by `accountName` or `username`
+  const matchedForgotUser = users.find((u) => {
+    const query = forgotUsername.trim().toLowerCase();
+    if (!query) return false;
+    const accMatch =
+      u.accountName && u.accountName.trim().toLowerCase() === query;
+    const userMatch = u.username.trim().toLowerCase() === query;
+    return Boolean(accMatch || userMatch);
+  });
+
+  const isForgotPasswordEnabled = forgotUsername.trim().length > 0;
 
   const resetMessages = () => setFeedback(null);
 
   // 1. Login Handler
   const handleLogin = () => {
     resetMessages();
-    const cleanUsername = username.trim();
-    if (!cleanUsername || !password) {
+    const cleanAccount = accountName.trim();
+    if (!cleanAccount || !password) {
       setFeedback({
         type: 'error',
-        message: 'يرجى كتابة اسم المستخدم والباسورد أولاً.',
+        message: 'يرجى كتابة اسم الحساب والباسورد أولاً.',
       });
       return;
     }
 
+    const lowerAccount = cleanAccount.toLowerCase();
     const foundUser = users.find(
-      (u) => u.username.toLowerCase() === cleanUsername.toLowerCase()
+      (u) =>
+        (u.accountName && u.accountName.trim().toLowerCase() === lowerAccount) ||
+        u.username.trim().toLowerCase() === lowerAccount
     );
 
     if (!foundUser || foundUser.password !== password) {
       setFeedback({
         type: 'error',
-        message: 'اسم المستخدم أو الباسورد غير صحيح، يرجى التأكد والمحاولة مجدداً.',
+        message: 'اسم الحساب أو الباسورد غير صحيح، يرجى التأكد والمحاولة مجدداً.',
       });
       return;
     }
@@ -86,47 +95,63 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     onAuthenticate(foundUser, rememberMe);
-    setUsername('');
+    setAccountName('');
+    setDisplayName('');
     setPassword('');
     onClose();
   };
 
-  // 2. Register New Account Handler (Prevents duplicate usernames strictly)
+  // 2. Register New Account Handler
   const handleRegister = () => {
     resetMessages();
-    const cleanUsername = username.trim();
-    if (!cleanUsername || !password) {
+    const cleanAccount = accountName.trim();
+    const cleanDisplay = displayName.trim();
+
+    if (!cleanAccount || !cleanDisplay || !password) {
       setFeedback({
         type: 'error',
-        message: 'يرجى إدخال اسم المستخدم والباسورد لإنشاء الحساب.',
+        message:
+          'يرجى إدخال اسم الحساب، والاسم الذي يظهر للمستخدمين، والباسورد لإنشاء الحساب.',
       });
       return;
     }
 
-    // Strict check: Prevent registering any account with a username matching a pre-existing user
+    const lowerAccount = cleanAccount.toLowerCase();
+    const lowerDisplay = cleanDisplay.toLowerCase();
+
+    // Prevent duplicate accountName or displayName
     const duplicateUser = users.some(
-      (u) => u.username.trim().toLowerCase() === cleanUsername.toLowerCase()
+      (u) =>
+        (u.accountName &&
+          u.accountName.trim().toLowerCase() === lowerAccount) ||
+        u.username.trim().toLowerCase() === lowerAccount ||
+        u.username.trim().toLowerCase() === lowerDisplay
     );
 
     if (duplicateUser) {
       setFeedback({
         type: 'error',
         message:
-          'عذراً، اسم المستخدم هذا مسجل مسبقاً في قاعدة البيانات! يرجى اختيار اسم مستخدم مختلف تماماً لمنع تداخل البيانات.',
+          'عذراً، اسم الحساب أو الاسم الظاهر للمستخدمين مسجل مسبقاً! يرجى اختيار اسم مختلف.',
       });
       return;
     }
 
     const createdUser: UserAccount = {
       id: `usr-${Date.now()}`,
-      username: cleanUsername,
+      accountName: cleanAccount,
+      username: cleanDisplay,
       password, // Accepts numbers, letters, or symbols freely
-      role: cleanUsername.toLowerCase() === 'admin' ? 'admin' : 'user',
+      role:
+        lowerAccount === 'admin' || lowerDisplay === 'admin'
+          ? 'admin'
+          : 'user',
       createdAt: new Date().toISOString(),
     };
 
     onRegisterNewUser(createdUser, rememberMe);
-    setUsername('');
+    setAccountName('');
+    setDisplayName('');
     setPassword('');
     onClose();
   };
@@ -135,10 +160,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleForgotSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     resetMessages();
+    if (!forgotUsername.trim()) {
+      setFeedback({
+        type: 'error',
+        message: 'يرجى كتابة اسم الحساب أولاً.',
+      });
+      return;
+    }
     if (!matchedForgotUser) {
       setFeedback({
         type: 'error',
-        message: 'اسم المستخدم غير مسجل في قاعدة البيانات.',
+        message: 'اسم الحساب غير مسجل في قاعدة البيانات.',
       });
       return;
     }
@@ -153,16 +185,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     onResetUserPassword(matchedForgotUser.id, newPassword);
     setFeedback({
       type: 'success',
-      message: 'تم تعيين الباسورد الجديد بنجاح! يمكنك الآن تسجيل الدخول.',
+      message: 'تم حفظ الباسورد الجديد بنجاح! يمكنك الآن تسجيل الدخول.',
     });
     setTimeout(() => {
       setViewMode('main');
-      setUsername(matchedForgotUser.username);
+      setAccountName(matchedForgotUser.accountName || matchedForgotUser.username);
       setPassword(newPassword);
       setForgotUsername('');
       setNewPassword('');
       setFeedback(null);
-    }, 1200);
+    }, 1000);
   };
 
   return (
@@ -176,12 +208,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       title={
         viewMode === 'main'
           ? 'تسجيل الدخول وإنشاء الحسابات'
-          : 'استعادة وتعيين الباسورد الجديد'
+          : 'نسيت الباسورد - تعيين باسورد جديد'
       }
       subtitle={
         viewMode === 'main'
-          ? 'أدخل اسم المستخدم والباسورد للدخول أو إنشاء حساب جديد فوراً'
-          : 'اكتب اسم المستخدم المسجل أولاً لتفعيل خانة الباسورد الجديد'
+          ? 'أدخل اسم الحساب والباسورد للدخول، أو أضف الاسم الذي يظهر للمستخدمين عند إنشاء حساب جديد'
+          : 'اكتب اسم الحساب لتفعيل خانة الباسورد وكتابة الباسورد الجديد'
       }
       maxWidth="md"
     >
@@ -204,30 +236,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       {viewMode === 'main' ? (
         <div className="space-y-4">
-          {/* Username Input */}
+          {/* 1. Account Name Input (اسم الحساب) */}
           <div>
             <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-              اسم المستخدم
+              اسم الحساب
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                value={username}
+                value={accountName}
                 onChange={(e) => {
-                  setUsername(e.target.value);
+                  setAccountName(e.target.value);
                   resetMessages();
                 }}
-                placeholder="اكتب اسم المستخدم الخاص بك..."
+                placeholder="اكتب اسم الحساب الخاص بتسجيل الدخول..."
                 className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
               />
             </div>
           </div>
 
-          {/* Password Input (Accepts numbers, letters, symbols freely) */}
+          {/* 2. Public Display Name Input (الاسم الذي يظهر للمستخدمين - أسفل اسم الحساب وقت إنشاء الحساب) */}
+          <div>
+            <label className="block text-xs font-bold text-emerald-300 mb-1.5">
+              الاسم الذي يظهر للمستخدمين (عند إنشاء حساب جديد)
+            </label>
+            <div className="relative">
+              <UserPlus className="w-4 h-4 text-emerald-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => {
+                  setDisplayName(e.target.value);
+                  resetMessages();
+                }}
+                placeholder="اكتب الاسم الذي يظهر للمستخدمين في الموقع..."
+                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-emerald-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
+              />
+            </div>
+          </div>
+
+          {/* 3. Password Input (خانة الباسورد) */}
           <div>
             <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-              الباسورد (يقبل أرقام أو حروف أو رموز بحرية تامة)
+              الباسورد
             </label>
             <div className="relative">
               <Lock className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -238,13 +290,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setPassword(e.target.value);
                   resetMessages();
                 }}
-                placeholder="أدخل كلمة المرور..."
+                placeholder="أدخل الباسورد..."
                 className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
               />
             </div>
           </div>
 
-          {/* Remember Me Checkbox (Checked by default) & Forgot Password Link */}
+          {/* Remember Me Checkbox & Forgot Password Link */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <label className="inline-flex items-center gap-2 cursor-pointer select-none">
               <input
@@ -262,7 +314,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="button"
               onClick={() => {
                 setViewMode('forgot_password');
-                setForgotUsername(username);
+                setForgotUsername(accountName);
                 setNewPassword('');
                 resetMessages();
               }}
@@ -298,11 +350,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         </div>
       ) : (
-        /* Forgot Password View */
+        /* Forgot Password View: اسم الحساب + خانة الباسورد (تُفعّل عند كتابة الاسم) + حفظ الباسورد الجديد */
         <form onSubmit={handleForgotSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-              1. اكتب اسم المستخدم المسجل أولاً
+              اسم الحساب
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -314,7 +366,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   if (!e.target.value.trim()) setNewPassword('');
                   resetMessages();
                 }}
-                placeholder="اكتب اسم المستخدم للتحقق..."
+                placeholder="اكتب اسم الحساب..."
                 className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
               />
             </div>
@@ -322,35 +374,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {matchedForgotUser ? (
                 <span className="text-emerald-400 flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  تم التحقق من وجود الحساب! يمكنك الآن كتابة الباسورد الجديد بالأسفل.
+                  تم العثور على الحساب ({matchedForgotUser.username})! اكتب الباسورد الجديد بالأسفل واضغط حفظ.
+                </span>
+              ) : isForgotPasswordEnabled ? (
+                <span className="text-sky-300">
+                  تم تفعيل خانة الباسورد لكتابة الباسورد الجديد.
                 </span>
               ) : (
                 <span className="text-amber-300">
-                  تظل خانة الباسورد الجديد مغلقة حتى كتابة اسم مستخدم صحيح ومسجل فعلياً.
+                  اكتب اسم الحساب أعلاه لتفعيل خانة الباسورد وكتابة الباسورد الجديد.
                 </span>
               )}
             </p>
           </div>
 
-          {/* New Password Input: Strictly DISABLED unless `matchedForgotUser` exists */}
+          {/* خانة الباسورد: يتم تفعيلها فور كتابة الاسم */}
           <div>
             <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-              2. الباسورد الجديد
+              الباسورد الجديد
             </label>
             <div className="relative">
               <KeyRound className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="password"
-                disabled={!matchedForgotUser}
+                disabled={!isForgotPasswordEnabled}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder={
-                  matchedForgotUser
+                  isForgotPasswordEnabled
                     ? 'اكتب الباسورد الجديد هنا...'
-                    : 'مغلق حتى التحقق من اسم المستخدم أعلاه'
+                    : 'يتم تفعيل خانة الباسورد عند كتابة اسم الحساب أعلاه'
                 }
                 className={`w-full rounded-xl border pr-10 pl-4 py-2.5 outline-none transition-colors ${
-                  matchedForgotUser
+                  isForgotPasswordEnabled
                     ? 'bg-[#0A192F] border-emerald-400 text-[#F8FAFC]'
                     : 'bg-[#0A192F]/40 border-[#334155]/50 text-[#64748B] cursor-not-allowed'
                 }`}
@@ -374,7 +430,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <FluentButton
               type="submit"
               variant="primary"
-              disabled={!matchedForgotUser || !newPassword}
+              disabled={!isForgotPasswordEnabled || !newPassword}
             >
               <span>حفظ الباسورد الجديد</span>
             </FluentButton>

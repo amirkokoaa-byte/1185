@@ -66,6 +66,9 @@ interface UtilitiesSubmissionsViewProps {
   ) => void;
   onUpdateUtilityPostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeleteUtilityPost: (postId: string) => void;
+  onTogglePinUtilityPost?: (postId: string) => void;
+  onToggleUtilityPostSold?: (postId: string) => void;
+  onToggleUtilityPostCommentsDisabled?: (postId: string) => void;
   onToggleUtilityPostLike: (postId: string) => void;
   onToggleUtilityPostDislike: (postId: string) => void;
   onReportUtilityPost: (postId: string, reason: CommunityReportReason) => void;
@@ -90,6 +93,7 @@ interface UtilitiesSubmissionsViewProps {
   onDeleteUtilityComment: (postId: string, commentId: string) => void;
   onRestoreReportedUtilityComment: (postId: string, commentId: string) => void;
   onTogglePinUtilityComment: (postId: string, commentId: string) => void;
+  onToggleHideUtilityComment?: (postId: string, commentId: string) => void;
   onSendChatMessage: (
     text: string,
     textColor: string,
@@ -193,6 +197,9 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   onEditUtilityPost,
   onUpdateUtilityPostStatus,
   onDeleteUtilityPost,
+  onTogglePinUtilityPost,
+  onToggleUtilityPostSold,
+  onToggleUtilityPostCommentsDisabled,
   onToggleUtilityPostLike,
   onToggleUtilityPostDislike,
   onReportUtilityPost,
@@ -205,6 +212,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   onDeleteUtilityComment,
   onRestoreReportedUtilityComment,
   onTogglePinUtilityComment,
+  onToggleHideUtilityComment,
   onSendChatMessage,
   onReportChatMessage,
   onDeleteChatMessage,
@@ -895,6 +903,9 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
         onEditCommunityPost={onEditUtilityPost}
         onUpdatePostStatus={onUpdateUtilityPostStatus}
         onDeletePost={onDeleteUtilityPost}
+        onTogglePinPost={onTogglePinUtilityPost}
+        onTogglePostSold={onToggleUtilityPostSold}
+        onTogglePostCommentsDisabled={onToggleUtilityPostCommentsDisabled}
         onTogglePostLike={onToggleUtilityPostLike}
         onTogglePostDislike={onToggleUtilityPostDislike}
         onReportPost={onReportUtilityPost}
@@ -907,6 +918,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
         onDeleteComment={onDeleteUtilityComment}
         onRestoreReportedComment={onRestoreReportedUtilityComment}
         onTogglePinComment={onTogglePinUtilityComment}
+        onToggleHideComment={onToggleHideUtilityComment}
         onSendChatMessage={onSendChatMessage}
         onReportChatMessage={onReportChatMessage}
         onDeleteChatMessage={onDeleteChatMessage}

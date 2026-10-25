@@ -314,6 +314,9 @@ function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPos
     ...p,
     postType: p.postType || 'استفسار',
     status: p.status || 'approved',
+    isPinned: Boolean(p.isPinned),
+    isSold: Boolean(p.isSold),
+    commentsDisabled: Boolean(p.commentsDisabled),
     likes: Array.isArray(p.likes) ? p.likes : [],
     dislikes: Array.isArray(p.dislikes) ? p.dislikes : [],
     reports: Array.isArray(p.reports) ? p.reports : [],
@@ -324,6 +327,7 @@ function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPos
           authorUsername: c.authorUsername || 'مستخدم',
           text: c.text || '',
           isPinned: Boolean(c.isPinned),
+          isHidden: Boolean(c.isHidden),
           likes: Array.isArray(c.likes) ? c.likes : [],
           reactions: {
             heart: Array.isArray(c.reactions?.heart) ? c.reactions.heart : [],
@@ -336,6 +340,36 @@ function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPos
         }))
       : [],
   }));
+}
+
+function mergeUsersLists(
+  baseUsers: UserAccount[],
+  incomingUsers?: UserAccount[]
+): UserAccount[] {
+  if (!Array.isArray(incomingUsers) || incomingUsers.length === 0) {
+    return baseUsers && baseUsers.length > 0 ? baseUsers : INITIAL_USERS;
+  }
+  // If incomingUsers has more than just default admin, or if baseUsers only had default admin, merge by username/id
+  const byKey = new Map<string, UserAccount>();
+  (baseUsers || []).forEach((u) => {
+    if (u && u.username) {
+      byKey.set(u.username.trim().toLowerCase(), u);
+    }
+  });
+  incomingUsers.forEach((u) => {
+    if (u && u.username) {
+      const k = u.username.trim().toLowerCase();
+      const prev = byKey.get(k);
+      byKey.set(k, {
+        ...(prev || {}),
+        ...u,
+        isOnline:
+          typeof u.isOnline === 'boolean' ? u.isOnline : prev?.isOnline,
+      });
+    }
+  });
+  const merged = Array.from(byKey.values());
+  return merged.length > 0 ? merged : INITIAL_USERS;
 }
 
 function normalizeLiveChatList(rawList?: LiveChatMessageItem[]): LiveChatMessageItem[] {
@@ -713,6 +747,23 @@ class HybridStorageEngine {
         const found = users.find((u) => u.id === sessionId);
         if (found && !found.isBanned) return found;
       }
+      const cachedUserRaw =
+        sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`) ||
+        localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`);
+      if (cachedUserRaw) {
+        const parsedUser = JSON.parse(cachedUserRaw) as UserAccount;
+        if (parsedUser && parsedUser.id && parsedUser.username && !parsedUser.isBanned) {
+          const matchedInList = users.find(
+            (u) =>
+              u.id === parsedUser.id ||
+              u.username.trim().toLowerCase() === parsedUser.username.trim().toLowerCase()
+          );
+          if (matchedInList) {
+            return matchedInList.isBanned ? null : matchedInList;
+          }
+          return parsedUser;
+        }
+      }
     } catch {
       // ignore
     }
@@ -727,7 +778,9 @@ class HybridStorageEngine {
     try {
       if (!user) {
         localStorage.removeItem(AUTH_PERSIST_KEY);
+        localStorage.removeItem(`${AUTH_PERSIST_KEY}_obj`);
         sessionStorage.removeItem(AUTH_SESSION_KEY);
+        sessionStorage.removeItem(`${AUTH_SESSION_KEY}_obj`);
         return;
       }
       if (currentState) {
@@ -735,14 +788,26 @@ class HybridStorageEngine {
       }
       if (rememberMe) {
         localStorage.setItem(AUTH_PERSIST_KEY, user.id);
+        localStorage.setItem(`${AUTH_PERSIST_KEY}_obj`, JSON.stringify(user));
         sessionStorage.removeItem(AUTH_SESSION_KEY);
+        sessionStorage.removeItem(`${AUTH_SESSION_KEY}_obj`);
       } else {
         localStorage.removeItem(AUTH_PERSIST_KEY);
+        localStorage.removeItem(`${AUTH_PERSIST_KEY}_obj`);
         sessionStorage.setItem(AUTH_SESSION_KEY, user.id);
+        sessionStorage.setItem(`${AUTH_SESSION_KEY}_obj`, JSON.stringify(user));
       }
     } catch {
       // ignore
     }
+  }
+
+  public getLatestOnlineUsernames(): string[] {
+    const state = this.latestState;
+    if (!state || !Array.isArray(state.users)) return [];
+    return state.users
+      .filter((u) => u && u.isOnline && !u.isBanned && u.username)
+      .map((u) => u.username.trim());
   }
 
   public subscribe(listener: (state: PlatformDatabaseState) => void) {
@@ -786,7 +851,7 @@ class HybridStorageEngine {
     const remoteSettings = (remoteData.settings as Partial<PlatformSettings>) || {};
     const mergedState: PlatformDatabaseState = {
       users: Array.isArray(remoteData.users) && remoteData.users.length > 0
-        ? (remoteData.users as UserAccount[])
+        ? mergeUsersLists(base.users, remoteData.users as UserAccount[])
         : base.users,
       topBanners: Array.isArray(remoteData.topBanners)
         ? (remoteData.topBanners as TopBannerAd[])
@@ -910,6 +975,9 @@ class HybridStorageEngine {
     }
     const mergedState: PlatformDatabaseState = {
       ...base,
+      users: Array.isArray(chatPatch.users) && chatPatch.users.length > 0
+        ? mergeUsersLists(base.users, chatPatch.users as UserAccount[])
+        : base.users,
       stores: mergedStores,
       liveChatMessages: Array.isArray(chatPatch.liveChatMessages)
         ? normalizeLiveChatList(chatPatch.liveChatMessages as LiveChatMessageItem[])
@@ -1270,6 +1338,7 @@ class HybridStorageEngine {
     this.notifyData(nextState);
 
     const fastChatPatch = sanitizeForFirebase({
+      users: nextState.users || [],
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
@@ -1373,6 +1442,7 @@ class HybridStorageEngine {
     this.notifyData(nextState);
 
     const ultraLightChatPatch = sanitizeForFirebase({
+      users: nextState.users || [],
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
@@ -1382,6 +1452,8 @@ class HybridStorageEngine {
       userBlockedMap: nextState.userBlockedMap || {},
       privateChatReports: nextState.privateChatReports || [],
       messages: nextState.messages || [],
+      buySellPosts: nextState.buySellPosts || [],
+      communityPosts: nextState.communityPosts || [],
       liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,
       liveChatAutoClearMinutes: nextState.settings.liveChatAutoClearMinutes ?? 60,
       liveChatLastClearedAt: nextState.settings.liveChatLastClearedAt,
@@ -1617,9 +1689,9 @@ export function syncRealOnlinePresence(
       lastActiveAt: now,
     };
 
-    // Prune stale sessions (> 10 seconds without heartbeat)
+    // Prune stale sessions (> 120 seconds without heartbeat so background tabs aren't dropped)
     Object.keys(map).forEach((k) => {
-      if (!map[k] || now - map[k].lastActiveAt > 10000) {
+      if (!map[k] || now - map[k].lastActiveAt > 120000) {
         delete map[k];
       }
     });
@@ -1639,28 +1711,48 @@ export function syncRealOnlinePresence(
     const registeredMap = new Map<string, string>();
     let guestsCount = 0;
 
+    if (currentUser && currentUser.id && currentUser.username) {
+      registeredMap.set(currentUser.username.toLowerCase(), currentUser.username);
+    }
+
     activeSessions.forEach((sess) => {
-      if (sess.isRegistered && sess.userId) {
-        registeredMap.set(sess.userId, sess.username || 'مستخدم مسجل');
-      } else {
+      if (sess.isRegistered && sess.username) {
+        registeredMap.set(sess.username.toLowerCase(), sess.username);
+      } else if (!sess.isRegistered) {
         guestsCount += 1;
       }
     });
 
-    const localRegCount = registeredMap.size;
-    const localTotal = Math.max(1, localRegCount + guestsCount);
+    const dbOnlineNames = storageEngine.getLatestOnlineUsernames();
+    dbOnlineNames.forEach((uname) => {
+      if (uname && !registeredMap.has(uname.toLowerCase())) {
+        registeredMap.set(uname.toLowerCase(), uname);
+      }
+    });
 
-    if (
-      latestServerOnlineStats &&
-      latestServerOnlineStats.totalOnline >= localTotal
-    ) {
-      return latestServerOnlineStats;
+    if (latestServerOnlineStats && Array.isArray(latestServerOnlineStats.registeredUsernames)) {
+      latestServerOnlineStats.registeredUsernames.forEach((uname) => {
+        if (uname && !registeredMap.has(uname.toLowerCase())) {
+          registeredMap.set(uname.toLowerCase(), uname);
+        }
+      });
     }
 
-    return {
-      totalOnline: localTotal,
-      registeredCount: localRegCount,
+    const mergedRegCount = registeredMap.size;
+    const mergedGuestsCount = Math.max(
       guestsCount,
+      latestServerOnlineStats?.guestsCount || 0
+    );
+    const mergedTotal = Math.max(
+      1,
+      mergedRegCount + mergedGuestsCount,
+      latestServerOnlineStats?.totalOnline || 0
+    );
+
+    return {
+      totalOnline: mergedTotal,
+      registeredCount: mergedRegCount,
+      guestsCount: mergedGuestsCount,
       registeredUsernames: Array.from(registeredMap.values()),
     };
   } catch {

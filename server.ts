@@ -30,6 +30,7 @@ try {
     if (parsed && typeof parsed === 'object') {
       authoritativeState = parsed;
       latestChatPatch = {
+        users: parsed.users || [],
         liveChatMessages: parsed.liveChatMessages || [],
         privateChatMessages: parsed.privateChatMessages || [],
         privateChatStatuses: parsed.privateChatStatuses || {},
@@ -38,6 +39,8 @@ try {
         userBlockedMap: parsed.userBlockedMap || {},
         privateChatReports: parsed.privateChatReports || [],
         messages: parsed.messages || [],
+        buySellPosts: parsed.buySellPosts || [],
+        communityPosts: parsed.communityPosts || [],
       };
     }
   }
@@ -61,8 +64,9 @@ function saveStateToDisk(state: Record<string, unknown>) {
 
 function computeOnlineStats() {
   const now = Date.now();
+  // Use 120s TTL so background tabs (throttled to 60s by browsers) stay online until closed
   for (const [key, sess] of presenceMap.entries()) {
-    if (now - sess.lastActiveAt > 10000) {
+    if (now - sess.lastActiveAt > 120000) {
       presenceMap.delete(key);
     }
   }
@@ -70,10 +74,24 @@ function computeOnlineStats() {
   let guestsCount = 0;
 
   for (const sess of presenceMap.values()) {
-    if (sess.isRegistered && sess.userId) {
-      registeredMap.set(sess.userId, sess.username || 'مستخدم مسجل');
+    if (sess.isRegistered && (sess.username || sess.userId)) {
+      const displayUsername = (sess.username || 'مستخدم مسجل').trim();
+      const mapKey = displayUsername.toLowerCase() || sess.userId || sess.sessionId;
+      registeredMap.set(mapKey, displayUsername);
     } else {
       guestsCount += 1;
+    }
+  }
+
+  // Also include users explicitly marked isOnline in authoritativeState.users
+  if (authoritativeState && Array.isArray(authoritativeState.users)) {
+    for (const u of authoritativeState.users as Array<Record<string, unknown>>) {
+      if (u && u.isOnline === true && !u.isBanned && typeof u.username === 'string') {
+        const cleanName = u.username.trim();
+        if (cleanName) {
+          registeredMap.set(cleanName.toLowerCase(), cleanName);
+        }
+      }
     }
   }
 
@@ -185,6 +203,7 @@ async function startServer() {
     chatVersion = stateVersion;
     lastChatSenderTabId = senderTabId || null;
     latestChatPatch = {
+      users: state.users || [],
       liveChatMessages: state.liveChatMessages || [],
       privateChatMessages: state.privateChatMessages || [],
       privateChatStatuses: state.privateChatStatuses || {},
@@ -194,6 +213,7 @@ async function startServer() {
       privateChatReports: state.privateChatReports || [],
       messages: state.messages || [],
       buySellPosts: state.buySellPosts || [],
+      communityPosts: state.communityPosts || [],
       storeInteractionsMap,
     };
 

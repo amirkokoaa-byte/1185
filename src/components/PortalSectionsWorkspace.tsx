@@ -66,6 +66,9 @@ interface PortalSectionsWorkspaceProps {
   ) => void;
   onUpdatePostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeletePost: (postId: string) => void;
+  onTogglePinCommunityPost?: (postId: string) => void;
+  onToggleCommunityPostSold?: (postId: string) => void;
+  onToggleCommunityPostCommentsDisabled?: (postId: string) => void;
   onTogglePostLike: (postId: string) => void;
   onTogglePostDislike: (postId: string) => void;
   onReportPost: (postId: string, reason: CommunityReportReason) => void;
@@ -90,6 +93,7 @@ interface PortalSectionsWorkspaceProps {
   onDeleteCommunityComment: (postId: string, commentId: string) => void;
   onRestoreReportedCommunityComment: (postId: string, commentId: string) => void;
   onTogglePinCommunityComment: (postId: string, commentId: string) => void;
+  onToggleHideCommunityComment?: (postId: string, commentId: string) => void;
   onSendChatMessage: (
     text: string,
     textColor: string,
@@ -174,6 +178,9 @@ interface PortalSectionsWorkspaceProps {
   ) => void;
   onUpdateUtilityPostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeleteUtilityPost: (postId: string) => void;
+  onTogglePinUtilityPost?: (postId: string) => void;
+  onToggleUtilityPostSold?: (postId: string) => void;
+  onToggleUtilityPostCommentsDisabled?: (postId: string) => void;
   onToggleUtilityPostLike: (postId: string) => void;
   onToggleUtilityPostDislike: (postId: string) => void;
   onReportUtilityPost: (postId: string, reason: CommunityReportReason) => void;
@@ -198,6 +205,7 @@ interface PortalSectionsWorkspaceProps {
   onDeleteUtilityComment: (postId: string, commentId: string) => void;
   onRestoreReportedUtilityComment: (postId: string, commentId: string) => void;
   onTogglePinUtilityComment: (postId: string, commentId: string) => void;
+  onToggleHideUtilityComment?: (postId: string, commentId: string) => void;
   onAddBuySellPost: (post: CommunityPostItem) => void;
   onEditBuySellPost: (
     postId: string,
@@ -206,6 +214,9 @@ interface PortalSectionsWorkspaceProps {
   ) => void;
   onUpdateBuySellPostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeleteBuySellPost: (postId: string) => void;
+  onTogglePinBuySellPost?: (postId: string) => void;
+  onToggleBuySellPostSold?: (postId: string) => void;
+  onToggleBuySellPostCommentsDisabled?: (postId: string) => void;
   onToggleBuySellPostLike: (postId: string) => void;
   onToggleBuySellPostDislike: (postId: string) => void;
   onReportBuySellPost: (postId: string, reason: CommunityReportReason) => void;
@@ -230,6 +241,7 @@ interface PortalSectionsWorkspaceProps {
   onDeleteBuySellComment: (postId: string, commentId: string) => void;
   onRestoreReportedBuySellComment: (postId: string, commentId: string) => void;
   onTogglePinBuySellComment: (postId: string, commentId: string) => void;
+  onToggleHideBuySellComment?: (postId: string, commentId: string) => void;
 }
 
 export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = ({
@@ -263,6 +275,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onEditCommunityPost,
   onUpdatePostStatus,
   onDeletePost,
+  onTogglePinCommunityPost,
+  onToggleCommunityPostSold,
+  onToggleCommunityPostCommentsDisabled,
   onTogglePostLike,
   onTogglePostDislike,
   onReportPost,
@@ -275,6 +290,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onDeleteCommunityComment,
   onRestoreReportedCommunityComment,
   onTogglePinCommunityComment,
+  onToggleHideCommunityComment,
   onSendChatMessage,
   onReportChatMessage,
   onDeleteChatMessage,
@@ -315,6 +331,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onEditUtilityPost,
   onUpdateUtilityPostStatus,
   onDeleteUtilityPost,
+  onTogglePinUtilityPost,
+  onToggleUtilityPostSold,
+  onToggleUtilityPostCommentsDisabled,
   onToggleUtilityPostLike,
   onToggleUtilityPostDislike,
   onReportUtilityPost,
@@ -327,10 +346,14 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onDeleteUtilityComment,
   onRestoreReportedUtilityComment,
   onTogglePinUtilityComment,
+  onToggleHideUtilityComment,
   onAddBuySellPost,
   onEditBuySellPost,
   onUpdateBuySellPostStatus,
   onDeleteBuySellPost,
+  onTogglePinBuySellPost,
+  onToggleBuySellPostSold,
+  onToggleBuySellPostCommentsDisabled,
   onToggleBuySellPostLike,
   onToggleBuySellPostDislike,
   onReportBuySellPost,
@@ -343,6 +366,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onDeleteBuySellComment,
   onRestoreReportedBuySellComment,
   onTogglePinBuySellComment,
+  onToggleHideBuySellComment,
 }) => {
   // Settings is strictly for Admin only (Moderators can review posts & edit other sections EXCEPT Settings)
   const isStrictAdmin = currentUser?.role === 'admin';
@@ -424,6 +448,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onEditCommunityPost={onEditCommunityPost}
         onUpdatePostStatus={onUpdatePostStatus}
         onDeletePost={onDeletePost}
+        onTogglePinPost={onTogglePinCommunityPost}
+        onTogglePostSold={onToggleCommunityPostSold}
+        onTogglePostCommentsDisabled={onToggleCommunityPostCommentsDisabled}
         onTogglePostLike={onTogglePostLike}
         onTogglePostDislike={onTogglePostDislike}
         onReportPost={onReportPost}
@@ -436,6 +463,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onDeleteComment={onDeleteCommunityComment}
         onRestoreReportedComment={onRestoreReportedCommunityComment}
         onTogglePinComment={onTogglePinCommunityComment}
+        onToggleHideComment={onToggleHideCommunityComment}
         onSendChatMessage={onSendChatMessage}
         onReportChatMessage={onReportChatMessage}
         onDeleteChatMessage={onDeleteChatMessage}
@@ -494,6 +522,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onEditUtilityPost={onEditUtilityPost}
         onUpdateUtilityPostStatus={onUpdateUtilityPostStatus}
         onDeleteUtilityPost={onDeleteUtilityPost}
+        onTogglePinUtilityPost={onTogglePinUtilityPost}
+        onToggleUtilityPostSold={onToggleUtilityPostSold}
+        onToggleUtilityPostCommentsDisabled={onToggleUtilityPostCommentsDisabled}
         onToggleUtilityPostLike={onToggleUtilityPostLike}
         onToggleUtilityPostDislike={onToggleUtilityPostDislike}
         onReportUtilityPost={onReportUtilityPost}
@@ -506,6 +537,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onDeleteUtilityComment={onDeleteUtilityComment}
         onRestoreReportedUtilityComment={onRestoreReportedUtilityComment}
         onTogglePinUtilityComment={onTogglePinUtilityComment}
+        onToggleHideUtilityComment={onToggleHideUtilityComment}
         onSendChatMessage={onSendChatMessage}
         onReportChatMessage={onReportChatMessage}
         onDeleteChatMessage={onDeleteChatMessage}
@@ -555,6 +587,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onEditCommunityPost={onEditBuySellPost}
         onUpdatePostStatus={onUpdateBuySellPostStatus}
         onDeletePost={onDeleteBuySellPost}
+        onTogglePinPost={onTogglePinBuySellPost}
+        onTogglePostSold={onToggleBuySellPostSold}
+        onTogglePostCommentsDisabled={onToggleBuySellPostCommentsDisabled}
         onTogglePostLike={onToggleBuySellPostLike}
         onTogglePostDislike={onToggleBuySellPostDislike}
         onReportPost={onReportBuySellPost}
@@ -567,6 +602,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onDeleteComment={onDeleteBuySellComment}
         onRestoreReportedComment={onRestoreReportedBuySellComment}
         onTogglePinComment={onTogglePinBuySellComment}
+        onToggleHideComment={onToggleHideBuySellComment}
         onSendChatMessage={onSendChatMessage}
         onReportChatMessage={onReportChatMessage}
         onDeleteChatMessage={onDeleteChatMessage}

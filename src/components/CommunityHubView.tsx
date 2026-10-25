@@ -29,6 +29,10 @@ import {
   Ban,
   Heart,
   Bell,
+  CheckCheck,
+  Eye,
+  EyeOff,
+  MessageSquareOff,
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
@@ -89,6 +93,9 @@ interface CommunityHubViewProps {
   ) => void;
   onUpdatePostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeletePost: (postId: string) => void;
+  onTogglePinPost?: (postId: string) => void;
+  onTogglePostSold?: (postId: string) => void;
+  onTogglePostCommentsDisabled?: (postId: string) => void;
   onTogglePostLike: (postId: string) => void;
   onTogglePostDislike: (postId: string) => void;
   onReportPost: (postId: string, reason: CommunityReportReason) => void;
@@ -113,6 +120,7 @@ interface CommunityHubViewProps {
   onDeleteComment: (postId: string, commentId: string) => void;
   onRestoreReportedComment: (postId: string, commentId: string) => void;
   onTogglePinComment: (postId: string, commentId: string) => void;
+  onToggleHideComment?: (postId: string, commentId: string) => void;
   onSendChatMessage: (
     text: string,
     textColor: string,
@@ -216,28 +224,33 @@ const WHATSAPP_EMOJI_GROUPS: Array<{
 ];
 
 /**
- * Formats elapsed time since post creation purely in Arabic words WITHOUT showing numeric day counters
- * (e.g., "منذ لحظات"، "منذ دقائق"، "منذ ساعة"، "منذ ساعات"، "منذ يوم"، "منذ يومين"، "منذ أيام"، "منذ أسبوع"، "منذ شهر")
+ * Formats elapsed time since post creation in real time
+ * More than 24h shows: منذ يوم -> منذ يومين -> منذ 3 أيام -> منذ 4 أيام ... وهكذا
  */
-export function formatTextualArabicElapsedTime(isoDate: string, _nowTick?: number): string {
+export function formatTextualArabicElapsedTime(isoDate: string, nowTick?: number): string {
+  const nowMs = nowTick || Date.now();
   const createdMs = new Date(isoDate).getTime();
-  const diffSeconds = Math.max(0, Math.floor((Date.now() - createdMs) / 1000));
+  if (Number.isNaN(createdMs)) return 'منذ لحظات';
+  const diffSeconds = Math.max(0, Math.floor((nowMs - createdMs) / 1000));
   const diffMinutes = Math.floor(diffSeconds / 60);
   const diffHours = Math.floor(diffMinutes / 60);
   const diffDays = Math.floor(diffHours / 24);
 
-  if (diffSeconds < 90) return 'منذ لحظات';
-  if (diffMinutes < 60) return 'منذ دقائق';
+  if (diffSeconds < 10) return 'الآن';
+  if (diffSeconds < 60) return `منذ ${diffSeconds} ثانية`;
+  if (diffMinutes === 1) return 'منذ دقيقة';
+  if (diffMinutes === 2) return 'منذ دقيقتين';
+  if (diffMinutes <= 10) return `منذ ${diffMinutes} دقائق`;
+  if (diffMinutes < 60) return `منذ ${diffMinutes} دقيقة`;
   if (diffHours === 1) return 'منذ ساعة';
-  if (diffHours < 24) return 'منذ ساعات';
+  if (diffHours === 2) return 'منذ ساعتين';
+  if (diffHours <= 10) return `منذ ${diffHours} ساعات`;
+  if (diffHours < 24) return `منذ ${diffHours} ساعة`;
   if (diffDays === 1) return 'منذ يوم';
   if (diffDays === 2) return 'منذ يومين';
-  if (diffDays < 7) return 'منذ أيام';
-  if (diffDays < 14) return 'منذ أسبوع';
-  if (diffDays < 21) return 'منذ أسبوعين';
-  if (diffDays < 30) return 'منذ أسابيع';
-  if (diffDays < 60) return 'منذ شهر';
-  return 'منذ أشهر';
+  if (diffDays === 3) return 'منذ ثلاث أيام';
+  if (diffDays <= 10) return `منذ ${diffDays} أيام`;
+  return `منذ ${diffDays} يوم`;
 }
 
 export function formatArabicPostDate(isoDate: string): string {
@@ -294,6 +307,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   onEditCommunityPost,
   onUpdatePostStatus,
   onDeletePost,
+  onTogglePinPost,
+  onTogglePostSold,
+  onTogglePostCommentsDisabled,
   onTogglePostLike,
   onTogglePostDislike,
   onReportPost,
@@ -306,6 +322,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   onDeleteComment,
   onRestoreReportedComment,
   onTogglePinComment,
+  onToggleHideComment,
   onSendChatMessage,
   onReportChatMessage,
   onDeleteChatMessage,
@@ -335,12 +352,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   // Live Chat Modal State ("محادثة لايف")
   const [isLiveChatOpen, setIsLiveChatOpen] = useState<boolean>(false);
 
-  // Live Clock Tick to keep "الوقت المنقضي منذ النشر" updated in real-time
+  // Live Clock Tick to keep "الوقت المنقضي منذ النشر" updated in real-time every second
   const [liveTimeTick, setLiveTimeTick] = useState<number>(Date.now());
   useEffect(() => {
     const interval = setInterval(() => {
       setLiveTimeTick(Date.now());
-    }, 15000);
+    }, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -632,7 +649,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     });
     screenNotifTimeoutRef.current = setTimeout(() => {
       setScreenChatNotification(null);
-    }, 2000);
+    }, 5000);
   };
 
   useEffect(() => {
@@ -877,6 +894,15 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     });
   }, [activeBottomLeftChat, chatTypingMap, myNormName, visitorId]);
 
+  const hasUnreadIncomingInActiveChat = useMemo(() => {
+    if (!activeBottomLeftChat) return false;
+    return activeBottomLeftMessages.some((m) => {
+      const sNorm = m.senderUsername.trim().toLowerCase();
+      const isMeSender = m.senderId === visitorId || sNorm === myNormName;
+      return !isMeSender && !m.isRead;
+    });
+  }, [activeBottomLeftChat, activeBottomLeftMessages, visitorId, myNormName]);
+
   useEffect(() => {
     if (
       activeBottomLeftChat &&
@@ -884,12 +910,15 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       activeBottomLeftMessages.length > 0
     ) {
       bottomLeftMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      onMarkPrivateMessagesRead?.(activeBottomLeftChat.partnerUsername);
+      if (hasUnreadIncomingInActiveChat) {
+        onMarkPrivateMessagesRead?.(activeBottomLeftChat.partnerUsername);
+      }
     }
   }, [
     activeBottomLeftChat,
     isChatMinimized,
     activeBottomLeftMessages.length,
+    hasUnreadIncomingInActiveChat,
     isBottomLeftPartnerTyping,
   ]);
 
@@ -992,13 +1021,24 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     );
   }, [activeBottomLeftChat, userBlockedMap, visitorId, myNormName, visitorName]);
 
-  // Approved Posts Filtered by Type (and hidden for current user only if author is blocked by current user)
-  const approvedPosts = posts.filter(
-    (p) =>
-      p.status === 'approved' &&
-      !myBlockedUserKeys.has(p.authorId) &&
-      !myBlockedUserKeys.has(p.authorUsername.trim().toLowerCase())
-  );
+  // Approved Posts Filtered by Type & Sorted so Pinned Posts ("منشور مثبت") always stay at the top
+  const approvedPosts = useMemo(() => {
+    return posts
+      .filter(
+        (p) =>
+          p.status === 'approved' &&
+          !myBlockedUserKeys.has(p.authorId) &&
+          !myBlockedUserKeys.has(p.authorUsername.trim().toLowerCase())
+      )
+      .sort((a, b) => {
+        if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
+          return a.isPinned ? -1 : 1;
+        }
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+  }, [posts, myBlockedUserKeys]);
   const filteredApprovedPosts = approvedPosts.filter((p) =>
     selectedPostTypeFilter === 'الكل' ? true : p.postType === selectedPostTypeFilter
   );
@@ -1923,24 +1963,45 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           const isPostLiked = post.likes.includes(visitorId);
           const isPostDisliked = post.dislikes.includes(visitorId);
           const isPostSaved = savedPostIds.includes(post.id);
-          const isPostOwner = Boolean(
-            currentUser &&
-              (post.authorId === currentUser.id ||
-                post.authorUsername.trim().toLowerCase() ===
-                  currentUser.username.trim().toLowerCase())
-          );
+          const isPostOwner =
+            post.authorId === visitorId ||
+            Boolean(
+              currentUser &&
+                (post.authorId === currentUser.id ||
+                  post.authorUsername.trim().toLowerCase() ===
+                    currentUser.username.trim().toLowerCase())
+            );
           const isMoreMenuOpen = openMoreMenuPostId === post.id;
           const isReportSubMenuOpen = openReportSubMenuPostId === post.id;
           const isEditingThisPost = editingPostId === post.id;
 
+          // Filter comments: hidden comments are only visible as an "إظهار" placeholder to post owner, admin, or comment author
+          const visibleForViewerComments = [...post.comments]
+            .filter(
+              (c) =>
+                !c.isHidden ||
+                isPostOwner ||
+                isAdmin ||
+                c.authorId === visitorId
+            )
+            .sort((a, b) => {
+              if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
+                return a.isPinned ? -1 : 1;
+              }
+              return 0;
+            });
+
           // Comments: Pinned comment or First comment shown directly below the post
           const pinnedOrFirstComment =
-            post.comments.find((c) => c.isPinned) || post.comments[0] || null;
+            visibleForViewerComments.find((c) => c.isPinned && !c.isHidden) ||
+            visibleForViewerComments.find((c) => c.isPinned) ||
+            visibleForViewerComments[0] ||
+            null;
           const isAllCommentsExpanded = Boolean(
             expandedAllCommentsForPost[post.id]
           );
           const commentsToRender = isAllCommentsExpanded
-            ? post.comments
+            ? visibleForViewerComments
             : pinnedOrFirstComment
             ? [pinnedOrFirstComment]
             : [];
@@ -1976,8 +2037,29 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   )}
                 </div>
 
-                {/* على أقصى اليسار: نوع المنشور + زر "المزيد" */}
-                <div className="flex items-center gap-1.5 shrink-0 relative">
+                {/* على أقصى اليسار: شارة مثبت + شارة تم البيع + نوع المنشور + زر "المزيد" */}
+                <div className="flex items-center gap-1.5 shrink-0 relative flex-wrap justify-end">
+                  {post.isPinned && (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/60 flex items-center gap-1 whitespace-nowrap">
+                      <Pin className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span>مثبت</span>
+                    </span>
+                  )}
+
+                  {post.isSold && (
+                    <span className="px-2.5 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-extrabold bg-rose-600 text-white border border-rose-400 shadow-sm flex items-center gap-1 whitespace-nowrap">
+                      <CheckCircle2 className="w-3 h-3 shrink-0" />
+                      <span>تم البيع</span>
+                    </span>
+                  )}
+
+                  {post.commentsDisabled && (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/50 flex items-center gap-1 whitespace-nowrap">
+                      <MessageSquareOff className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span>التعليقات متوقفة</span>
+                    </span>
+                  )}
+
                   <span
                     className={`px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold border whitespace-nowrap ${getPostTypeBadgeStyle(
                       post.postType
@@ -2004,8 +2086,26 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     {/* القائمة المنسدلة لزر "المزيد": عند اختيار أي خيار يتم غلق القائمة مرة أخرى */}
                     {isMoreMenuOpen && (
                       <div className="absolute left-0 top-full mt-1.5 w-52 max-w-[calc(100vw-2rem)] rounded-xl bg-[#0A192F] border border-sky-400/60 shadow-2xl z-50 py-1.5 overflow-hidden">
+                        {/* صلاحيات Admin فقط: تثبيت المنشور في الأعلى أو إلغاء التثبيت */}
+                        {isStrictAdmin && onTogglePinPost && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onTogglePinPost(post.id);
+                              setOpenReportSubMenuPostId(null);
+                              setOpenMoreMenuPostId(null);
+                            }}
+                            className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-amber-300 hover:bg-amber-500/20 flex items-center gap-2 cursor-pointer border-b border-[#334155]/60"
+                          >
+                            <Pin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span>
+                              {post.isPinned ? 'إلغاء التثبيت' : 'تثبيت المنشور'}
+                            </span>
+                          </button>
+                        )}
+
                         {isPostOwner ? (
-                          /* لصاحب المنشور فقط: تعديل + حذف */
+                          /* لصاحب المنشور: تعديل + إيقاف التعليقات + تم البيع + حذف المنشور */
                           <>
                             <button
                               type="button"
@@ -2021,6 +2121,43 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               <Edit3 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                               <span>تعديل</span>
                             </button>
+
+                            {onTogglePostCommentsDisabled && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onTogglePostCommentsDisabled(post.id);
+                                  setOpenReportSubMenuPostId(null);
+                                  setOpenMoreMenuPostId(null);
+                                }}
+                                className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-amber-300 hover:bg-amber-500/20 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
+                              >
+                                <MessageSquareOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span>
+                                  {post.commentsDisabled
+                                    ? 'تفعيل التعليقات'
+                                    : 'إيقاف التعليقات'}
+                                </span>
+                              </button>
+                            )}
+
+                            {onTogglePostSold && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onTogglePostSold(post.id);
+                                  setOpenReportSubMenuPostId(null);
+                                  setOpenMoreMenuPostId(null);
+                                }}
+                                className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-emerald-300 hover:bg-emerald-500/20 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <span>
+                                  {post.isSold ? 'إلغاء تم البيع' : 'تم البيع'}
+                                </span>
+                              </button>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => {
@@ -2031,7 +2168,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-rose-300 hover:bg-rose-600/25 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
                             >
                               <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                              <span>حذف</span>
+                              <span>حذف المنشور</span>
                             </button>
                           </>
                         ) : (
@@ -2088,7 +2225,44 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               </div>
                             )}
 
-                            {/* صلاحيات Admin فقط: إمكانية حذف أي منشور */}
+                            {/* صلاحيات الإدارة: إيقاف التعليقات */}
+                            {isAdmin && onTogglePostCommentsDisabled && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onTogglePostCommentsDisabled(post.id);
+                                  setOpenReportSubMenuPostId(null);
+                                  setOpenMoreMenuPostId(null);
+                                }}
+                                className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-amber-300 hover:bg-amber-500/20 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
+                              >
+                                <MessageSquareOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span>
+                                  {post.commentsDisabled
+                                    ? 'تفعيل التعليقات'
+                                    : 'إيقاف التعليقات'}
+                                </span>
+                              </button>
+                            )}
+
+                            {/* صلاحيات Admin فقط: تم البيع + حذف أي منشور */}
+                            {isStrictAdmin && onTogglePostSold && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onTogglePostSold(post.id);
+                                  setOpenReportSubMenuPostId(null);
+                                  setOpenMoreMenuPostId(null);
+                                }}
+                                className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-emerald-300 hover:bg-emerald-500/20 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <span>
+                                  {post.isSold ? 'إلغاء تم البيع' : 'تم البيع'}
+                                </span>
+                              </button>
+                            )}
+
                             {isStrictAdmin && (
                               <button
                                 type="button"
@@ -2177,9 +2351,17 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   </div>
                 </div>
               ) : (
-                <p className="text-xs sm:text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line">
-                  {post.content}
-                </p>
+                <div className="space-y-2">
+                  {post.isSold && (
+                    <div className="p-2 rounded-xl bg-rose-600/20 border border-rose-400/70 text-rose-200 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 shadow-sm">
+                      <CheckCircle2 className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>تم البيع</span>
+                    </div>
+                  )}
+                  <p className="text-xs sm:text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line">
+                    {post.content}
+                  </p>
+                </div>
               )}
 
               {/* أزرار التفاعل الـ 3 بحجم صغير وفي سطر واحد: لايك + ديس لايك + تعليق */}
@@ -2213,23 +2395,40 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     <span>ديس لايك ({post.dislikes.length})</span>
                   </button>
 
-                  {/* 3. زر "تعليق" (بدلاً من أضف تعليق) بحجم صغير وفي نفس السطر */}
+                  {/* 3. زر "تعليق" (أو إشعار إيقاف التعليقات) */}
                   <button
                     type="button"
-                    onClick={() =>
+                    disabled={Boolean(post.commentsDisabled)}
+                    onClick={() => {
+                      if (post.commentsDisabled) return;
                       setOpenCommentInputForPost((prev) => ({
                         ...prev,
                         [post.id]: !prev[post.id],
-                      }))
-                    }
-                    className="fluent-reveal px-2.5 py-1 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-[#334155] text-[11px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                      }));
+                    }}
+                    className={`fluent-reveal px-2.5 py-1 rounded-lg border text-[11px] sm:text-xs font-extrabold flex items-center gap-1 whitespace-nowrap ${
+                      post.commentsDisabled
+                        ? 'bg-[#0A192F]/50 text-amber-300/80 border-amber-500/30 cursor-not-allowed'
+                        : 'bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border-[#334155] cursor-pointer'
+                    }`}
                   >
-                    <MessageSquare className="w-3 h-3 shrink-0" />
-                    <span>تعليق ({post.comments.length})</span>
+                    {post.commentsDisabled ? (
+                      <>
+                        <MessageSquareOff className="w-3 h-3 shrink-0 text-amber-400" />
+                        <span>
+                          التعليقات متوقفة ({visibleForViewerComments.length})
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare className="w-3 h-3 shrink-0" />
+                        <span>تعليق ({visibleForViewerComments.length})</span>
+                      </>
+                    )}
                   </button>
                 </div>
 
-                {post.comments.length > 1 && (
+                {visibleForViewerComments.length > 1 && (
                   <button
                     type="button"
                     onClick={() =>
@@ -2242,13 +2441,13 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   >
                     {isAllCommentsExpanded
                       ? 'إخفاء'
-                      : `الكل (${post.comments.length})`}
+                      : `الكل (${visibleForViewerComments.length})`}
                   </button>
                 )}
               </div>
 
-              {/* Add Comment Input Row (Reply to Post) */}
-              {openCommentInputForPost[post.id] && (
+              {/* Add Comment Input Row (Reply to Post) — Blocked when commentsDisabled is true */}
+              {!post.commentsDisabled && openCommentInputForPost[post.id] && (
                 <div className="flex items-center gap-2 pt-1">
                   <input
                     type="text"
@@ -2266,6 +2465,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     variant="primary"
                     size="sm"
                     onClick={() => {
+                      if (post.commentsDisabled) return;
                       const txt = (commentDrafts[post.id] || '').trim();
                       if (!txt) return;
                       if (containsAbusiveWords(txt)) {
@@ -2279,6 +2479,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         authorUsername: visitorName,
                         text: txt,
                         isPinned: false,
+                        isHidden: false,
                         likes: [],
                         reactions: { heart: [], laugh: [], sad: [] },
                         replies: [],
@@ -2298,6 +2499,42 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               {commentsToRender.length > 0 && (
                 <div className="space-y-2 pt-1.5">
                   {commentsToRender.map((cmt) => {
+                    const canManageThisComment = Boolean(
+                      isPostOwner || isAdmin || cmt.authorId === visitorId
+                    );
+                    const canPinThisComment = Boolean(
+                      isStrictAdmin || isAdmin || isPostOwner
+                    );
+
+                    // If comment is hidden ("مخفي"), show the "إظهار" button in the comment's place for owner/admin/author
+                    if (cmt.isHidden) {
+                      if (!canManageThisComment) return null;
+                      return (
+                        <div
+                          key={cmt.id}
+                          className="p-2.5 rounded-xl bg-[#0A192F]/70 border border-dashed border-amber-400/50 flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-[#94A3B8]">
+                            <EyeOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span>
+                              تم إخفاء هذا التعليق ({cmt.authorUsername}) عن جميع
+                              المستخدمين
+                            </span>
+                          </div>
+                          {onToggleHideComment && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleHideComment(post.id, cmt.id)}
+                              className="fluent-reveal px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 shadow"
+                            >
+                              <Eye className="w-3.5 h-3.5 shrink-0" />
+                              <span>إظهار</span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+
                     const hasLikedCmt = cmt.likes.includes(visitorId);
                     const hasHeart = cmt.reactions.heart.includes(visitorId);
                     const hasLaugh = cmt.reactions.laugh.includes(visitorId);
@@ -2331,17 +2568,33 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-1.5 relative">
-                            {isAdmin && (
+                          <div className="flex items-center gap-1.5 relative flex-wrap justify-end">
+                            {/* تثبيت التعليق: من صلاحيات Admin وصاحب المنشور أيضاً */}
+                            {canPinThisComment && (
                               <button
                                 type="button"
                                 onClick={() =>
                                   onTogglePinComment(post.id, cmt.id)
                                 }
                                 title="تثبيت التعليق"
-                                className="text-[11px] text-amber-400 hover:underline cursor-pointer"
+                                className="text-[11px] font-bold text-amber-400 hover:underline cursor-pointer"
                               >
                                 {cmt.isPinned ? 'إلغاء التثبيت' : 'تثبيت'}
+                              </button>
+                            )}
+
+                            {/* إخفاء التعليق: يخفيه عن جميع المستخدمين ويظهر في مكانه زر إظهار */}
+                            {canManageThisComment && onToggleHideComment && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onToggleHideComment(post.id, cmt.id)
+                                }
+                                title="إخفاء التعليق عن جميع المستخدمين"
+                                className="px-2 py-0.5 rounded-lg bg-[#112240] hover:bg-amber-500/20 text-amber-300 border border-amber-400/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                              >
+                                <EyeOff className="w-3 h-3" />
+                                <span>إخفاء</span>
                               </button>
                             )}
 
@@ -2470,19 +2723,21 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             </button>
                           </div>
 
-                          {/* Reply to another person's comment */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setReplyingToCommentKey(
-                                isReplyingToThis ? null : replyKey
-                              )
-                            }
-                            className="text-[11px] font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
-                          >
-                            <CornerDownLeft className="w-3 h-3" />
-                            <span>رد ({cmt.replies.length})</span>
-                          </button>
+                          {/* Reply to another person's comment (hidden if commentsDisabled) */}
+                          {!post.commentsDisabled && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setReplyingToCommentKey(
+                                  isReplyingToThis ? null : replyKey
+                                )
+                              }
+                              className="text-[11px] font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
+                            >
+                              <CornerDownLeft className="w-3 h-3" />
+                              <span>رد ({cmt.replies.length})</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Nested Replies to Comment */}
@@ -3143,21 +3398,41 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       <div
                         className={`max-w-[88%] rounded-2xl px-3 py-2 text-xs space-y-1 ${
                           isMine
-                            ? 'bg-sky-600 text-white rounded-tr-none'
+                            ? 'bg-[#0F2942] text-white border border-sky-500/40 rounded-tr-none'
                             : 'bg-[#1E293B] text-[#F8FAFC] border border-[#334155] rounded-tl-none'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2 text-[10px] opacity-85 font-extrabold">
+                        <div className="flex items-center justify-between gap-2 text-[10px] opacity-90 font-extrabold">
                           <span>{msg.senderUsername}</span>
-                          <span>
-                            {new Date(msg.createdAt).toLocaleTimeString(
-                              'ar-EG',
-                              {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              }
+                          <div className="flex items-center gap-1">
+                            <span>
+                              {new Date(msg.createdAt).toLocaleTimeString(
+                                'ar-EG',
+                                {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                }
+                              )}
+                            </span>
+                            {isMine && (
+                              <span
+                                title={
+                                  msg.isRead
+                                    ? 'تمت القراءة (فتحت الرسالة ✓✓)'
+                                    : 'تم الإرسال (لم تُقرأ بعد ✓✓)'
+                                }
+                                className="inline-flex items-center gap-0.5 mr-0.5"
+                              >
+                                <CheckCheck
+                                  className={`w-4 h-4 stroke-[2.5] transition-colors ${
+                                    msg.isRead
+                                      ? 'text-[#38BDF8] drop-shadow-[0_0_5px_rgba(56,189,248,0.85)]'
+                                      : 'text-[#64748B]'
+                                  }`}
+                                />
+                              </span>
                             )}
-                          </span>
+                          </div>
                         </div>
                         <p className="leading-relaxed break-words whitespace-pre-wrap font-bold">
                           {msg.text}

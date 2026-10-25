@@ -248,8 +248,22 @@ export default function App() {
   // --- Authentication Handlers (with Instant Browser Cache & Instant Online Presence Broadcast on Login/Logout) ---
   const handleAuthenticate = (user: UserAccount, rememberMe: boolean) => {
     const onlineUser: UserAccount = { ...user, isOnline: true };
+    setDbState((prev) => {
+      const exists = prev.users.some((u) => u.id === onlineUser.id);
+      const nextUsers = exists
+        ? prev.users.map((u) =>
+            u.id === onlineUser.id ? { ...u, isOnline: true } : u
+          )
+        : [...prev.users, onlineUser];
+      const next: PlatformDatabaseState = {
+        ...prev,
+        users: nextUsers,
+      };
+      storageEngine.persistState(next, onlineUser.id);
+      storageEngine.saveAuthenticatedUser(onlineUser, rememberMe, next);
+      return next;
+    });
     setCurrentUser(onlineUser);
-    storageEngine.saveAuthenticatedUser(onlineUser, rememberMe, dbState);
     setOnlineStats(syncRealOnlinePresence(onlineUser, false));
   };
 
@@ -278,15 +292,21 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    const loggingOutUserId = currentUser?.id;
     setCurrentUser(null);
     storageEngine.saveAuthenticatedUser(null, false);
-    setOnlineStats(syncRealOnlinePresence(null, false));
-    // Clear private chats when logging out
+    // Mark user offline and clear private chats when logging out
     updateAndPersist((prev) => ({
       ...prev,
+      users: loggingOutUserId
+        ? prev.users.map((u) =>
+            u.id === loggingOutUserId ? { ...u, isOnline: false } : u
+          )
+        : prev.users,
       privateChatMessages: [],
       privateChatStatuses: {},
     }));
+    setOnlineStats(syncRealOnlinePresence(null, false));
     if (activeSection === 'settings') {
       setActiveSection('directory');
     }
@@ -546,10 +566,70 @@ export default function App() {
   };
 
   const handleDeletePost = (postId: string) => {
-    if (currentUser?.role === 'moderator') return;
+    updateAndPersist((prev) => {
+      const target = prev.communityPosts.find((p) => p.id === postId);
+      if (!target) return prev;
+      const isOwner =
+        target.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (target.authorId === currentUser.id ||
+              target.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isOwner) return prev;
+      return {
+        ...prev,
+        communityPosts: prev.communityPosts.filter((p) => p.id !== postId),
+      };
+    });
+  };
+
+  const handleTogglePinCommunityPost = (postId: string) => {
+    if (currentUser?.role !== 'admin') return;
     updateAndPersist((prev) => ({
       ...prev,
-      communityPosts: prev.communityPosts.filter((p) => p.id !== postId),
+      communityPosts: prev.communityPosts.map((p) =>
+        p.id === postId ? { ...p, isPinned: !p.isPinned } : p
+      ),
+    }));
+  };
+
+  const handleToggleCommunityPostSold = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      communityPosts: prev.communityPosts.map((p) => {
+        if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
+        return { ...p, isSold: !p.isSold };
+      }),
+    }));
+  };
+
+  const handleToggleCommunityPostCommentsDisabled = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      communityPosts: prev.communityPosts.map((p) => {
+        if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
+        return { ...p, commentsDisabled: !p.commentsDisabled };
+      }),
     }));
   };
 
@@ -772,10 +852,37 @@ export default function App() {
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
         if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
         return {
           ...p,
           comments: p.comments.map((c) =>
             c.id === commentId ? { ...c, isPinned: !c.isPinned } : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleToggleHideCommunityComment = (
+    postId: string,
+    commentId: string
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      communityPosts: prev.communityPosts.map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, isHidden: !c.isHidden } : c
           ),
         };
       }),
@@ -1581,10 +1688,70 @@ export default function App() {
   };
 
   const handleDeleteUtilityPost = (postId: string) => {
-    if (currentUser?.role === 'moderator') return;
+    updateAndPersist((prev) => {
+      const target = (prev.utilityPosts || []).find((p) => p.id === postId);
+      if (!target) return prev;
+      const isOwner =
+        target.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (target.authorId === currentUser.id ||
+              target.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isOwner) return prev;
+      return {
+        ...prev,
+        utilityPosts: (prev.utilityPosts || []).filter((p) => p.id !== postId),
+      };
+    });
+  };
+
+  const handleTogglePinUtilityPost = (postId: string) => {
+    if (currentUser?.role !== 'admin') return;
     updateAndPersist((prev) => ({
       ...prev,
-      utilityPosts: (prev.utilityPosts || []).filter((p) => p.id !== postId),
+      utilityPosts: (prev.utilityPosts || []).map((p) =>
+        p.id === postId ? { ...p, isPinned: !p.isPinned } : p
+      ),
+    }));
+  };
+
+  const handleToggleUtilityPostSold = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
+        return { ...p, isSold: !p.isSold };
+      }),
+    }));
+  };
+
+  const handleToggleUtilityPostCommentsDisabled = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
+        return { ...p, commentsDisabled: !p.commentsDisabled };
+      }),
     }));
   };
 
@@ -1813,10 +1980,34 @@ export default function App() {
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
         if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
         return {
           ...p,
           comments: p.comments.map((c) =>
             c.id === commentId ? { ...c, isPinned: !c.isPinned } : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleToggleHideUtilityComment = (postId: string, commentId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      utilityPosts: (prev.utilityPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, isHidden: !c.isHidden } : c
           ),
         };
       }),
@@ -1863,10 +2054,70 @@ export default function App() {
   };
 
   const handleDeleteBuySellPost = (postId: string) => {
-    if (currentUser?.role === 'moderator') return;
+    updateAndPersist((prev) => {
+      const target = (prev.buySellPosts || []).find((p) => p.id === postId);
+      if (!target) return prev;
+      const isOwner =
+        target.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (target.authorId === currentUser.id ||
+              target.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isOwner) return prev;
+      return {
+        ...prev,
+        buySellPosts: (prev.buySellPosts || []).filter((p) => p.id !== postId),
+      };
+    });
+  };
+
+  const handleTogglePinBuySellPost = (postId: string) => {
+    if (currentUser?.role !== 'admin') return;
     updateAndPersist((prev) => ({
       ...prev,
-      buySellPosts: (prev.buySellPosts || []).filter((p) => p.id !== postId),
+      buySellPosts: (prev.buySellPosts || []).map((p) =>
+        p.id === postId ? { ...p, isPinned: !p.isPinned } : p
+      ),
+    }));
+  };
+
+  const handleToggleBuySellPostSold = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
+        return { ...p, isSold: !p.isSold };
+      }),
+    }));
+  };
+
+  const handleToggleBuySellPostCommentsDisabled = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
+        return { ...p, commentsDisabled: !p.commentsDisabled };
+      }),
     }));
   };
 
@@ -2095,10 +2346,34 @@ export default function App() {
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
         if (p.id !== postId) return p;
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(
+            currentUser &&
+              (p.authorId === currentUser.id ||
+                p.authorUsername.trim().toLowerCase() ===
+                  currentUser.username.trim().toLowerCase())
+          );
+        if (currentUser?.role !== 'admin' && !isOwner) return p;
         return {
           ...p,
           comments: p.comments.map((c) =>
             c.id === commentId ? { ...c, isPinned: !c.isPinned } : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleToggleHideBuySellComment = (postId: string, commentId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, isHidden: !c.isHidden } : c
           ),
         };
       }),
@@ -2526,6 +2801,11 @@ export default function App() {
                       </strong>
                     </div>
                   </div>
+                  {onlineStats.registeredUsernames.length > 0 && (
+                    <div className="text-[10px] text-emerald-300 font-bold truncate pt-1">
+                      مسجلون متصلون: {onlineStats.registeredUsernames.join(' ، ')}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2595,6 +2875,11 @@ export default function App() {
             onEditCommunityPost={handleEditCommunityPost}
             onUpdatePostStatus={handleUpdatePostStatus}
             onDeletePost={handleDeletePost}
+            onTogglePinCommunityPost={handleTogglePinCommunityPost}
+            onToggleCommunityPostSold={handleToggleCommunityPostSold}
+            onToggleCommunityPostCommentsDisabled={
+              handleToggleCommunityPostCommentsDisabled
+            }
             onTogglePostLike={handleTogglePostLike}
             onTogglePostDislike={handleTogglePostDislike}
             onReportPost={handleReportPost}
@@ -2609,6 +2894,7 @@ export default function App() {
               handleRestoreReportedCommunityComment
             }
             onTogglePinCommunityComment={handleTogglePinCommunityComment}
+            onToggleHideCommunityComment={handleToggleHideCommunityComment}
             onSendChatMessage={handleSendChatMessage}
             onReportChatMessage={handleReportChatMessage}
             onDeleteChatMessage={handleDeleteChatMessage}
@@ -2649,6 +2935,11 @@ export default function App() {
             onEditUtilityPost={handleEditUtilityPost}
             onUpdateUtilityPostStatus={handleUpdateUtilityPostStatus}
             onDeleteUtilityPost={handleDeleteUtilityPost}
+            onTogglePinUtilityPost={handleTogglePinUtilityPost}
+            onToggleUtilityPostSold={handleToggleUtilityPostSold}
+            onToggleUtilityPostCommentsDisabled={
+              handleToggleUtilityPostCommentsDisabled
+            }
             onToggleUtilityPostLike={handleToggleUtilityPostLike}
             onToggleUtilityPostDislike={handleToggleUtilityPostDislike}
             onReportUtilityPost={handleReportUtilityPost}
@@ -2661,10 +2952,16 @@ export default function App() {
             onDeleteUtilityComment={handleDeleteUtilityComment}
             onRestoreReportedUtilityComment={handleRestoreReportedUtilityComment}
             onTogglePinUtilityComment={handleTogglePinUtilityComment}
+            onToggleHideUtilityComment={handleToggleHideUtilityComment}
             onAddBuySellPost={handleAddBuySellPost}
             onEditBuySellPost={handleEditBuySellPost}
             onUpdateBuySellPostStatus={handleUpdateBuySellPostStatus}
             onDeleteBuySellPost={handleDeleteBuySellPost}
+            onTogglePinBuySellPost={handleTogglePinBuySellPost}
+            onToggleBuySellPostSold={handleToggleBuySellPostSold}
+            onToggleBuySellPostCommentsDisabled={
+              handleToggleBuySellPostCommentsDisabled
+            }
             onToggleBuySellPostLike={handleToggleBuySellPostLike}
             onToggleBuySellPostDislike={handleToggleBuySellPostDislike}
             onReportBuySellPost={handleReportBuySellPost}
@@ -2677,6 +2974,7 @@ export default function App() {
             onDeleteBuySellComment={handleDeleteBuySellComment}
             onRestoreReportedBuySellComment={handleRestoreReportedBuySellComment}
             onTogglePinBuySellComment={handleTogglePinBuySellComment}
+            onToggleHideBuySellComment={handleToggleHideBuySellComment}
           />
         </main>
       </div>

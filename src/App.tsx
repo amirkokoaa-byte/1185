@@ -1046,10 +1046,35 @@ export default function App() {
       text,
       textColor: textColor || '#F8FAFC',
       isRead: false,
+      likes: [],
+      dislikes: [],
+      hearts: [],
+      reports: [],
       createdAt: new Date().toISOString(),
     };
 
     updateAndPersistChatFast((prev) => {
+      // Do not allow messaging if either user has blocked the other
+      const blockedMap = prev.userBlockedMap || {};
+      const myBlocked1 = blockedMap[senderKeyId] || [];
+      const myBlocked2 = blockedMap[senderKeyName] || [];
+      const recBlocked1 = blockedMap[receiverKeyId] || [];
+      const recBlocked2 = blockedMap[receiverKeyName] || [];
+
+      const iBlockedReceiver = [...myBlocked1, ...myBlocked2].some(
+        (k) =>
+          k === receiverKeyId ||
+          k.trim().toLowerCase() === receiverKeyName
+      );
+      const receiverBlockedMe = [...recBlocked1, ...recBlocked2].some(
+        (k) =>
+          k === senderKeyId ||
+          k.trim().toLowerCase() === senderKeyName
+      );
+      if (iBlockedReceiver || receiverBlockedMe) {
+        return prev;
+      }
+
       const nextStatuses: Record<string, PrivateChatStatus> = {
         ...(prev.privateChatStatuses || {}),
       };
@@ -1087,6 +1112,148 @@ export default function App() {
         chatTypingMap: nextTyping,
       };
     });
+  };
+
+  const handleTogglePrivateMessageReaction = (
+    msgId: string,
+    reaction: 'like' | 'dislike' | 'heart'
+  ) => {
+    updateAndPersistChatFast((prev) => ({
+      ...prev,
+      privateChatMessages: (prev.privateChatMessages || []).map((m) => {
+        if (m.id !== msgId) return m;
+        const currentLikes = m.likes || [];
+        const currentDislikes = m.dislikes || [];
+        const currentHearts = m.hearts || [];
+
+        if (reaction === 'like') {
+          const hasLiked = currentLikes.includes(visitorId);
+          return {
+            ...m,
+            likes: hasLiked
+              ? currentLikes.filter((id) => id !== visitorId)
+              : [...currentLikes, visitorId],
+            dislikes: currentDislikes.filter((id) => id !== visitorId),
+          };
+        }
+        if (reaction === 'dislike') {
+          const hasDisliked = currentDislikes.includes(visitorId);
+          return {
+            ...m,
+            dislikes: hasDisliked
+              ? currentDislikes.filter((id) => id !== visitorId)
+              : [...currentDislikes, visitorId],
+            likes: currentLikes.filter((id) => id !== visitorId),
+          };
+        }
+        const hasHeart = currentHearts.includes(visitorId);
+        return {
+          ...m,
+          hearts: hasHeart
+            ? currentHearts.filter((id) => id !== visitorId)
+            : [...currentHearts, visitorId],
+        };
+      }),
+    }));
+  };
+
+  const handleReportPrivateChatMessage = (
+    msgId: string,
+    reportedUserId: string,
+    reportedUsername: string,
+    messageText: string,
+    reason: CommunityReportReason
+  ) => {
+    const reporterName = currentUser?.username || 'زائر';
+    const nowIso = new Date().toISOString();
+    const newChatReport: PrivateChatReportItem = {
+      id: `pcrep-msg-${Date.now()}`,
+      reporterId: visitorId,
+      reporterUsername: reporterName,
+      reportedUserId: reportedUserId || reportedUsername,
+      reportedUsername,
+      reason,
+      sampleMessage: messageText,
+      createdAt: nowIso,
+    };
+    const newAdminMsg: AdminMessage = {
+      id: `msg-rep-${Date.now()}`,
+      senderId: visitorId,
+      senderUsername: reporterName,
+      senderPhone: currentUser?.phone || 'بلاغ شات خاص',
+      content: `بلاغ عن رسالة في محادثة خاصة ضد (${reportedUsername}) - السبب: ${reason} - نص الرسالة: "${messageText}"`,
+      isRead: false,
+      createdAt: nowIso,
+    };
+
+    updateAndPersistChatFast((prev) => ({
+      ...prev,
+      privateChatMessages: (prev.privateChatMessages || []).map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              reports: [
+                ...(m.reports || []),
+                {
+                  id: `rep-pm-${Date.now()}`,
+                  reporterId: visitorId,
+                  reporterUsername: reporterName,
+                  reason,
+                  createdAt: nowIso,
+                },
+              ],
+            }
+          : m
+      ),
+      privateChatReports: [newChatReport, ...(prev.privateChatReports || [])],
+      messages: [newAdminMsg, ...(prev.messages || [])],
+    }));
+  };
+
+  const handleReportUserInPrivateChat = (
+    reportedUserId: string,
+    reportedUsername: string,
+    reason: string,
+    sampleMessage?: string
+  ) => {
+    const reporterName = currentUser?.username || 'زائر';
+    const nowIso = new Date().toISOString();
+    const newReport: PrivateChatReportItem = {
+      id: `pcrep-usr-${Date.now()}`,
+      reporterId: visitorId,
+      reporterUsername: reporterName,
+      reportedUserId: reportedUserId || reportedUsername,
+      reportedUsername,
+      reason: reason || 'إبلاغ عن إساءة في المحادثة الخاصة',
+      sampleMessage: sampleMessage || 'بلاغ من داخل شات المحادثة الخاصة',
+      createdAt: nowIso,
+    };
+    const newAdminMsg: AdminMessage = {
+      id: `msg-chatrep-${Date.now()}`,
+      senderId: visitorId,
+      senderUsername: reporterName,
+      senderPhone: currentUser?.phone || 'بلاغ محادثة',
+      content: `بلاغ من شات المحادثة ضد (${reportedUsername}) - السبب: ${newReport.reason}${
+        sampleMessage ? ` - آخر رسالة: "${sampleMessage}"` : ''
+      }`,
+      isRead: false,
+      createdAt: nowIso,
+    };
+
+    updateAndPersistChatFast((prev) => ({
+      ...prev,
+      privateChatReports: [newReport, ...(prev.privateChatReports || [])],
+      messages: [newAdminMsg, ...(prev.messages || [])],
+    }));
+  };
+
+  const handleDismissPrivateChatReport = (reportId: string) => {
+    updateAndPersistChatFast((prev) => ({
+      ...prev,
+      privateChatReports: (prev.privateChatReports || []).filter(
+        (r) => r.id !== reportId
+      ),
+    }));
   };
 
   const handleMarkPrivateMessagesRead = (partnerUsername: string) => {
@@ -1186,27 +1353,46 @@ export default function App() {
   ) => {
     const myName = currentUser?.username || 'زائر';
     const myNameKey = myName.trim().toLowerCase();
-    const targetNameKey = blockedUsername.trim().toLowerCase();
+    const cleanBlockedUsername = blockedUsername.trim();
+    const targetNameKey = cleanBlockedUsername.toLowerCase();
 
-    const newReport: PrivateChatReportItem = {
-      id: `pcrep-${Date.now()}`,
-      reporterId: visitorId,
-      reporterUsername: myName,
-      reportedUserId: blockedUserId,
-      reportedUsername: blockedUsername,
-      reason: reportReason || 'حظر وإبلاغ عن إزعاج أو إساءة في المحادثة',
-      sampleMessage: sampleMessage || 'تم حظر المستخدم من الشات الخاص',
-      createdAt: new Date().toISOString(),
-    };
-
-    updateAndPersist((prev) => {
+    updateAndPersistChatFast((prev) => {
       const prevMap = prev.userBlockedMap || {};
       const myBlocked1 = new Set(prevMap[visitorId] || []);
       const myBlocked2 = new Set(prevMap[myNameKey] || []);
-      myBlocked1.add(blockedUserId);
+      if (blockedUserId) {
+        myBlocked1.add(blockedUserId);
+        myBlocked2.add(blockedUserId);
+      }
+      myBlocked1.add(cleanBlockedUsername);
       myBlocked1.add(targetNameKey);
-      myBlocked2.add(blockedUserId);
+      myBlocked2.add(cleanBlockedUsername);
       myBlocked2.add(targetNameKey);
+
+      const nextReports = [...(prev.privateChatReports || [])];
+      const nextMessages = [...(prev.messages || [])];
+      if (reportReason) {
+        const nowIso = new Date().toISOString();
+        nextReports.unshift({
+          id: `pcrep-${Date.now()}`,
+          reporterId: visitorId,
+          reporterUsername: myName,
+          reportedUserId: blockedUserId || cleanBlockedUsername,
+          reportedUsername: cleanBlockedUsername,
+          reason: reportReason,
+          sampleMessage: sampleMessage || 'تم حظر المستخدم والإبلاغ عنه من الشات الخاص',
+          createdAt: nowIso,
+        });
+        nextMessages.unshift({
+          id: `msg-blkrep-${Date.now()}`,
+          senderId: visitorId,
+          senderUsername: myName,
+          senderPhone: currentUser?.phone || 'حظر وإبلاغ',
+          content: `بلاغ وحظر من الشات الخاص ضد (${cleanBlockedUsername}) - السبب: ${reportReason}`,
+          isRead: false,
+          createdAt: nowIso,
+        });
+      }
 
       return {
         ...prev,
@@ -1215,7 +1401,49 @@ export default function App() {
           [visitorId]: Array.from(myBlocked1),
           [myNameKey]: Array.from(myBlocked2),
         },
-        privateChatReports: [newReport, ...(prev.privateChatReports || [])],
+        privateChatReports: nextReports,
+        messages: nextMessages,
+      };
+    });
+  };
+
+  const handleUnblockUserInChat = (targetUserIdOrName: string) => {
+    const myName = currentUser?.username || 'زائر';
+    const myNameKey = myName.trim().toLowerCase();
+    const cleanTarget = targetUserIdOrName.trim();
+    const targetLower = cleanTarget.toLowerCase();
+
+    updateAndPersistChatFast((prev) => {
+      const prevMap = prev.userBlockedMap || {};
+      // Also find any matching user ID/username from users list so both ID and username are removed
+      const matchedUser = prev.users.find(
+        (u) =>
+          u.id === cleanTarget ||
+          u.username.trim().toLowerCase() === targetLower
+      );
+      const keysToRemove = new Set<string>([
+        cleanTarget,
+        targetLower,
+        ...(matchedUser
+          ? [
+              matchedUser.id,
+              matchedUser.username.trim(),
+              matchedUser.username.trim().toLowerCase(),
+            ]
+          : []),
+      ]);
+
+      const filterFn = (entry: string) =>
+        !keysToRemove.has(entry) &&
+        !keysToRemove.has(entry.trim().toLowerCase());
+
+      return {
+        ...prev,
+        userBlockedMap: {
+          ...prevMap,
+          [visitorId]: (prevMap[visitorId] || []).filter(filterFn),
+          [myNameKey]: (prevMap[myNameKey] || []).filter(filterFn),
+        },
       };
     });
   };
@@ -2394,6 +2622,11 @@ export default function App() {
             onSetChatTypingStatus={handleSetChatTypingStatus}
             onRespondPrivateChatRequest={handleRespondPrivateChatRequest}
             onBlockUserInChat={handleBlockUserInChat}
+            onUnblockUserInChat={handleUnblockUserInChat}
+            onTogglePrivateMessageReaction={handleTogglePrivateMessageReaction}
+            onReportPrivateChatMessage={handleReportPrivateChatMessage}
+            onReportUserInPrivateChat={handleReportUserInPrivateChat}
+            onDismissPrivateChatReport={handleDismissPrivateChatReport}
             onDeleteUserAccountFromChat={handleDeleteUserAccountFromChat}
             onUpdateSettings={handleUpdateSettings}
             onUpdateUserAccount={handleUpdateUserAccount}

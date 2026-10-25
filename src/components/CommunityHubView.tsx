@@ -24,6 +24,11 @@ import {
   Bookmark,
   Edit3,
   ChevronDown,
+  Minus,
+  X,
+  Ban,
+  Heart,
+  Bell,
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
@@ -144,6 +149,25 @@ interface CommunityHubViewProps {
     reportReason?: string,
     sampleMessage?: string
   ) => void;
+  onUnblockUserInChat?: (targetUserIdOrName: string) => void;
+  onTogglePrivateMessageReaction?: (
+    msgId: string,
+    reaction: 'like' | 'dislike' | 'heart'
+  ) => void;
+  onReportPrivateChatMessage?: (
+    msgId: string,
+    reportedUserId: string,
+    reportedUsername: string,
+    messageText: string,
+    reason: CommunityReportReason
+  ) => void;
+  onReportUserInPrivateChat?: (
+    reportedUserId: string,
+    reportedUsername: string,
+    reason: string,
+    sampleMessage?: string
+  ) => void;
+  onDismissPrivateChatReport?: (reportId: string) => void;
   onDeleteUserAccountFromChat?: (
     targetUserId: string,
     targetUsername: string
@@ -295,6 +319,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   onSetChatTypingStatus,
   onRespondPrivateChatRequest,
   onBlockUserInChat,
+  onUnblockUserInChat,
+  onTogglePrivateMessageReaction,
+  onReportPrivateChatMessage,
+  onReportUserInPrivateChat,
+  onDismissPrivateChatReport,
   onDeleteUserAccountFromChat,
 }) => {
   const isStrictAdmin = currentUser?.role === 'admin';
@@ -320,9 +349,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [adminActiveTab, setAdminActiveTab] = useState<'approvals' | 'reports'>(
     'approvals'
   );
-  const [reportsFilterType, setReportsFilterType] = useState<'posts' | 'comments'>(
-    'posts'
-  );
+  const [reportsFilterType, setReportsFilterType] = useState<
+    'posts' | 'comments' | 'chat'
+  >('posts');
 
   // Top-Left Filter Dropdown State: ('الكل' | 'استفسار' | 'اقتراح' | 'بيع')
   const [selectedPostTypeFilter, setSelectedPostTypeFilter] = useState<
@@ -443,31 +472,97 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   }, [openMoreMenuPostId]);
 
   // ============================================================================
-  // Persistent Bottom-Left Square Private Chat Box & Chat History ("بيع واشتري")
+  // Persistent Bottom-Left Square Private Chat Box (Up to 2 Open Chats, Classic FB Minimize '-', Close 'x', Block, Report, Reactions, & 2s Notification)
   // ============================================================================
   const openPopupStorageKey = 'nakhil_1185_buy_sell_open_popup_v1';
   const chatHistoryPartnersStorageKey = `nakhil_1185_buy_sell_history_partners_v1_${visitorId}`;
 
-  const [activeBottomLeftChat, setActiveBottomLeftChat] = useState<{
-    partnerId: string;
-    partnerUsername: string;
-  } | null>(() => {
+  const [openChatTabs, setOpenChatTabs] = useState<
+    Array<{ partnerId: string; partnerUsername: string }>
+  >(() => {
     try {
       const raw = localStorage.getItem(openPopupStorageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.tabs)) {
+          return parsed.tabs.slice(0, 2);
+        }
         if (parsed && parsed.partnerUsername) {
-          return {
-            partnerId: parsed.partnerId || parsed.partnerUsername,
-            partnerUsername: parsed.partnerUsername,
-          };
+          return [
+            {
+              partnerId: parsed.partnerId || parsed.partnerUsername,
+              partnerUsername: parsed.partnerUsername,
+            },
+          ];
         }
       }
     } catch {
       // ignore
     }
-    return null;
+    return [];
   });
+
+  const [activeChatUsername, setActiveChatUsername] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem(openPopupStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.activeUsername === 'string') {
+          return parsed.activeUsername;
+        }
+        if (parsed && typeof parsed.partnerUsername === 'string') {
+          return parsed.partnerUsername;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return '';
+  });
+
+  const [isChatMinimized, setIsChatMinimized] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem(openPopupStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return Boolean(parsed?.isMinimized);
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  });
+
+  // Sync openChatTabs + activeChatUsername + isChatMinimized to localStorage so it survives page refresh
+  useEffect(() => {
+    try {
+      if (openChatTabs.length === 0) {
+        localStorage.removeItem(openPopupStorageKey);
+      } else {
+        localStorage.setItem(
+          openPopupStorageKey,
+          JSON.stringify({
+            tabs: openChatTabs,
+            activeUsername:
+              activeChatUsername || openChatTabs[0]?.partnerUsername || '',
+            isMinimized: isChatMinimized,
+          })
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }, [openChatTabs, activeChatUsername, isChatMinimized]);
+
+  const activeBottomLeftChat = useMemo(() => {
+    if (openChatTabs.length === 0) return null;
+    const normActive = activeChatUsername.trim().toLowerCase();
+    return (
+      openChatTabs.find(
+        (t) => t.partnerUsername.trim().toLowerCase() === normActive
+      ) || openChatTabs[0]
+    );
+  }, [openChatTabs, activeChatUsername]);
 
   const [savedHistoryPartners, setSavedHistoryPartners] = useState<
     Array<{ partnerId: string; partnerUsername: string; updatedAt: string }>
@@ -500,9 +595,53 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   }, [chatHistoryPartnersStorageKey]);
 
   const [isChatHistoryModalOpen, setIsChatHistoryModalOpen] = useState<boolean>(false);
+  const [isBlockedUsersModalOpen, setIsBlockedUsersModalOpen] = useState<boolean>(false);
   const [bottomLeftChatDraft, setBottomLeftChatDraft] = useState<string>('');
+  const [openChatHeaderReportMenu, setOpenChatHeaderReportMenu] = useState<boolean>(false);
+  const [openPrivateMsgReportId, setOpenPrivateMsgReportId] = useState<string | null>(null);
+  const [chatActionToast, setChatActionToast] = useState<string>('');
   const bottomLeftMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const bottomLeftTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 2-Second On-Screen Notification Toast when messaging or receiving a private message
+  const [screenChatNotification, setScreenChatNotification] = useState<{
+    id: string;
+    senderUsername: string;
+    partnerId: string;
+    partnerUsername: string;
+    text: string;
+  } | null>(null);
+  const screenNotifTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seenPrivateMsgIdsRef = useRef<Set<string> | null>(null);
+
+  const triggerScreenChatNotification = (
+    senderUsername: string,
+    partnerId: string,
+    partnerUsername: string,
+    text: string
+  ) => {
+    if (screenNotifTimeoutRef.current) {
+      clearTimeout(screenNotifTimeoutRef.current);
+    }
+    setScreenChatNotification({
+      id: `notif-${Date.now()}`,
+      senderUsername,
+      partnerId: partnerId || partnerUsername,
+      partnerUsername,
+      text,
+    });
+    screenNotifTimeoutRef.current = setTimeout(() => {
+      setScreenChatNotification(null);
+    }, 2000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (screenNotifTimeoutRef.current) {
+        clearTimeout(screenNotifTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const recordPartnerInHistory = (partnerId: string, partnerUsername: string) => {
     const cleanName = partnerUsername.trim();
@@ -529,26 +668,72 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     });
   };
 
+  // Open or switch to a partner in the bottom-left chat box (supports up to 2 open chats at the same time)
   const openBottomLeftPrivateChat = (partnerId: string, partnerUsername: string) => {
+    const cleanName = partnerUsername.trim();
+    if (!cleanName) return;
     const target = {
-      partnerId: partnerId || partnerUsername,
-      partnerUsername: partnerUsername.trim(),
+      partnerId: partnerId || cleanName,
+      partnerUsername: cleanName,
     };
-    setActiveBottomLeftChat(target);
-    try {
-      localStorage.setItem(openPopupStorageKey, JSON.stringify(target));
-    } catch {
-      // ignore
-    }
+
+    setOpenChatTabs((prev) => {
+      const targetNorm = cleanName.toLowerCase();
+      const existingIdx = prev.findIndex(
+        (t) => t.partnerUsername.trim().toLowerCase() === targetNorm
+      );
+      if (existingIdx !== -1) {
+        return prev;
+      }
+      if (prev.length < 2) {
+        return [...prev, target];
+      }
+      // If 2 chats are already open, keep the currently active chat tab and open the new one beside it
+      const currentActiveNorm = activeChatUsername.trim().toLowerCase();
+      const keptTab =
+        prev.find(
+          (t) => t.partnerUsername.trim().toLowerCase() === currentActiveNorm
+        ) || prev[prev.length - 1];
+      return [keptTab, target];
+    });
+
+    setActiveChatUsername(cleanName);
+    setIsChatMinimized(false);
+    setOpenChatHeaderReportMenu(false);
+    setOpenPrivateMsgReportId(null);
     recordPartnerInHistory(target.partnerId, target.partnerUsername);
     onMarkPrivateMessagesRead?.(target.partnerUsername);
   };
 
-  const closeBottomLeftPrivateChat = () => {
-    if (activeBottomLeftChat) {
-      onSetChatTypingStatus?.(`private:${activeBottomLeftChat.partnerUsername}`, false);
-    }
-    setActiveBottomLeftChat(null);
+  // Close ONLY a single person's chat tab (via the 'x' button next to their name)
+  const closeSingleChatTab = (partnerUsernameToClose: string) => {
+    const normClose = partnerUsernameToClose.trim().toLowerCase();
+    onSetChatTypingStatus?.(`private:${partnerUsernameToClose}`, false);
+
+    setOpenChatTabs((prev) => {
+      const remaining = prev.filter(
+        (t) => t.partnerUsername.trim().toLowerCase() !== normClose
+      );
+      if (remaining.length > 0) {
+        setActiveChatUsername(remaining[0].partnerUsername);
+      } else {
+        setActiveChatUsername('');
+        setIsChatMinimized(false);
+      }
+      return remaining;
+    });
+  };
+
+  // Close all open chat tabs permanently
+  const closeAllBottomLeftChats = () => {
+    openChatTabs.forEach((t) => {
+      onSetChatTypingStatus?.(`private:${t.partnerUsername}`, false);
+    });
+    setOpenChatTabs([]);
+    setActiveChatUsername('');
+    setIsChatMinimized(false);
+    setOpenChatHeaderReportMenu(false);
+    setOpenPrivateMsgReportId(null);
     try {
       localStorage.removeItem(openPopupStorageKey);
     } catch {
@@ -558,6 +743,44 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
   // Compute all conversations involving the current user for "سجل المحادثات"
   const myNormName = visitorName.trim().toLowerCase();
+
+  // Detect new incoming private messages in real-time to show the 2-second notification and record in history
+  useEffect(() => {
+    const list = privateChatMessages || [];
+    if (seenPrivateMsgIdsRef.current === null) {
+      seenPrivateMsgIdsRef.current = new Set(list.map((m) => m.id));
+      return;
+    }
+    const seen = seenPrivateMsgIdsRef.current;
+    let latestNewIncoming: PrivateChatMessageItem | null = null;
+    for (const msg of list) {
+      if (!seen.has(msg.id)) {
+        seen.add(msg.id);
+        const sNorm = msg.senderUsername.trim().toLowerCase();
+        const rNorm = msg.receiverUsername.trim().toLowerCase();
+        const isMeSender = msg.senderId === visitorId || sNorm === myNormName;
+        const isMeReceiver = msg.receiverId === visitorId || rNorm === myNormName;
+        if (isMeReceiver && !isMeSender) {
+          latestNewIncoming = msg;
+        }
+      }
+    }
+    if (latestNewIncoming) {
+      recordPartnerInHistory(
+        latestNewIncoming.senderId,
+        latestNewIncoming.senderUsername
+      );
+      if (enableBuySellPrivateChat) {
+        triggerScreenChatNotification(
+          latestNewIncoming.senderUsername,
+          latestNewIncoming.senderId,
+          latestNewIncoming.senderUsername,
+          latestNewIncoming.text
+        );
+      }
+    }
+  }, [privateChatMessages, visitorId, myNormName, enableBuySellPrivateChat]);
+
   const previousConversationsList = useMemo(() => {
     const map = new Map<
       string,
@@ -618,7 +841,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     );
   }, [savedHistoryPartners, privateChatMessages, visitorId, myNormName]);
 
-  // Messages for the currently open bottom-left square chat popup
+  // Messages for the currently active tab in the bottom-left square chat popup
   const activeBottomLeftMessages = useMemo(() => {
     if (!activeBottomLeftChat) return [];
     const targetNorm = activeBottomLeftChat.partnerUsername.trim().toLowerCase();
@@ -655,12 +878,17 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   }, [activeBottomLeftChat, chatTypingMap, myNormName, visitorId]);
 
   useEffect(() => {
-    if (activeBottomLeftChat && activeBottomLeftMessages.length > 0) {
+    if (
+      activeBottomLeftChat &&
+      !isChatMinimized &&
+      activeBottomLeftMessages.length > 0
+    ) {
       bottomLeftMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       onMarkPrivateMessagesRead?.(activeBottomLeftChat.partnerUsername);
     }
   }, [
     activeBottomLeftChat,
+    isChatMinimized,
     activeBottomLeftMessages.length,
     isBottomLeftPartnerTyping,
   ]);
@@ -668,8 +896,101 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const myBlockedUserKeys = useMemo(() => {
     const list1 = userBlockedMap[visitorId] || [];
     const list2 = userBlockedMap[visitorName.trim().toLowerCase()] || [];
-    return new Set([...list1, ...list2]);
+    return new Set(
+      [...list1, ...list2].map((k) => k.trim()).filter(Boolean)
+    );
   }, [userBlockedMap, visitorId, visitorName]);
+
+  // Clean deduplicated list of blocked accounts for "قائمة الحظر" modal
+  const myBlockedAccountsList = useMemo(() => {
+    const rawKeys = Array.from(myBlockedUserKeys);
+    const byNormName = new Map<string, { id: string; username: string }>();
+
+    rawKeys.forEach((key) => {
+      const cleanKey = key.trim();
+      if (!cleanKey) return;
+      const keyLower = cleanKey.toLowerCase();
+
+      // Try to resolve if cleanKey is a userId
+      const matchedUser = users.find(
+        (u) =>
+          u.id === cleanKey || u.username.trim().toLowerCase() === keyLower
+      );
+      if (matchedUser) {
+        const uNorm = matchedUser.username.trim().toLowerCase();
+        byNormName.set(uNorm, {
+          id: matchedUser.id,
+          username: matchedUser.username.trim(),
+        });
+        return;
+      }
+
+      // Skip raw generated IDs if we already have or will have their username
+      if (
+        cleanKey.startsWith('usr-') ||
+        cleanKey.startsWith('vis-') ||
+        cleanKey.startsWith('u-')
+      ) {
+        // Check if we can find their username in posts or privateChatMessages
+        const postMatch = posts.find((p) => p.authorId === cleanKey);
+        if (postMatch) {
+          const pNorm = postMatch.authorUsername.trim().toLowerCase();
+          byNormName.set(pNorm, {
+            id: cleanKey,
+            username: postMatch.authorUsername.trim(),
+          });
+          return;
+        }
+        const msgMatch = (privateChatMessages || []).find(
+          (m) => m.senderId === cleanKey || m.receiverId === cleanKey
+        );
+        if (msgMatch) {
+          const name =
+            msgMatch.senderId === cleanKey
+              ? msgMatch.senderUsername
+              : msgMatch.receiverUsername;
+          const mNorm = name.trim().toLowerCase();
+          byNormName.set(mNorm, { id: cleanKey, username: name.trim() });
+          return;
+        }
+        return;
+      }
+
+      if (!byNormName.has(keyLower)) {
+        byNormName.set(keyLower, { id: cleanKey, username: cleanKey });
+      }
+    });
+
+    return Array.from(byNormName.values());
+  }, [myBlockedUserKeys, users, posts, privateChatMessages]);
+
+  // Check if active chat partner is blocked by me or has blocked me
+  const isActivePartnerBlockedByMe = useMemo(() => {
+    if (!activeBottomLeftChat) return false;
+    const pId = activeBottomLeftChat.partnerId.trim();
+    const pNorm = activeBottomLeftChat.partnerUsername.trim().toLowerCase();
+    return (
+      myBlockedUserKeys.has(pId) ||
+      myBlockedUserKeys.has(pNorm) ||
+      myBlockedUserKeys.has(activeBottomLeftChat.partnerUsername.trim())
+    );
+  }, [activeBottomLeftChat, myBlockedUserKeys]);
+
+  const amIBlockedByActivePartner = useMemo(() => {
+    if (!activeBottomLeftChat) return false;
+    const pId = activeBottomLeftChat.partnerId.trim();
+    const pNorm = activeBottomLeftChat.partnerUsername.trim().toLowerCase();
+    const theirBlocked = new Set([
+      ...(userBlockedMap[pId] || []),
+      ...(userBlockedMap[pNorm] || []),
+      ...(userBlockedMap[activeBottomLeftChat.partnerUsername.trim()] || []),
+    ]);
+    return (
+      theirBlocked.has(visitorId) ||
+      theirBlocked.has(myNormName) ||
+      theirBlocked.has(visitorName.trim())
+    );
+  }, [activeBottomLeftChat, userBlockedMap, visitorId, myNormName, visitorName]);
 
   // Approved Posts Filtered by Type (and hidden for current user only if author is blocked by current user)
   const approvedPosts = posts.filter(
@@ -741,7 +1062,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const totalAdminAlertsCount =
     pendingPostsAll.length +
     reportedPostsList.length +
-    reportedCommentsList.length;
+    reportedCommentsList.length +
+    (privateChatReports || []).length;
 
   // Handle New Post Submission ("انشر" - Requires Login + Profanity Filter)
   const handlePublishPostSubmit = (e: React.FormEvent) => {
@@ -847,7 +1169,16 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setAdminActiveTab('reports')}
+            onClick={() => {
+              setAdminActiveTab('reports');
+              if (
+                reportedPostsList.length === 0 &&
+                reportedCommentsList.length === 0 &&
+                (privateChatReports || []).length > 0
+              ) {
+                setReportsFilterType('chat');
+              }
+            }}
             className={`fluent-reveal py-3 px-4 rounded-xl text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer transition-all ${
               adminActiveTab === 'reports'
                 ? 'bg-rose-600 text-white shadow-lg'
@@ -857,7 +1188,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             <Flag className="w-4 h-4" />
             <span>بلاغات</span>
             <span className="px-2 py-0.5 rounded-full bg-[#0A192F]/90 text-rose-300 text-xs font-mono-tabular">
-              {reportedPostsList.length + reportedCommentsList.length}
+              {reportedPostsList.length +
+                reportedCommentsList.length +
+                (privateChatReports || []).length}
             </span>
           </button>
         </div>
@@ -951,13 +1284,15 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                 </p>
               </div>
 
-              {/* Left Dropdown Filter ("المنشورات" أو "التعليقات") */}
+              {/* Left Dropdown Filter ("المنشورات" أو "التعليقات" أو "بلاغات المحادثات والشات") */}
               <div className="flex items-center gap-2 mr-auto">
                 <Filter className="w-4 h-4 text-rose-400" />
                 <select
                   value={reportsFilterType}
                   onChange={(e) =>
-                    setReportsFilterType(e.target.value as 'posts' | 'comments')
+                    setReportsFilterType(
+                      e.target.value as 'posts' | 'comments' | 'chat'
+                    )
                   }
                   className="rounded-xl bg-[#0A192F] border border-[#334155] focus:border-rose-400 px-4 py-2 text-xs sm:text-sm text-[#F8FAFC] font-extrabold outline-none"
                 >
@@ -966,6 +1301,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   </option>
                   <option value="comments">
                     التعليقات ({reportedCommentsList.length})
+                  </option>
+                  <option value="chat">
+                    بلاغات المحادثات والشات ({(privateChatReports || []).length})
                   </option>
                 </select>
               </div>
@@ -1142,6 +1480,82 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                 )}
               </div>
             )}
+
+            {/* Reported Private Chat Messages & Users View */}
+            {reportsFilterType === 'chat' && (
+              <div className="space-y-4">
+                {(privateChatReports || []).length === 0 ? (
+                  <FluentCard className="p-10 text-center text-sm text-[#94A3B8]">
+                    لا توجد بلاغات مسجلة من شات المحادثات حالياً.
+                  </FluentCard>
+                ) : (
+                  (privateChatReports || []).map((rep) => (
+                    <FluentCard
+                      key={rep.id}
+                      className="p-5 space-y-3 border-rose-500/40"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#334155] pb-3">
+                        <div>
+                          <div className="text-sm font-extrabold text-rose-300 flex items-center gap-1.5">
+                            <Flag className="w-4 h-4 text-rose-400" />
+                            <span>
+                              المُبلَّغ ضده: {rep.reportedUsername}
+                            </span>
+                          </div>
+                          <div className="text-xs text-[#94A3B8] mt-1">
+                            تم الإبلاغ بواسطة:{' '}
+                            <strong className="text-sky-300">
+                              {rep.reporterUsername}
+                            </strong>{' '}
+                            · {formatArabicDateTimeFull(rep.createdAt)}
+                          </div>
+                        </div>
+
+                        <span className="px-3 py-1 rounded-xl bg-rose-500/20 border border-rose-400/50 text-rose-300 text-xs font-extrabold">
+                          {rep.reason}
+                        </span>
+                      </div>
+
+                      {rep.sampleMessage && (
+                        <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] text-xs sm:text-sm text-[#F8FAFC]">
+                          <span className="text-[#94A3B8] font-bold block mb-1">
+                            محتوى الرسالة / تفاصيل البلاغ:
+                          </span>
+                          {rep.sampleMessage}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => onDismissPrivateChatReport?.(rep.id)}
+                          className="fluent-reveal px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>تمت المراجعة (إغلاق البلاغ)</span>
+                        </button>
+
+                        {isStrictAdmin && onDeleteUserAccountFromChat && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onDeleteUserAccountFromChat(
+                                rep.reportedUserId,
+                                rep.reportedUsername
+                              )
+                            }
+                            className="fluent-reveal px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow"
+                          >
+                            <Ban className="w-4 h-4" />
+                            <span>حظر الحساب من الموقع</span>
+                          </button>
+                        )}
+                      </div>
+                    </FluentCard>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1200,20 +1614,34 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         </div>
 
         {/* Single-Row Controls on Mobile */}
-        <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-1 sm:gap-2 flex-nowrap overflow-hidden">
-          {/* زر سجل المحادثات في الأعلى في بيع واشتري */}
+        <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-1 sm:gap-2 flex-nowrap overflow-x-auto">
+          {/* زر سجل المحادثات + زر قائمة الحظر في الأعلى في بيع واشتري */}
           {enableBuySellPrivateChat && (
-            <button
-              type="button"
-              onClick={() => setIsChatHistoryModalOpen(true)}
-              className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-400/60 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shadow-sm"
-            >
-              <MessageSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 shrink-0" />
-              <span className="truncate">سجل المحادثات</span>
-              <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-emerald-500/25 text-emerald-200 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
-                {previousConversationsList.length}
-              </span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setIsChatHistoryModalOpen(true)}
+                className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-400/60 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shadow-sm"
+              >
+                <MessageSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 shrink-0" />
+                <span className="truncate">سجل المحادثات</span>
+                <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-emerald-500/25 text-emerald-200 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
+                  {previousConversationsList.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsBlockedUsersModalOpen(true)}
+                className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/35 text-rose-300 border border-rose-400/60 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shadow-sm"
+              >
+                <Ban className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-400 shrink-0" />
+                <span className="truncate">قائمة الحظر</span>
+                <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-rose-500/25 text-rose-200 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
+                  {myBlockedAccountsList.length}
+                </span>
+              </button>
+            </>
           )}
 
           {/* 1. زر المنشورات المحفوظة */}
@@ -2297,162 +2725,655 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         </FluentModal>
       )}
 
-      {/* الشاشة المنبثقة من الأسفل على يسار الموقع (مربع الشات الخاص المستمر حتى بعد عمل ريفريش للصفحة ولا يُغلق إلا بزر إغلاق بالداخل) */}
-      {enableBuySellPrivateChat && activeBottomLeftChat && (
-        <div className="fixed bottom-3 left-3 sm:bottom-5 sm:left-5 z-50 w-[330px] sm:w-[375px] h-[385px] sm:h-[420px] max-w-[calc(100vw-1.5rem)] rounded-2xl bg-[#112240] border-2 border-sky-400 shadow-[0_12px_45px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden">
-          {/* Header: اسم الشخص الذي يتم التواصل معه + زر إغلاق لإغلاق المحادثة نهائياً */}
-          <div className="px-3.5 py-2.5 bg-[#0A192F] border-b border-[#334155] flex items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-300 font-extrabold text-xs shrink-0">
-                {activeBottomLeftChat.partnerUsername.slice(0, 1)}
+      {/* شاشة قائمة الحظر ("زر في الاعلي للمستخدمين قائمه الحظر وعند الضغط عليها يظهر قائمه بها الاسماء التي تم حظرها ويوجد بجانب كل اسم كلمه فك الحظر") */}
+      {enableBuySellPrivateChat && isBlockedUsersModalOpen && (
+        <FluentModal
+          isOpen={isBlockedUsersModalOpen}
+          onClose={() => setIsBlockedUsersModalOpen(false)}
+          title="قائمة الحظر"
+          subtitle={`الحسابات التي قمت بحظرها (${myBlockedAccountsList.length} حساب)`}
+          maxWidth="md"
+        >
+          {myBlockedAccountsList.length === 0 ? (
+            <div className="p-8 text-center space-y-2">
+              <Ban className="w-10 h-10 text-emerald-400 mx-auto opacity-80" />
+              <div className="text-sm font-extrabold text-[#F8FAFC]">
+                قائمة الحظر فارغة حالياً
               </div>
-              <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
-                  {activeBottomLeftChat.partnerUsername}
+              <p className="text-xs text-[#94A3B8]">
+                لا توجد أي حسابات محظورة. يمكنك استقبال وإرسال المحادثات مع الجميع.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5 max-h-[65vh] overflow-y-auto pr-1">
+              {myBlockedAccountsList.map((blk) => (
+                <div
+                  key={blk.username}
+                  className="p-3.5 rounded-xl bg-[#0A192F] border border-rose-500/40 flex items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-400/50 flex items-center justify-center text-rose-300 font-extrabold text-xs shrink-0">
+                      {blk.username.slice(0, 1)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                        {blk.username}
+                      </div>
+                      <div className="text-[10px] text-rose-300 font-bold">
+                        محظور من المراسلة
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUnblockUserInChat?.(blk.username);
+                      if (blk.id && blk.id !== blk.username) {
+                        onUnblockUserInChat?.(blk.id);
+                      }
+                      setReportFeedbackBanner(
+                        `تم فك الحظر عن "${blk.username}" بنجاح، ويمكنك الآن استقبال وإرسال المحادثات معه مرة أخرى.`
+                      );
+                    }}
+                    className="fluent-reveal px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shrink-0 shadow"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>فك الحظر</span>
+                  </button>
                 </div>
-                <div className="text-[10px] font-bold text-emerald-400 truncate">
-                  {isBottomLeftPartnerTyping ? 'يكتب رسالة الآن...' : 'محادثة خاصة مباشرة'}
+              ))}
+            </div>
+          )}
+        </FluentModal>
+      )}
+
+      {/* إشعار على الشاشة لمدة 2 ثانية عند إرسال أو استقبال رسالة ("تم ارسال رساله من كذا ومحتوي الرساله وتظل 2 ثانيه وعند الضغط علي الاشعار يفتح المحادثه مباشرة") */}
+      {enableBuySellPrivateChat && screenChatNotification && (
+        <div
+          onClick={() => {
+            openBottomLeftPrivateChat(
+              screenChatNotification.partnerId,
+              screenChatNotification.partnerUsername
+            );
+            setScreenChatNotification(null);
+          }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[80] w-[92vw] max-w-md p-3.5 rounded-2xl bg-[#112240] border-2 border-emerald-400 shadow-[0_12px_40px_rgba(16,185,129,0.45)] cursor-pointer transition-all hover:scale-[1.02]"
+        >
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/25 border border-emerald-400 flex items-center justify-center text-emerald-300 shrink-0">
+                <Bell className="w-4 h-4 animate-bounce" />
+              </div>
+              <div className="min-w-0 space-y-0.5">
+                <div className="text-xs sm:text-sm font-extrabold text-emerald-300 truncate">
+                  تم إرسال رسالة من {screenChatNotification.senderUsername}
+                </div>
+                <p className="text-xs font-bold text-[#F8FAFC] line-clamp-2 break-words">
+                  محتوى الرسالة: &quot;{screenChatNotification.text}&quot;
+                </p>
+                <div className="text-[10px] font-extrabold text-sky-300">
+                  اضغط على الإشعار لفتح المحادثة مباشرة
                 </div>
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={closeBottomLeftPrivateChat}
-              className="fluent-reveal px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 shadow"
-              title="إغلاق المحادثة نهائياً"
-            >
-              <XCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>إغلاق</span>
-            </button>
+            <span className="px-2 py-0.5 rounded-lg bg-emerald-600 text-white text-[10px] font-extrabold shrink-0">
+              فتح الشات
+            </span>
           </div>
-
-          {/* Messages Feed */}
-          <div className="flex-1 p-3 overflow-y-auto space-y-2 bg-[#0A192F]/85">
-            {activeBottomLeftMessages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center p-4 space-y-1.5 text-[#94A3B8]">
-                <MessageSquare className="w-7 h-7 text-sky-400 opacity-75" />
-                <div className="text-xs font-extrabold text-[#F8FAFC]">
-                  محادثة خاصة مع {activeBottomLeftChat.partnerUsername}
-                </div>
-                <p className="text-[11px]">
-                  اكتب رسالتك بالأسفل للتواصل المباشر الفوري.
-                </p>
-              </div>
-            ) : (
-              activeBottomLeftMessages.map((msg) => {
-                const isMine =
-                  msg.senderId === visitorId ||
-                  msg.senderUsername.trim().toLowerCase() === myNormName;
-                return (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${
-                      isMine ? 'items-start' : 'items-end'
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs space-y-1 ${
-                        isMine
-                          ? 'bg-sky-600 text-white rounded-tr-none'
-                          : 'bg-[#1E293B] text-[#F8FAFC] border border-[#334155] rounded-tl-none'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2 text-[10px] opacity-85 font-extrabold">
-                        <span>{msg.senderUsername}</span>
-                        <span>
-                          {new Date(msg.createdAt).toLocaleTimeString('ar-EG', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                      </div>
-                      <p className="leading-relaxed break-words whitespace-pre-wrap font-bold">
-                        {msg.text}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-
-            {isBottomLeftPartnerTyping && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[11px] font-extrabold w-fit">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span>{activeBottomLeftChat.partnerUsername} يكتب الآن...</span>
-              </div>
-            )}
-
-            <div ref={bottomLeftMessagesEndRef} />
-          </div>
-
-          {/* Input Form */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const clean = bottomLeftChatDraft.trim();
-              if (!clean || !activeBottomLeftChat) return;
-              if (containsAbusiveWords(clean)) {
-                setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
-                return;
-              }
-              recordPartnerInHistory(
-                activeBottomLeftChat.partnerId,
-                activeBottomLeftChat.partnerUsername
-              );
-              onSendPrivateMessage?.(
-                activeBottomLeftChat.partnerId,
-                activeBottomLeftChat.partnerUsername,
-                clean,
-                '#F8FAFC'
-              );
-              setBottomLeftChatDraft('');
-              if (bottomLeftTypingTimeoutRef.current) {
-                clearTimeout(bottomLeftTypingTimeoutRef.current);
-              }
-              onSetChatTypingStatus?.(
-                `private:${activeBottomLeftChat.partnerUsername}`,
-                false
-              );
-            }}
-            className="p-2.5 bg-[#0A192F] border-t border-[#334155] flex items-center gap-2 shrink-0"
-          >
-            <input
-              type="text"
-              value={bottomLeftChatDraft}
-              onChange={(e) => {
-                const val = e.target.value;
-                setBottomLeftChatDraft(val);
-                if (!activeBottomLeftChat) return;
-                onSetChatTypingStatus?.(
-                  `private:${activeBottomLeftChat.partnerUsername}`,
-                  val.trim().length > 0
-                );
-                if (bottomLeftTypingTimeoutRef.current) {
-                  clearTimeout(bottomLeftTypingTimeoutRef.current);
-                }
-                if (val.trim().length > 0) {
-                  bottomLeftTypingTimeoutRef.current = setTimeout(() => {
-                    onSetChatTypingStatus?.(
-                      `private:${activeBottomLeftChat.partnerUsername}`,
-                      false
-                    );
-                  }, 3000);
-                }
-              }}
-              placeholder={`اكتب رسالة إلى ${activeBottomLeftChat.partnerUsername}...`}
-              className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs text-[#F8FAFC] outline-none"
-            />
-            <button
-              type="submit"
-              className="fluent-reveal px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 shadow"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>إرسال</span>
-            </button>
-          </form>
         </div>
       )}
+
+      {/* شات المحادثة الخاص أسفل يسار الموقع (يدعم فتح 2 شات والتبديل بينهما بسلاسة + زر - للتنزيل استايل الفيس بوك زمان + زر x + حظر + إبلاغ + إغلاق + لايك/ديس لايك/قلب/إبلاغ على كل رسالة) */}
+      {enableBuySellPrivateChat &&
+        openChatTabs.length > 0 &&
+        activeBottomLeftChat &&
+        (isChatMinimized ? (
+          /* وضع التصغير (تنزيل شاشة الشات بأسفل يسار الموقع مثل استايل الفيس بوك زمان وعند الضغط على المحادثة تظهر مرة أخرى) */
+          <div className="fixed bottom-0 left-3 sm:left-5 z-50 flex items-end gap-2 max-w-[calc(100vw-1.5rem)]">
+            {openChatTabs.map((tab) => {
+              const tabNorm = tab.partnerUsername.trim().toLowerCase();
+              const unreadForTab = (privateChatMessages || []).filter((m) => {
+                const sNorm = m.senderUsername.trim().toLowerCase();
+                const rNorm = m.receiverUsername.trim().toLowerCase();
+                return (
+                  sNorm === tabNorm &&
+                  (rNorm === myNormName || m.receiverId === visitorId) &&
+                  !m.isRead
+                );
+              }).length;
+
+              return (
+                <div
+                  key={tab.partnerUsername}
+                  onClick={() => {
+                    setActiveChatUsername(tab.partnerUsername);
+                    setIsChatMinimized(false);
+                    onMarkPrivateMessagesRead?.(tab.partnerUsername);
+                  }}
+                  className="fluent-reveal px-3.5 py-2.5 rounded-t-2xl bg-[#112240] hover:bg-[#1E293B] border-2 border-b-0 border-sky-400 shadow-[0_-6px_25px_rgba(0,0,0,0.75)] flex items-center justify-between gap-2.5 cursor-pointer min-w-[165px] sm:min-w-[195px]"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="text-xs font-extrabold text-[#F8FAFC] truncate">
+                      {tab.partnerUsername}
+                    </span>
+                    {unreadForTab > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-mono-tabular font-extrabold shrink-0">
+                        {unreadForTab}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* زر x بجانب اسم الحساب لإغلاق المراسلة مع هذا الشخص فقط */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeSingleChatTab(tab.partnerUsername);
+                    }}
+                    title={`إغلاق المحادثة مع ${tab.partnerUsername} فقط`}
+                    className="w-5 h-5 rounded-md bg-rose-600/30 hover:bg-rose-600 text-rose-200 hover:text-white flex items-center justify-center text-xs font-extrabold cursor-pointer shrink-0"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          /* نافذة الشات المربعة المفتوحة أسفل يسار الموقع */
+          <div className="fixed bottom-3 left-3 sm:bottom-5 sm:left-5 z-50 w-[345px] sm:w-[395px] h-[440px] sm:h-[470px] max-w-[calc(100vw-1.5rem)] rounded-2xl bg-[#112240] border-2 border-sky-400 shadow-[0_12px_45px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden">
+            {/* السطر العلوي الأول: التبديل السلس بين 2 شات (وبجانب كل اسم زر x لإغلاقه وحده) + على اليسار زر - للتنزيل وبجانبه زر x للإغلاق */}
+            <div className="px-2.5 py-1.5 bg-[#071120] border-b border-[#334155] flex items-center justify-between gap-1.5 shrink-0">
+              {/* التبويبات المفتوحة (حتى 2 شات للتبديل بينهما بسلاسة) */}
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto">
+                {openChatTabs.map((tab) => {
+                  const isTabActive =
+                    tab.partnerUsername.trim().toLowerCase() ===
+                    activeBottomLeftChat.partnerUsername.trim().toLowerCase();
+                  const tabNorm = tab.partnerUsername.trim().toLowerCase();
+                  const unreadForTab = (privateChatMessages || []).filter(
+                    (m) => {
+                      const sNorm = m.senderUsername.trim().toLowerCase();
+                      const rNorm = m.receiverUsername.trim().toLowerCase();
+                      return (
+                        sNorm === tabNorm &&
+                        (rNorm === myNormName || m.receiverId === visitorId) &&
+                        !m.isRead
+                      );
+                    }
+                  ).length;
+
+                  return (
+                    <div
+                      key={tab.partnerUsername}
+                      onClick={() => {
+                        setActiveChatUsername(tab.partnerUsername);
+                        setOpenChatHeaderReportMenu(false);
+                        setOpenPrivateMsgReportId(null);
+                        onMarkPrivateMessagesRead?.(tab.partnerUsername);
+                      }}
+                      className={`px-2.5 py-1 rounded-xl border text-[11px] font-extrabold flex items-center gap-1.5 cursor-pointer transition-all min-w-0 ${
+                        isTabActive
+                          ? 'bg-sky-600/35 border-sky-400 text-white shadow-sm'
+                          : 'bg-[#112240] border-[#334155] text-[#94A3B8] hover:text-white'
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          isTabActive ? 'bg-emerald-400' : 'bg-sky-400/60'
+                        }`}
+                      />
+                      <span className="truncate max-w-[95px]">
+                        {tab.partnerUsername}
+                      </span>
+                      {unreadForTab > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[9px] font-mono-tabular font-extrabold shrink-0">
+                          {unreadForTab}
+                        </span>
+                      )}
+                      {/* زر x بجانب اسم كل حساب يتم المراسلة معه لإغلاق المراسلة مع الشخص ده بس وليس كل المحادثات */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          closeSingleChatTab(tab.partnerUsername);
+                        }}
+                        title={`إغلاق المراسلة مع ${tab.partnerUsername} فقط`}
+                        className="w-4 h-4 rounded bg-rose-600/30 hover:bg-rose-600 text-rose-200 hover:text-white flex items-center justify-center cursor-pointer shrink-0"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* أزرار التحكم بالنافذة على اليسار: زر ( - ) لتنزيل الشات + بجانبه زر ( x ) لإغلاق المحادثة */}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsChatMinimized(true)}
+                  title="تنزيل شاشة الشات للأسفل (استايل الفيس بوك)"
+                  className="w-7 h-7 rounded-lg bg-[#1E293B] hover:bg-sky-600 text-[#F8FAFC] border border-[#334155] flex items-center justify-center font-extrabold cursor-pointer transition-colors"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={closeAllBottomLeftChats}
+                  title="إغلاق المحادثة (x)"
+                  className="w-7 h-7 rounded-lg bg-rose-600/25 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 flex items-center justify-center font-extrabold cursor-pointer transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* السطر الثاني: اسم الحساب النشط + بجانب زر إغلاق الذي بالمحادثة يوجد زر حظر وزر إبلاغ */}
+            <div className="px-3 py-2 bg-[#0A192F] border-b border-[#334155] flex items-center justify-between gap-2 shrink-0 relative">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-300 font-extrabold text-xs shrink-0">
+                  {activeBottomLeftChat.partnerUsername.slice(0, 1)}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
+                    {activeBottomLeftChat.partnerUsername}
+                  </div>
+                  <div className="text-[10px] font-bold text-emerald-400 truncate">
+                    {isBottomLeftPartnerTyping
+                      ? 'يكتب رسالة الآن...'
+                      : isActivePartnerBlockedByMe
+                      ? 'تم حظر هذا الحساب'
+                      : 'متصل للمحادثة المباشرة'}
+                  </div>
+                </div>
+              </div>
+
+              {/* الأزرار الـ 3 متجاورة: زر حظر + زر إبلاغ + زر إغلاق */}
+              <div className="flex items-center gap-1 shrink-0">
+                {/* 1. زر حظر (أو فك الحظر) */}
+                {isActivePartnerBlockedByMe ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUnblockUserInChat?.(
+                        activeBottomLeftChat.partnerUsername
+                      );
+                      setChatActionToast(
+                        `تم فك الحظر عن ${activeBottomLeftChat.partnerUsername}`
+                      );
+                      setTimeout(() => setChatActionToast(''), 2500);
+                    }}
+                    className="fluent-reveal px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer shadow"
+                    title="فك الحظر عن هذا الحساب"
+                  >
+                    <CheckCircle2 className="w-3 h-3 shrink-0" />
+                    <span>فك الحظر</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onBlockUserInChat?.(
+                        activeBottomLeftChat.partnerId,
+                        activeBottomLeftChat.partnerUsername
+                      );
+                      setChatActionToast(
+                        `تم حظر "${activeBottomLeftChat.partnerUsername}" ولا يمكن المراسلة معه مرة أخرى.`
+                      );
+                      setTimeout(() => setChatActionToast(''), 2500);
+                    }}
+                    className="fluent-reveal px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer shadow"
+                    title="حظر هذا الحساب ومنع المراسلة"
+                  >
+                    <Ban className="w-3 h-3 shrink-0" />
+                    <span>حظر</span>
+                  </button>
+                )}
+
+                {/* 2. زر إبلاغ (يصل في زر الإدارة) */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenChatHeaderReportMenu((prev) => !prev)
+                  }
+                  className="fluent-reveal px-2 py-1 rounded-lg bg-rose-600/30 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-400/50 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer shadow"
+                  title="إبلاغ إلى الإدارة"
+                >
+                  <Flag className="w-3 h-3 shrink-0" />
+                  <span>إبلاغ</span>
+                </button>
+
+                {/* 3. زر إغلاق */}
+                <button
+                  type="button"
+                  onClick={closeAllBottomLeftChats}
+                  className="fluent-reveal px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-extrabold flex items-center gap-1 cursor-pointer shadow"
+                  title="إغلاق المحادثة نهائياً"
+                >
+                  <XCircle className="w-3 h-3 shrink-0" />
+                  <span>إغلاق</span>
+                </button>
+              </div>
+
+              {/* قائمة أسباب البلاغ السريع من أعلى الشات (تصل فوراً إلى زر الإدارة) */}
+              {openChatHeaderReportMenu && (
+                <div className="absolute left-2 top-full mt-1 w-60 rounded-xl bg-[#0A192F] border-2 border-rose-400 shadow-2xl z-50 p-2 space-y-1">
+                  <div className="text-[11px] font-extrabold text-rose-300 px-2 py-1 border-b border-[#334155] flex items-center justify-between">
+                    <span>اختر سبب الإبلاغ للإدارة:</span>
+                    <button
+                      type="button"
+                      onClick={() => setOpenChatHeaderReportMenu(false)}
+                      className="text-[#94A3B8] hover:text-white cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {REPORT_REASONS.map((reason) => (
+                    <button
+                      key={reason}
+                      type="button"
+                      onClick={() => {
+                        const lastSample =
+                          activeBottomLeftMessages[
+                            activeBottomLeftMessages.length - 1
+                          ]?.text || 'بلاغ على محادثة خاصة في بيع واشتري';
+                        onReportUserInPrivateChat?.(
+                          activeBottomLeftChat.partnerId,
+                          activeBottomLeftChat.partnerUsername,
+                          reason,
+                          lastSample
+                        );
+                        setOpenChatHeaderReportMenu(false);
+                        setChatActionToast(
+                          `تم إرسال البلاغ ("${reason}") إلى زر الإدارة للمراجعة.`
+                        );
+                        setTimeout(() => setChatActionToast(''), 2500);
+                      }}
+                      className="w-full text-right px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-[#F8FAFC] hover:bg-rose-600/25 hover:text-rose-200 cursor-pointer block"
+                    >
+                      • {reason}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* إشعار تأكيد الإجراء داخل الشات */}
+            {chatActionToast && (
+              <div className="px-3 py-1.5 bg-emerald-600/25 border-b border-emerald-400/50 text-emerald-200 text-[11px] font-extrabold text-center shrink-0">
+                {chatActionToast}
+              </div>
+            )}
+
+            {/* Messages Feed */}
+            <div className="flex-1 p-3 overflow-y-auto space-y-2.5 bg-[#0A192F]/85">
+              {activeBottomLeftMessages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-4 space-y-1.5 text-[#94A3B8]">
+                  <MessageSquare className="w-7 h-7 text-sky-400 opacity-75" />
+                  <div className="text-xs font-extrabold text-[#F8FAFC]">
+                    محادثة خاصة مع {activeBottomLeftChat.partnerUsername}
+                  </div>
+                  <p className="text-[11px]">
+                    اكتب رسالتك بالأسفل للتواصل المباشر الفوري بأقصى سرعة.
+                  </p>
+                </div>
+              ) : (
+                activeBottomLeftMessages.map((msg) => {
+                  const isMine =
+                    msg.senderId === visitorId ||
+                    msg.senderUsername.trim().toLowerCase() === myNormName;
+                  const msgLikes = msg.likes || [];
+                  const msgDislikes = msg.dislikes || [];
+                  const msgHearts = msg.hearts || [];
+                  const hasLikedMsg = msgLikes.includes(visitorId);
+                  const hasDislikedMsg = msgDislikes.includes(visitorId);
+                  const hasHeartedMsg = msgHearts.includes(visitorId);
+                  const isMsgReportOpen = openPrivateMsgReportId === msg.id;
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col space-y-1 ${
+                        isMine ? 'items-start' : 'items-end'
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[88%] rounded-2xl px-3 py-2 text-xs space-y-1 ${
+                          isMine
+                            ? 'bg-sky-600 text-white rounded-tr-none'
+                            : 'bg-[#1E293B] text-[#F8FAFC] border border-[#334155] rounded-tl-none'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 text-[10px] opacity-85 font-extrabold">
+                          <span>{msg.senderUsername}</span>
+                          <span>
+                            {new Date(msg.createdAt).toLocaleTimeString(
+                              'ar-EG',
+                              {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              }
+                            )}
+                          </span>
+                        </div>
+                        <p className="leading-relaxed break-words whitespace-pre-wrap font-bold">
+                          {msg.text}
+                        </p>
+                      </div>
+
+                      {/* شريط التفاعل والإبلاغ أسفل كل رسالة داخل الشات: لايك + ديس لايك + قلب ❤️ + إبلاغ عن الرسالة */}
+                      <div className="flex flex-wrap items-center gap-1 relative">
+                        {/* 1. لايك */}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onTogglePrivateMessageReaction?.(msg.id, 'like')
+                          }
+                          className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold flex items-center gap-0.5 border cursor-pointer transition-all ${
+                            hasLikedMsg
+                              ? 'bg-sky-600 text-white border-sky-400'
+                              : 'bg-[#112240] text-[#94A3B8] hover:text-white border-[#334155]'
+                          }`}
+                          title="لايك"
+                        >
+                          <ThumbsUp className="w-2.5 h-2.5" />
+                          <span>{msgLikes.length || ''}</span>
+                        </button>
+
+                        {/* 2. ديس لايك */}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onTogglePrivateMessageReaction?.(msg.id, 'dislike')
+                          }
+                          className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold flex items-center gap-0.5 border cursor-pointer transition-all ${
+                            hasDislikedMsg
+                              ? 'bg-rose-600 text-white border-rose-400'
+                              : 'bg-[#112240] text-[#94A3B8] hover:text-white border-[#334155]'
+                          }`}
+                          title="ديس لايك"
+                        >
+                          <ThumbsDown className="w-2.5 h-2.5" />
+                          <span>{msgDislikes.length || ''}</span>
+                        </button>
+
+                        {/* 3. إيموشن قلب ❤️ */}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onTogglePrivateMessageReaction?.(msg.id, 'heart')
+                          }
+                          className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold flex items-center gap-0.5 border cursor-pointer transition-all ${
+                            hasHeartedMsg
+                              ? 'bg-rose-500/30 text-rose-200 border-rose-400'
+                              : 'bg-[#112240] text-[#94A3B8] hover:text-white border-[#334155]'
+                          }`}
+                          title="قلب ❤️"
+                        >
+                          <Heart className="w-2.5 h-2.5 text-rose-400 fill-rose-400" />
+                          <span>{msgHearts.length || ''}</span>
+                        </button>
+
+                        {/* 4. الإبلاغ عن أي رسالة داخل الشات */}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenPrivateMsgReportId(
+                              isMsgReportOpen ? null : msg.id
+                            )
+                          }
+                          className="px-1.5 py-0.5 rounded-md bg-[#112240] hover:bg-rose-600/25 text-rose-300 border border-[#334155] text-[10px] font-extrabold flex items-center gap-0.5 cursor-pointer"
+                          title="إبلاغ عن هذه الرسالة"
+                        >
+                          <Flag className="w-2.5 h-2.5 text-rose-400" />
+                          <span>إبلاغ</span>
+                        </button>
+
+                        {isMsgReportOpen && (
+                          <div className="absolute bottom-full mb-1 right-0 w-52 rounded-xl bg-[#0A192F] border border-rose-400 shadow-2xl z-50 p-1.5 space-y-1">
+                            <div className="text-[10px] font-extrabold text-rose-300 px-2 py-0.5 border-b border-[#334155]">
+                              الإبلاغ عن هذه الرسالة للإدارة:
+                            </div>
+                            {REPORT_REASONS.map((reason) => (
+                              <button
+                                key={reason}
+                                type="button"
+                                onClick={() => {
+                                  onReportPrivateChatMessage?.(
+                                    msg.id,
+                                    msg.senderId,
+                                    msg.senderUsername,
+                                    msg.text,
+                                    reason
+                                  );
+                                  setOpenPrivateMsgReportId(null);
+                                  setChatActionToast(
+                                    `تم الإبلاغ عن الرسالة ("${reason}") ووصلت إلى زر الإدارة.`
+                                  );
+                                  setTimeout(() => setChatActionToast(''), 2500);
+                                }}
+                                className="w-full text-right px-2 py-1 rounded-lg text-[10px] font-bold text-[#F8FAFC] hover:bg-rose-600/25 cursor-pointer block"
+                              >
+                                • {reason}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+
+              {isBottomLeftPartnerTyping && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[11px] font-extrabold w-fit">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <span>
+                    {activeBottomLeftChat.partnerUsername} يكتب الآن...
+                  </span>
+                </div>
+              )}
+
+              <div ref={bottomLeftMessagesEndRef} />
+            </div>
+
+            {/* Input Form (أو تنبيه منع المراسلة في حالة الحظر) */}
+            {isActivePartnerBlockedByMe ? (
+              <div className="p-2.5 bg-rose-950/60 border-t border-rose-500/50 flex items-center justify-between gap-2 shrink-0">
+                <span className="text-[11px] font-extrabold text-rose-200">
+                  تم حظر &quot;{activeBottomLeftChat.partnerUsername}&quot; ولا يمكن المراسلة.
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUnblockUserInChat?.(activeBottomLeftChat.partnerUsername)
+                  }
+                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold cursor-pointer shrink-0"
+                >
+                  فك الحظر
+                </button>
+              </div>
+            ) : amIBlockedByActivePartner ? (
+              <div className="p-2.5 bg-rose-950/60 border-t border-rose-500/50 text-center text-[11px] font-extrabold text-rose-200 shrink-0">
+                لا يمكن إرسال رسائل إلى هذا الحساب حالياً بسبب الحظر.
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const clean = bottomLeftChatDraft.trim();
+                  if (!clean || !activeBottomLeftChat) return;
+                  if (containsAbusiveWords(clean)) {
+                    setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                    return;
+                  }
+                  recordPartnerInHistory(
+                    activeBottomLeftChat.partnerId,
+                    activeBottomLeftChat.partnerUsername
+                  );
+                  onSendPrivateMessage?.(
+                    activeBottomLeftChat.partnerId,
+                    activeBottomLeftChat.partnerUsername,
+                    clean,
+                    '#F8FAFC'
+                  );
+                  triggerScreenChatNotification(
+                    visitorName,
+                    activeBottomLeftChat.partnerId,
+                    activeBottomLeftChat.partnerUsername,
+                    clean
+                  );
+                  setBottomLeftChatDraft('');
+                  if (bottomLeftTypingTimeoutRef.current) {
+                    clearTimeout(bottomLeftTypingTimeoutRef.current);
+                  }
+                  onSetChatTypingStatus?.(
+                    `private:${activeBottomLeftChat.partnerUsername}`,
+                    false
+                  );
+                }}
+                className="p-2.5 bg-[#0A192F] border-t border-[#334155] flex items-center gap-2 shrink-0"
+              >
+                <input
+                  type="text"
+                  value={bottomLeftChatDraft}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setBottomLeftChatDraft(val);
+                    if (!activeBottomLeftChat) return;
+                    onSetChatTypingStatus?.(
+                      `private:${activeBottomLeftChat.partnerUsername}`,
+                      val.trim().length > 0
+                    );
+                    if (bottomLeftTypingTimeoutRef.current) {
+                      clearTimeout(bottomLeftTypingTimeoutRef.current);
+                    }
+                    if (val.trim().length > 0) {
+                      bottomLeftTypingTimeoutRef.current = setTimeout(() => {
+                        onSetChatTypingStatus?.(
+                          `private:${activeBottomLeftChat.partnerUsername}`,
+                          false
+                        );
+                      }, 3000);
+                    }
+                  }}
+                  placeholder={`اكتب رسالة إلى ${activeBottomLeftChat.partnerUsername}...`}
+                  className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs text-[#F8FAFC] outline-none"
+                />
+                <button
+                  type="submit"
+                  className="fluent-reveal px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 shadow"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>إرسال</span>
+                </button>
+              </form>
+            )}
+          </div>
+        ))}
 
       {/* Live Chat Modal ("محادثة لايف") */}
       <LiveCommunityChatModal

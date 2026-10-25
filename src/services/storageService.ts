@@ -935,6 +935,9 @@ class HybridStorageEngine {
       privateChatReports: Array.isArray(chatPatch.privateChatReports)
         ? (chatPatch.privateChatReports as PlatformDatabaseState['privateChatReports'])
         : base.privateChatReports || [],
+      messages: Array.isArray(chatPatch.messages)
+        ? (chatPatch.messages as PlatformDatabaseState['messages'])
+        : base.messages || [],
       utilitySubmissions: Array.isArray(chatPatch.utilitySubmissions)
         ? normalizeUtilitySubmissionsList(chatPatch.utilitySubmissions as UtilitySubmissionItem[])
         : base.utilitySubmissions || [],
@@ -1032,7 +1035,7 @@ class HybridStorageEngine {
       } finally {
         this.isFastChatPolling = false;
       }
-    }, 220);
+    }, 120);
 
     if (typeof EventSource === 'undefined') return;
 
@@ -1365,19 +1368,20 @@ class HybridStorageEngine {
    */
   public async persistChatFast(nextState: PlatformDatabaseState, activeUserId?: string) {
     const tabId = getOrCreateTabSessionId();
-    // 1. Update local React state in 0ms and schedule non-blocking localStorage save
+    // 1. Update local React state and localStorage in 0ms for instant cross-tab and same-tab sync
+    this.saveLocalState(nextState, activeUserId);
     this.notifyData(nextState);
-    this.scheduleDeferredLocalSave(nextState, activeUserId);
 
     const ultraLightChatPatch = sanitizeForFirebase({
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
-      privateChatMessages: (nextState.privateChatMessages || []).slice(-150),
+      privateChatMessages: (nextState.privateChatMessages || []).slice(-200),
       privateChatStatuses: nextState.privateChatStatuses || {},
       chatTypingMap: nextState.chatTypingMap || {},
       userBlockedMap: nextState.userBlockedMap || {},
       privateChatReports: nextState.privateChatReports || [],
+      messages: nextState.messages || [],
       liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,
       liveChatAutoClearMinutes: nextState.settings.liveChatAutoClearMinutes ?? 60,
       liveChatLastClearedAt: nextState.settings.liveChatLastClearedAt,

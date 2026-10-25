@@ -36,6 +36,8 @@ try {
         chatTypingMap: parsed.chatTypingMap || {},
         chatPenalties: parsed.chatPenalties || [],
         userBlockedMap: parsed.userBlockedMap || {},
+        privateChatReports: parsed.privateChatReports || [],
+        messages: parsed.messages || [],
       };
     }
   }
@@ -189,6 +191,8 @@ async function startServer() {
       chatTypingMap: state.chatTypingMap || {},
       chatPenalties: state.chatPenalties || [],
       userBlockedMap: state.userBlockedMap || {},
+      privateChatReports: state.privateChatReports || [],
+      messages: state.messages || [],
       buySellPosts: state.buySellPosts || [],
       storeInteractionsMap,
     };

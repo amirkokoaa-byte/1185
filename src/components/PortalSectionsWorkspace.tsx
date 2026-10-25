@@ -126,6 +126,25 @@ interface PortalSectionsWorkspaceProps {
     reportReason?: string,
     sampleMessage?: string
   ) => void;
+  onUnblockUserInChat?: (targetUserIdOrName: string) => void;
+  onTogglePrivateMessageReaction?: (
+    msgId: string,
+    reaction: 'like' | 'dislike' | 'heart'
+  ) => void;
+  onReportPrivateChatMessage?: (
+    msgId: string,
+    reportedUserId: string,
+    reportedUsername: string,
+    messageText: string,
+    reason: CommunityReportReason
+  ) => void;
+  onReportUserInPrivateChat?: (
+    reportedUserId: string,
+    reportedUsername: string,
+    reason: string,
+    sampleMessage?: string
+  ) => void;
+  onDismissPrivateChatReport?: (reportId: string) => void;
   onDeleteUserAccountFromChat?: (
     targetUserId: string,
     targetUsername: string
@@ -269,6 +288,11 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onSetChatTypingStatus,
   onRespondPrivateChatRequest,
   onBlockUserInChat,
+  onUnblockUserInChat,
+  onTogglePrivateMessageReaction,
+  onReportPrivateChatMessage,
+  onReportUserInPrivateChat,
+  onDismissPrivateChatReport,
   onDeleteUserAccountFromChat,
   onUpdateSettings,
   onUpdateUserAccount,
@@ -425,6 +449,11 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onSetChatTypingStatus={onSetChatTypingStatus}
         onRespondPrivateChatRequest={onRespondPrivateChatRequest}
         onBlockUserInChat={onBlockUserInChat}
+        onUnblockUserInChat={onUnblockUserInChat}
+        onTogglePrivateMessageReaction={onTogglePrivateMessageReaction}
+        onReportPrivateChatMessage={onReportPrivateChatMessage}
+        onReportUserInPrivateChat={onReportUserInPrivateChat}
+        onDismissPrivateChatReport={onDismissPrivateChatReport}
         onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
       />
     );
@@ -551,6 +580,11 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onSetChatTypingStatus={onSetChatTypingStatus}
         onRespondPrivateChatRequest={onRespondPrivateChatRequest}
         onBlockUserInChat={onBlockUserInChat}
+        onUnblockUserInChat={onUnblockUserInChat}
+        onTogglePrivateMessageReaction={onTogglePrivateMessageReaction}
+        onReportPrivateChatMessage={onReportPrivateChatMessage}
+        onReportUserInPrivateChat={onReportUserInPrivateChat}
+        onDismissPrivateChatReport={onDismissPrivateChatReport}
         onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
       />
     );

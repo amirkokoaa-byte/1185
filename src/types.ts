@@ -76,6 +76,7 @@ export interface AdminMessage {
   id: string;
   senderId: string;
   senderUsername: string;
+  senderPhone?: string;
   content: string;
   isRead: boolean;
   createdAt: string;
@@ -254,6 +255,10 @@ export interface PrivateChatMessageItem {
   textColor?: string;
   isRead?: boolean;
   readAt?: string;
+  likes?: string[];
+  dislikes?: string[];
+  hearts?: string[];
+  reports?: CommunityReportEntry[];
   createdAt: string;
 }
 

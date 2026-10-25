@@ -260,6 +260,16 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
         : img
     );
 
+    const hasResetV2 = Boolean(s.ratingsResetV2);
+    const cleanRatings =
+      hasResetV2 && s.ratings && typeof s.ratings === 'object' ? s.ratings : {};
+    const cleanComments = Array.isArray(s.comments)
+      ? s.comments.map((c) => ({
+          ...c,
+          rating: hasResetV2 && typeof c.rating === 'number' ? c.rating : 0,
+        }))
+      : [];
+
     return {
       ...s,
       locationUrl: s.locationUrl || 'https://maps.google.com',
@@ -267,8 +277,9 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
       menuImages: upgradedImages,
       likes: Array.isArray(s.likes) ? s.likes : [],
       dislikes: Array.isArray(s.dislikes) ? s.dislikes : [],
-      ratings: s.ratings && typeof s.ratings === 'object' ? s.ratings : {},
-      comments: Array.isArray(s.comments) ? s.comments : [],
+      ratings: cleanRatings,
+      ratingsResetV2: true,
+      comments: cleanComments,
       viewsCount: typeof s.viewsCount === 'number' ? s.viewsCount : 0,
     };
   });
@@ -959,6 +970,9 @@ class HybridStorageEngine {
           if (data && typeof data.version === 'number') {
             this.lastChatVersion = data.version;
           }
+          if (data && data.onlineStats && typeof data.onlineStats.totalOnline === 'number') {
+            updateLatestServerOnlineStats(data.onlineStats);
+          }
           if (
             data &&
             data.changed &&
@@ -1002,6 +1016,9 @@ class HybridStorageEngine {
           if (parsed && typeof parsed.version === 'number') {
             this.lastChatVersion = parsed.version;
           }
+          if (parsed && parsed.onlineStats && typeof parsed.onlineStats.totalOnline === 'number') {
+            updateLatestServerOnlineStats(parsed.onlineStats);
+          }
           if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
           if (parsed.chatPatch) {
             this.applyIncomingFastChatPatch(parsed.chatPatch);
@@ -1015,8 +1032,7 @@ class HybridStorageEngine {
         try {
           const stats = JSON.parse((ev as MessageEvent).data);
           if (stats && typeof stats.totalOnline === 'number') {
-            latestServerOnlineStats = stats;
-            presenceChannel?.postMessage({ type: 'presence_changed' });
+            updateLatestServerOnlineStats(stats);
           }
         } catch {
           // ignore
@@ -1383,24 +1399,61 @@ function getOrCreateTabSessionId(): string {
 }
 
 let presenceChannel: BroadcastChannel | null = null;
+const presenceUpdateListeners = new Set<() => void>();
+
+function notifyAllPresenceListeners() {
+  presenceUpdateListeners.forEach((cb) => {
+    try {
+      cb();
+    } catch {
+      // ignore
+    }
+  });
+}
+
 try {
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
     presenceChannel = new BroadcastChannel('nakhil_1185_presence_channel');
+    presenceChannel.addEventListener('message', (ev) => {
+      if (ev.data && ev.data.stats && typeof ev.data.stats.totalOnline === 'number') {
+        latestServerOnlineStats = ev.data.stats;
+      }
+      notifyAllPresenceListeners();
+    });
   }
 } catch {
   presenceChannel = null;
 }
 
 export function subscribePresenceBroadcast(onUpdate: () => void): () => void {
-  if (!presenceChannel) return () => {};
-  const handler = () => onUpdate();
-  presenceChannel.addEventListener('message', handler);
+  presenceUpdateListeners.add(onUpdate);
   return () => {
-    presenceChannel?.removeEventListener('message', handler);
+    presenceUpdateListeners.delete(onUpdate);
   };
 }
 
 let latestServerOnlineStats: RealOnlinePresenceStats | null = null;
+
+function updateLatestServerOnlineStats(nextStats: RealOnlinePresenceStats) {
+  const prev = latestServerOnlineStats;
+  const hasChanged =
+    !prev ||
+    prev.totalOnline !== nextStats.totalOnline ||
+    prev.registeredCount !== nextStats.registeredCount ||
+    prev.guestsCount !== nextStats.guestsCount ||
+    (prev.registeredUsernames || []).join('|') !==
+      (nextStats.registeredUsernames || []).join('|');
+
+  latestServerOnlineStats = nextStats;
+  if (hasChanged) {
+    try {
+      presenceChannel?.postMessage({ type: 'presence_changed', stats: nextStats });
+    } catch {
+      // ignore
+    }
+    notifyAllPresenceListeners();
+  }
+}
 
 export function removeCurrentTabPresence(): void {
   try {
@@ -1420,6 +1473,7 @@ export function removeCurrentTabPresence(): void {
       delete map[tabId];
       localStorage.setItem(REAL_PRESENCE_MAP_KEY, JSON.stringify(map));
       presenceChannel?.postMessage({ type: 'presence_changed' });
+      notifyAllPresenceListeners();
     }
   } catch {
     // ignore
@@ -1431,14 +1485,15 @@ export function removeCurrentTabPresence(): void {
  * Tracks actual open browser sessions across all devices via server + local fallback.
  */
 export function syncRealOnlinePresence(
-  currentUser: UserAccount | null
+  currentUser: UserAccount | null,
+  skipNetworkPost = false
 ): RealOnlinePresenceStats {
   try {
     const now = Date.now();
     const tabId = getOrCreateTabSessionId();
     const isRegistered = Boolean(currentUser && currentUser.id);
 
-    if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+    if (!skipNetworkPost && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
       fetch('/api/realtime/presence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1452,7 +1507,7 @@ export function syncRealOnlinePresence(
         .then((r) => r.json())
         .then((stats) => {
           if (stats && typeof stats.totalOnline === 'number') {
-            latestServerOnlineStats = stats;
+            updateLatestServerOnlineStats(stats);
           }
         })
         .catch(() => {});
@@ -1470,9 +1525,9 @@ export function syncRealOnlinePresence(
       lastActiveAt: now,
     };
 
-    // Prune stale sessions (> 25 seconds without heartbeat)
+    // Prune stale sessions (> 10 seconds without heartbeat)
     Object.keys(map).forEach((k) => {
-      if (!map[k] || now - map[k].lastActiveAt > 25000) {
+      if (!map[k] || now - map[k].lastActiveAt > 10000) {
         delete map[k];
       }
     });
@@ -1485,6 +1540,7 @@ export function syncRealOnlinePresence(
       prevEntry.isRegistered !== isRegistered
     ) {
       presenceChannel?.postMessage({ type: 'presence_changed' });
+      notifyAllPresenceListeners();
     }
 
     const activeSessions = Object.values(map);
@@ -1500,7 +1556,7 @@ export function syncRealOnlinePresence(
     });
 
     const localRegCount = registeredMap.size;
-    const localTotal = localRegCount + guestsCount;
+    const localTotal = Math.max(1, localRegCount + guestsCount);
 
     if (
       latestServerOnlineStats &&

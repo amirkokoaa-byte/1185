@@ -34,6 +34,7 @@ import {
 import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import { CommunityHubView } from './CommunityHubView';
 import { exportUtilitySubmissionsToPDF } from '../services/exportService';
+import { RealOnlinePresenceStats } from '../services/storageService';
 
 interface UtilitiesSubmissionsViewProps {
   utilityTypes: string[];
@@ -41,6 +42,7 @@ interface UtilitiesSubmissionsViewProps {
   utilityPosts: CommunityPostItem[];
   liveChatMessages: LiveChatMessageItem[];
   onlineCount: number;
+  onlineStats?: RealOnlinePresenceStats;
   currentUser: UserAccount | null;
   users?: UserAccount[];
   cooldownConfigSeconds?: number;
@@ -171,6 +173,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   utilityPosts,
   liveChatMessages,
   onlineCount,
+  onlineStats,
   currentUser,
   users = [],
   cooldownConfigSeconds = 5,
@@ -871,6 +874,7 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
         posts={utilityPosts}
         liveChatMessages={liveChatMessages}
         onlineCount={onlineCount}
+        onlineStats={onlineStats}
         currentUser={currentUser}
         users={users}
         cooldownConfigSeconds={cooldownConfigSeconds}

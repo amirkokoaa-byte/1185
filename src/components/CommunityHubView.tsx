@@ -47,11 +47,13 @@ import {
   ABUSIVE_CONTENT_WARNING_MESSAGE,
   containsAbusiveWords,
 } from '../services/profanityFilter';
+import { RealOnlinePresenceStats } from '../services/storageService';
 
 interface CommunityHubViewProps {
   posts: CommunityPostItem[];
   liveChatMessages: LiveChatMessageItem[];
   onlineCount: number;
+  onlineStats?: RealOnlinePresenceStats;
   currentUser: UserAccount | null;
   users?: UserAccount[];
   cooldownConfigSeconds?: number;
@@ -238,6 +240,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   posts,
   liveChatMessages,
   onlineCount,
+  onlineStats,
   currentUser,
   users = [],
   cooldownConfigSeconds = 5,
@@ -1927,6 +1930,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         currentUser={currentUser}
         users={users}
         onlineCount={onlineCount}
+        onlineStats={onlineStats}
         cooldownConfigSeconds={cooldownConfigSeconds}
         autoClearMinutes={autoClearMinutes}
         lastClearedAt={lastClearedAt}

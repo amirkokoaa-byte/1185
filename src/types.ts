@@ -114,6 +114,7 @@ export interface StoreListingItem {
   likes: string[]; // User IDs for Facebook-style 👍
   dislikes: string[]; // User IDs for Facebook-style 👎
   ratings: Record<string, number>; // Map of userId -> 1..5 stars
+  ratingsResetV2?: boolean;
   comments: StoreCommentItem[];
   viewsCount?: number; // عدد المشاهدات لجميع المستخدمين
   address?: string;

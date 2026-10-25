@@ -150,8 +150,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   );
   const [isAllCommentsSubModalOpen, setIsAllCommentsSubModalOpen] = useState(false);
 
-  // Add Rating & Comment Form inside Store Details Modal
-  const [newCommentRating, setNewCommentRating] = useState<number>(5);
+  // Add Rating & Comment Form inside Store Details Modal (0 stars by default until user rates)
+  const [newCommentRating, setNewCommentRating] = useState<number>(0);
   const [newCommentText, setNewCommentText] = useState<string>('');
   const [ratingOnlySavedNotice, setRatingOnlySavedNotice] = useState<string>('');
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
@@ -226,6 +226,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         likes: [],
         dislikes: [],
         ratings: {},
+        ratingsResetV2: true,
         comments: [],
         approved: true,
         createdAt: new Date().toISOString(),
@@ -294,12 +295,16 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     a.click();
   };
 
-  // Calculate average star rating of a store
+  // Calculate average star rating of a store (0 by default until rated by users)
   const getStoreRatingSummary = (store: StoreListingItem) => {
-    const ratingValues = Object.values(store.ratings || {});
-    const commentRatings = (store.comments || []).map((c) => c.rating).filter((r) => r > 0);
+    const ratingValues = Object.values(store.ratings || {}).filter(
+      (v) => typeof v === 'number' && v > 0
+    );
+    const commentRatings = (store.comments || [])
+      .map((c) => c.rating)
+      .filter((r) => typeof r === 'number' && r > 0);
     const allRatings = [...ratingValues, ...commentRatings];
-    if (allRatings.length === 0) return { avg: 5.0, count: 0 };
+    if (allRatings.length === 0) return { avg: 0, count: 0 };
     const sum = allRatings.reduce((a, b) => a + b, 0);
     return {
       avg: Number((sum / allRatings.length).toFixed(1)),
@@ -651,6 +656,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 onClick={() => {
                   onIncrementStoreViews?.(store.id);
                   setActiveStoreId(store.id);
+                  setNewCommentRating(0);
                   setCommentLimitStage('initial_5');
                   setIsAllCommentsSubModalOpen(false);
                   setActiveMenuPageIdx(0);
@@ -668,7 +674,13 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-white/95 border border-amber-400 text-black font-mono-tabular text-[10px] font-extrabold flex items-center gap-0.5 shadow-sm">
-                    <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
+                    <Star
+                      className={`w-2.5 h-2.5 ${
+                        ratingInfo.count > 0
+                          ? 'text-amber-500 fill-amber-500'
+                          : 'text-slate-400'
+                      }`}
+                    />
                     {ratingInfo.avg}
                   </span>
 
@@ -778,6 +790,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 onClick={() => {
                   onIncrementStoreViews?.(store.id);
                   setActiveStoreId(store.id);
+                  setNewCommentRating(0);
                   setCommentLimitStage('initial_5');
                   setIsAllCommentsSubModalOpen(false);
                   setActiveMenuPageIdx(0);
@@ -801,7 +814,13 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       {store.category}
                     </span>
                     <span className="px-1.5 sm:px-2 py-0.5 rounded-lg bg-white/95 border border-amber-400 text-black font-mono-tabular font-extrabold flex items-center gap-0.5 shrink-0 shadow-sm">
-                      <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                      <Star
+                        className={`w-3 h-3 ${
+                          ratingInfo.count > 0
+                            ? 'text-amber-500 fill-amber-500'
+                            : 'text-slate-400'
+                        }`}
+                      />
                       {ratingInfo.avg}
                     </span>
                   </div>
@@ -1413,44 +1432,62 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-white p-2.5 rounded-xl border border-slate-300">
                 <div className="flex items-center gap-1.5">
                   <span className="text-black font-extrabold">اختر التقييم:</span>
-                  {[1, 2, 3, 4, 5].map((st) => (
-                    <button
-                      key={st}
-                      type="button"
-                      onClick={() => {
-                        setNewCommentRating(st);
-                        onRateStore(activeStore.id, st);
-                        setRatingOnlySavedNotice(
-                          `تم حفظ تقييمك (${st} من 5 نجوم) بنجاح!`
-                        );
-                      }}
-                      className="p-1 rounded-lg hover:bg-slate-100 transition-transform hover:scale-110 cursor-pointer"
-                    >
-                      <Star
-                        className={`w-5 h-5 ${
-                          st <=
-                          (activeStore.ratings[currentVisitorId] ||
-                            newCommentRating)
-                            ? 'text-amber-500 fill-amber-500'
-                            : 'text-slate-300'
-                        }`}
-                      />
-                    </button>
-                  ))}
+                  {[1, 2, 3, 4, 5].map((st) => {
+                    const currentSelectedStars =
+                      newCommentRating > 0
+                        ? newCommentRating
+                        : activeStore.ratings[currentVisitorId] || 0;
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => {
+                          setNewCommentRating(st);
+                          onRateStore(activeStore.id, st);
+                          setRatingOnlySavedNotice(
+                            `تم حفظ تقييمك (${st} من 5 نجوم) بنجاح!`
+                          );
+                        }}
+                        className="p-1 rounded-lg hover:bg-slate-100 transition-transform hover:scale-110 cursor-pointer"
+                      >
+                        <Star
+                          className={`w-5 h-5 ${
+                            st <= currentSelectedStars
+                              ? 'text-amber-500 fill-amber-500'
+                              : 'text-slate-300'
+                          }`}
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* زر إرسال التقييم فقط بدون تعليق */}
                 <button
                   type="button"
                   onClick={() => {
-                    onRateStore(activeStore.id, newCommentRating);
+                    const chosenStars =
+                      newCommentRating > 0
+                        ? newCommentRating
+                        : activeStore.ratings[currentVisitorId] || 0;
+                    if (chosenStars <= 0) {
+                      setRatingOnlySavedNotice(
+                        'يرجى الضغط على النجوم أولاً لتحديد تقييمك للمحل.'
+                      );
+                      return;
+                    }
+                    onRateStore(activeStore.id, chosenStars);
                     setRatingOnlySavedNotice(
-                      `تم إرسال تقييمك (${newCommentRating} نجوم) بدون تعليق بنجاح!`
+                      `تم إرسال تقييمك (${chosenStars} نجوم) بدون تعليق بنجاح!`
                     );
                   }}
                   className="fluent-reveal px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-500 text-black hover:text-white border border-amber-400 text-xs font-extrabold cursor-pointer transition-colors"
                 >
-                  إرسال التقييم فقط ({newCommentRating} ⭐)
+                  إرسال التقييم فقط (
+                  {newCommentRating > 0
+                    ? newCommentRating
+                    : activeStore.ratings[currentVisitorId] || 0}{' '}
+                  ⭐)
                 </button>
               </div>
 
@@ -1487,10 +1524,20 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 <FluentButton
                   variant="primary"
                   onClick={() => {
+                    const chosenStars =
+                      newCommentRating > 0
+                        ? newCommentRating
+                        : activeStore.ratings[currentVisitorId] || 0;
                     if (!newCommentText.trim()) {
-                      onRateStore(activeStore.id, newCommentRating);
+                      if (chosenStars <= 0) {
+                        setRatingOnlySavedNotice(
+                          'يرجى اختيار عدد النجوم أو كتابة تعليق أولاً.'
+                        );
+                        return;
+                      }
+                      onRateStore(activeStore.id, chosenStars);
                       setRatingOnlySavedNotice(
-                        `تم حفظ تقييمك (${newCommentRating} نجوم) بنجاح!`
+                        `تم حفظ تقييمك (${chosenStars} نجوم) بنجاح!`
                       );
                       return;
                     }
@@ -1499,12 +1546,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       return;
                     }
                     setProfanityWarning('');
-                    onRateStore(activeStore.id, newCommentRating);
+                    if (chosenStars > 0) {
+                      onRateStore(activeStore.id, chosenStars);
+                    }
                     const createdComment: StoreCommentItem = {
                       id: `cmt-${Date.now()}`,
                       authorId: currentVisitorId,
                       authorUsername: currentUser?.username || 'زائر',
-                      rating: newCommentRating,
+                      rating: chosenStars,
                       text: newCommentText.trim(),
                       likes: [],
                       replies: [],
@@ -1512,6 +1561,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     };
                     onAddStoreComment(activeStore.id, createdComment);
                     setNewCommentText('');
+                    setNewCommentRating(0);
                   }}
                 >
                   <Send className="w-4 h-4" />

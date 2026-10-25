@@ -28,12 +28,14 @@ import { TawsilaLiveView } from './TawsilaLiveView';
 import { CommunityHubView } from './CommunityHubView';
 import { UtilitiesSubmissionsView } from './UtilitiesSubmissionsView';
 import { AdminSettingsHubView } from './AdminSettingsHubView';
+import { RealOnlinePresenceStats } from '../services/storageService';
 
 interface PortalSectionsWorkspaceProps {
   activeSection: MainSectionId;
   state: PlatformDatabaseState;
   currentUser: UserAccount | null;
   onlineCount: number;
+  onlineStats?: RealOnlinePresenceStats;
   connStatus: 'local' | 'firebase_connected' | 'firebase_error';
   connMessage: string;
   onOpenAuthModal: () => void;
@@ -183,6 +185,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   state,
   currentUser,
   onlineCount,
+  onlineStats,
   connStatus,
   connMessage,
   onOpenAuthModal,
@@ -331,6 +334,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         posts={state.communityPosts}
         liveChatMessages={state.liveChatMessages || []}
         onlineCount={onlineCount}
+        onlineStats={onlineStats}
         currentUser={currentUser}
         users={state.users}
         cooldownConfigSeconds={state.settings.liveChatCooldownSeconds ?? 5}
@@ -392,6 +396,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         utilityPosts={state.utilityPosts || []}
         liveChatMessages={state.liveChatMessages || []}
         onlineCount={onlineCount}
+        onlineStats={onlineStats}
         currentUser={currentUser}
         users={state.users}
         cooldownConfigSeconds={state.settings.liveChatCooldownSeconds ?? 5}

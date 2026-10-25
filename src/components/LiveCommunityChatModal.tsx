@@ -35,6 +35,7 @@ import {
   ABUSIVE_CONTENT_WARNING_MESSAGE,
   containsAbusiveWords,
 } from '../services/profanityFilter';
+import { RealOnlinePresenceStats } from '../services/storageService';
 
 interface LiveCommunityChatModalProps {
   isOpen: boolean;
@@ -43,6 +44,7 @@ interface LiveCommunityChatModalProps {
   currentUser: UserAccount | null;
   users?: UserAccount[];
   onlineCount: number;
+  onlineStats?: RealOnlinePresenceStats;
   cooldownConfigSeconds?: number;
   autoClearMinutes?: number;
   lastClearedAt?: string;
@@ -383,6 +385,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   currentUser,
   users = [],
   onlineCount,
+  onlineStats,
   cooldownConfigSeconds = 5,
   autoClearMinutes = 60,
   lastClearedAt,
@@ -789,19 +792,30 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     onMarkPrivateMessagesRead,
   ]);
 
-  // Determine whether a user is currently online or offline
+  // Determine whether a user is currently online or offline in real time
   const isUserOnlineNow = (userId?: string, username?: string): boolean => {
     if (!username && !userId) return false;
     const uNorm = (username || '').trim().toLowerCase();
     if (uNorm === myUsernameNorm && Boolean(currentUser)) return true;
 
-    // Check active typing within last 60 seconds
+    // 1. Check live server/broadcast presence list (updated every 220ms)
+    if (onlineStats && Array.isArray(onlineStats.registeredUsernames)) {
+      if (
+        onlineStats.registeredUsernames.some(
+          (name) => name.trim().toLowerCase() === uNorm
+        )
+      ) {
+        return true;
+      }
+    }
+
+    // 2. Check active typing within last 30 seconds
     const typingEntry = chatTypingMap[uNorm];
-    if (typingEntry && nowMs - typingEntry.updatedAt < 60000) {
+    if (typingEntry && nowMs - typingEntry.updatedAt < 30000) {
       return true;
     }
 
-    // Check registered user account isOnline flag
+    // 3. Check registered user account isOnline flag
     const foundUser = users.find(
       (u) =>
         (userId && u.id === userId) ||
@@ -811,16 +825,16 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
       return foundUser.isOnline;
     }
 
-    // Check recent message activity within last 10 minutes
+    // 4. Check recent message activity within last 3 minutes
     const recentPublic = messages.some(
       (m) =>
         m.authorUsername.trim().toLowerCase() === uNorm &&
-        nowMs - new Date(m.createdAt).getTime() < 10 * 60 * 1000
+        nowMs - new Date(m.createdAt).getTime() < 3 * 60 * 1000
     );
     const recentPrivate = privateChatMessages.some(
       (pm) =>
         pm.senderUsername.trim().toLowerCase() === uNorm &&
-        nowMs - new Date(pm.createdAt).getTime() < 10 * 60 * 1000
+        nowMs - new Date(pm.createdAt).getTime() < 3 * 60 * 1000
     );
     return recentPublic || recentPrivate;
   };
@@ -1316,7 +1330,15 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
 
               <div className="text-[10px] text-emerald-400 font-bold flex flex-wrap items-center gap-1.5">
                 <Radio className="w-3 h-3" />
-                <span>المتصلون الآن: {onlineCount} · آخر 50 رسالة فقط</span>
+                <span>
+                  المتصلون الآن: {onlineStats ? onlineStats.totalOnline : onlineCount}
+                </span>
+                {onlineStats && (
+                  <span className="text-sky-300 font-mono-tabular">
+                    (مسجلين: {onlineStats.registeredCount} · زوار: {onlineStats.guestsCount})
+                  </span>
+                )}
+                <span>· آخر 50 رسالة فقط</span>
                 {remainingAutoClearSeconds !== null && (
                   <span className="text-amber-300 font-mono-tabular">
                     · مسح تلقائي خلال {formatCountdown(remainingAutoClearSeconds)}

@@ -103,16 +103,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const refreshOnline = () => {
-      setOnlineStats(syncRealOnlinePresence(currentUser));
+    const sendHeartbeat = () => {
+      setOnlineStats(syncRealOnlinePresence(currentUser, false));
     };
-    refreshOnline();
+    const refreshFromBroadcast = () => {
+      setOnlineStats(syncRealOnlinePresence(currentUser, true));
+    };
+    sendHeartbeat();
 
-    const interval = setInterval(refreshOnline, 5000);
-    const unsubBroadcast = subscribePresenceBroadcast(refreshOnline);
+    const interval = setInterval(sendHeartbeat, 2000);
+    const unsubBroadcast = subscribePresenceBroadcast(refreshFromBroadcast);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        refreshOnline();
+        sendHeartbeat();
       }
     };
     const handleBeforeUnload = () => {
@@ -130,7 +133,7 @@ export default function App() {
       }
     };
 
-    window.addEventListener('storage', refreshOnline);
+    window.addEventListener('storage', refreshFromBroadcast);
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handleBeforeUnload);
@@ -138,7 +141,7 @@ export default function App() {
     return () => {
       clearInterval(interval);
       unsubBroadcast();
-      window.removeEventListener('storage', refreshOnline);
+      window.removeEventListener('storage', refreshFromBroadcast);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
@@ -224,23 +227,27 @@ export default function App() {
 
   const visitorId = currentUser?.id || 'guest-visitor';
 
-  // --- Authentication Handlers (with Instant Browser Cache on Login) ---
+  // --- Authentication Handlers (with Instant Browser Cache & Instant Online Presence Broadcast on Login/Logout) ---
   const handleAuthenticate = (user: UserAccount, rememberMe: boolean) => {
-    setCurrentUser(user);
-    storageEngine.saveAuthenticatedUser(user, rememberMe, dbState);
+    const onlineUser: UserAccount = { ...user, isOnline: true };
+    setCurrentUser(onlineUser);
+    storageEngine.saveAuthenticatedUser(onlineUser, rememberMe, dbState);
+    setOnlineStats(syncRealOnlinePresence(onlineUser, false));
   };
 
   const handleRegisterNewUser = (newUser: UserAccount, rememberMe: boolean) => {
+    const onlineNewUser: UserAccount = { ...newUser, isOnline: true };
     setDbState((prev) => {
       const next: PlatformDatabaseState = {
         ...prev,
-        users: [...prev.users, newUser],
+        users: [...prev.users, onlineNewUser],
       };
-      storageEngine.persistState(next, newUser.id);
-      storageEngine.saveAuthenticatedUser(newUser, rememberMe, next);
+      storageEngine.persistState(next, onlineNewUser.id);
+      storageEngine.saveAuthenticatedUser(onlineNewUser, rememberMe, next);
       return next;
     });
-    setCurrentUser(newUser);
+    setCurrentUser(onlineNewUser);
+    setOnlineStats(syncRealOnlinePresence(onlineNewUser, false));
   };
 
   const handleResetUserPassword = (userId: string, newPassword: string) => {
@@ -255,6 +262,7 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     storageEngine.saveAuthenticatedUser(null, false);
+    setOnlineStats(syncRealOnlinePresence(null, false));
     // Clear private chats when logging out
     updateAndPersist((prev) => ({
       ...prev,
@@ -2026,6 +2034,7 @@ export default function App() {
             state={dbState}
             currentUser={currentUser}
             onlineCount={onlineStats.totalOnline}
+            onlineStats={onlineStats}
             connStatus={connStatus}
             connMessage={connMessage}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}

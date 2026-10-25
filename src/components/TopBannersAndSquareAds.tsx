@@ -847,48 +847,59 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
             </p>
           )}
 
-          {(popupAd.phone || popupAd.locationUrl) && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {popupAd.phone && (
-                <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2">
-                  <span className="font-mono-tabular text-xs font-bold text-sky-400">
-                    {popupAd.phone}
-                  </span>
-                  <div className="flex items-center gap-1.5">
+          {(() => {
+            const popupContactPhone = (
+              popupAd.phone ||
+              popupAd.whatsappPhone ||
+              ''
+            ).trim();
+            if (!popupContactPhone && !popupAd.locationUrl) return null;
+            return (
+              <div
+                className={`grid grid-cols-1 ${
+                  popupContactPhone && popupAd.locationUrl ? 'sm:grid-cols-2' : ''
+                } gap-2.5`}
+              >
+                {popupContactPhone && (
+                  <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-center gap-3">
                     <a
-                      href={`tel:${popupAd.phone}`}
-                      className="px-2.5 py-1 rounded-lg bg-sky-600 text-white text-xs font-bold"
+                      href={`tel:${popupContactPhone}`}
+                      className="fluent-reveal flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-extrabold shadow"
                     >
-                      اتصال
+                      <Phone className="w-4 h-4 shrink-0" />
+                      <span>اتصال</span>
                     </a>
                     <a
-                      href={`https://wa.me/${formatWhatsapp(popupAd.phone)}`}
+                      href={`https://wa.me/${formatWhatsapp(
+                        popupAd.whatsappPhone || popupContactPhone
+                      )}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold"
+                      className="fluent-reveal flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold shadow"
                     >
-                      مراسلة
+                      <MessageCircle className="w-4 h-4 shrink-0" />
+                      <span>مراسلة</span>
                     </a>
                   </div>
-                </div>
-              )}
+                )}
 
-              {popupAd.locationUrl && (
-                <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2">
-                  <span className="text-xs text-[#94A3B8] truncate">لوكيشن المكان</span>
-                  <a
-                    href={popupAd.locationUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center gap-1"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    <span>فتح</span>
-                  </a>
-                </div>
-              )}
-            </div>
-          )}
+                {popupAd.locationUrl && (
+                  <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2">
+                    <span className="text-xs text-[#94A3B8] truncate">لوكيشن المكان</span>
+                    <a
+                      href={popupAd.locationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>فتح</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {popupAd.menuImages && popupAd.menuImages.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -907,36 +918,6 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
               ))}
             </div>
           )}
-
-          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-[#334155]">
-            <FluentButton variant="ghost" onClick={handleCloseEntryPopup}>
-              إغلاق
-            </FluentButton>
-            {popupAd.targetSection && (
-              <FluentButton
-                variant="primary"
-                onClick={() => {
-                  handleNavigateInternalSection(popupAd.targetSection);
-                  handleCloseEntryPopup();
-                }}
-              >
-                <Compass className="w-4 h-4" />
-                <span>انتقل إلى القسم</span>
-              </FluentButton>
-            )}
-            {popupAd.whatsappPhone && (
-              <FluentButton
-                variant="emerald"
-                onClick={() => {
-                  const clean = formatWhatsapp(popupAd.whatsappPhone || '');
-                  window.open(`https://wa.me/${clean}`, '_blank', 'noopener,noreferrer');
-                }}
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>{popupAd.buttonText || 'تواصل عبر واتساب'}</span>
-              </FluentButton>
-            )}
-          </div>
         </div>
       </FluentModal>
 

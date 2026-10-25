@@ -78,8 +78,9 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
     return Boolean(clean && clean !== 'https://maps.google.com');
   };
 
-  // Open Modal for Adding New Service
+  // Open Modal for Adding New Service (Admin Only)
   const openAddModal = () => {
+    if (!isStrictAdmin) return;
     setEditingEntry(null);
     setProviderName('');
     setProviderProfession('');
@@ -140,6 +141,7 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
         notes: cleanNotes || undefined,
       });
     } else {
+      if (!isStrictAdmin) return;
       const newEntry: ServicePhoneEntry = {
         id: `srvnum-${Date.now()}`,
         title: providerName.trim(),
@@ -198,17 +200,19 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
 
         {/* Right/Bottom Toolbar: Row 1 = "أضف خدمة" + "الكل | بطاقات | جدول" in 1 line; Row 2 below it = Excel & PDF buttons */}
         <div className="flex flex-col gap-2 w-full lg:w-auto">
-          {/* السطر الأول: زر أضف خدمة + الكل / بطاقات / جدول في سطر واحد بدون مسطرة تحريك */}
+          {/* السطر الأول: زر أضف خدمة (للـ Admin فقط) + الكل / بطاقات / جدول في سطر واحد بدون مسطرة تحريك */}
           <div className="flex items-center justify-between sm:justify-start gap-1.5 sm:gap-2 flex-nowrap w-full">
-            <FluentButton
-              variant="primary"
-              size="sm"
-              onClick={openAddModal}
-              className="shrink-0 whitespace-nowrap px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm"
-            >
-              <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span>أضف خدمة</span>
-            </FluentButton>
+            {isStrictAdmin && (
+              <FluentButton
+                variant="primary"
+                size="sm"
+                onClick={openAddModal}
+                className="shrink-0 whitespace-nowrap px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm"
+              >
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span>أضف خدمة</span>
+              </FluentButton>
+            )}
 
             <div className="flex items-center rounded-xl bg-[#0A192F] border border-[#334155] p-1 shrink-0">
               <button
@@ -302,9 +306,11 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
           <div className="text-base font-bold text-[#F8FAFC]">
             لا توجد خدمات مسجلة مطابقة للبحث حالياً
           </div>
-          <p className="text-xs text-[#94A3B8]">
-            اضغط على زر &quot;أضف خدمة&quot; بالأعلى لإضافة مقدم خدمة جديد
-          </p>
+          {isStrictAdmin && (
+            <p className="text-xs text-[#94A3B8]">
+              اضغط على زر &quot;أضف خدمة&quot; بالأعلى لإضافة مقدم خدمة جديد
+            </p>
+          )}
         </FluentCard>
       ) : (
         <>

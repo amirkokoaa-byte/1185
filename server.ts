@@ -60,7 +60,7 @@ function saveStateToDisk(state: Record<string, unknown>) {
 function computeOnlineStats() {
   const now = Date.now();
   for (const [key, sess] of presenceMap.entries()) {
-    if (now - sess.lastActiveAt > 25000) {
+    if (now - sess.lastActiveAt > 10000) {
       presenceMap.delete(key);
     }
   }
@@ -186,12 +186,13 @@ async function startServer() {
     res.json({ ok: true, version: stateVersion });
   });
 
-  // 4. Ultra-fast Live Chat & Typing delta GET/POST endpoints (< 15ms)
+  // 4. Ultra-fast Live Chat, Typing & Online Presence delta GET/POST endpoints (< 15ms)
   app.get('/api/realtime/chat-fast', (req, res) => {
     const since = Number(req.query.since || 0);
+    const onlineStats = computeOnlineStats();
     res.setHeader('Cache-Control', 'no-store');
     if (since > 0 && since === chatVersion) {
-      res.json({ changed: false, version: chatVersion });
+      res.json({ changed: false, version: chatVersion, onlineStats });
       return;
     }
     res.json({
@@ -199,6 +200,7 @@ async function startServer() {
       version: chatVersion,
       chatPatch: latestChatPatch,
       senderTabId: lastChatSenderTabId,
+      onlineStats,
     });
   });
 
@@ -222,6 +224,7 @@ async function startServer() {
       version: chatVersion,
       chatPatch: latestChatPatch,
       senderTabId: senderTabId || null,
+      onlineStats: computeOnlineStats(),
     });
 
     if (authoritativeState) {
@@ -241,7 +244,7 @@ async function startServer() {
       saveStateToDisk(nextState);
     }
 
-    res.json({ ok: true, version: chatVersion });
+    res.json({ ok: true, version: chatVersion, onlineStats: computeOnlineStats() });
   });
 
   // 5. Real-time multi-device online presence heartbeat

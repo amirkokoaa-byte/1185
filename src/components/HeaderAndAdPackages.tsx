@@ -9,14 +9,22 @@ import {
   CheckCircle2,
   MessageCircle,
   ShieldCheck,
+  Bell,
+  Send,
+  ExternalLink,
+  Mail,
 } from 'lucide-react';
-import { PlatformSettings, UserAccount } from '../types';
+import { AdminMessage, PlatformSettings, UserAccount } from '../types';
 import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import { PWAInstallButton } from './PWAInstallPrompt';
 
 interface HeaderAndAdPackagesProps {
   settings: PlatformSettings;
   currentUser: UserAccount | null;
+  visitorId?: string;
+  messages?: AdminMessage[];
+  onMarkUserMessagesRead?: (messageId?: string) => void;
+  onReplyToAdminMessage?: (messageId: string, replyText: string) => void;
   onOpenAuthModal: () => void;
   onLogout: () => void;
   onOpenMobileSidebar: () => void;
@@ -35,12 +43,63 @@ const ARABIC_DAYS = [
 export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
   settings,
   currentUser,
+  visitorId,
+  messages = [],
+  onMarkUserMessagesRead,
+  onReplyToAdminMessage,
   onOpenAuthModal,
   onLogout,
   onOpenMobileSidebar,
 }) => {
   const [now, setNow] = useState<Date>(() => new Date());
   const [isAdModalOpen, setIsAdModalOpen] = useState(false);
+
+  // Bell Notifications & Popup Reply Modal State
+  const [isBellOpen, setIsBellOpen] = useState(false);
+  const [activePopupMessageId, setActivePopupMessageId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+
+  // Filter messages relevant to current user (or guest visitor)
+  const myMessages = messages.filter((m) => {
+    if (currentUser) {
+      if (currentUser.role === 'admin') {
+        return true;
+      }
+      return (
+        m.senderId === currentUser.id ||
+        m.senderUsername.trim().toLowerCase() ===
+          currentUser.username.trim().toLowerCase() ||
+        (currentUser.accountName &&
+          m.senderUsername.trim().toLowerCase() ===
+            currentUser.accountName.trim().toLowerCase())
+      );
+    }
+    return Boolean(visitorId && m.senderId === visitorId);
+  });
+
+  // Calculate unread messages count for the red badge on the Bell icon
+  const unreadBellCount = myMessages.reduce((sum, m) => {
+    if (currentUser?.role === 'admin') {
+      return sum + (!m.isRead ? 1 : 0);
+    }
+    return sum + (m.unreadForUserCount || 0);
+  }, 0);
+
+  const activePopupMessage =
+    myMessages.find((m) => m.id === activePopupMessageId) || null;
+
+  const handleOpenPopupMessage = (msg: AdminMessage) => {
+    setActivePopupMessageId(msg.id);
+    setIsBellOpen(false);
+    onMarkUserMessagesRead?.(msg.id);
+  };
+
+  const handleSendReply = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activePopupMessage || !replyText.trim()) return;
+    onReplyToAdminMessage?.(activePopupMessage.id, replyText.trim());
+    setReplyText('');
+  };
 
   // Ad Packages Duration States
   const [pkg1Days, setPkg1Days] = useState<number>(10); // 1 to 10 days (15 EGP/day, 10 days = 20% off => 120 EGP)
@@ -108,7 +167,7 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
 
         {/* 2. Main Header Row */}
         <div className="max-w-[1600px] mx-auto px-1.5 sm:px-6 py-2 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 overflow-x-hidden">
-          {/* Row 1 on Mobile / Right Side on Desktop: Mobile Drawer Button + Brand + Auth (Account & Logout) + Crown "للإعلانات" + PWA Install in 1 single line */}
+          {/* Row 1 on Mobile / Right Side on Desktop: Mobile Drawer Button + Brand + Auth (Account & Logout) + Crown "للإعلانات" + PWA Install + Bell Icon in 1 single line */}
           <div className="flex items-center justify-between lg:justify-start gap-1 sm:gap-2.5 flex-nowrap w-full lg:w-auto min-w-0">
             {/* Mobile Sidebar Trigger */}
             <button
@@ -176,6 +235,27 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
             </button>
 
             <PWAInstallButton />
+
+            {/* Bell Icon (أيقونة الجرس بجانب تثبيت التطبيق والإعلانات) */}
+            <button
+              type="button"
+              onClick={() => {
+                const nextOpen = !isBellOpen;
+                setIsBellOpen(nextOpen);
+                if (nextOpen && unreadBellCount > 0) {
+                  onMarkUserMessagesRead?.();
+                }
+              }}
+              title="المراسلات والإشعارات"
+              className="fluent-reveal relative flex items-center justify-center w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-[#0A192F]/90 hover:bg-[#1E293B] border border-sky-400/50 text-sky-300 cursor-pointer shrink-0"
+            >
+              <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 relative z-10 shrink-0" />
+              {unreadBellCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 z-20 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 border border-white text-white text-[10px] font-extrabold font-mono-tabular flex items-center justify-center shadow-lg animate-pulse">
+                  {unreadBellCount}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Row 2 on Mobile (Directly Below Buttons) / Left Side on Desktop: Live Day, Date, and 12-hour Clock with Seconds */}
@@ -195,6 +275,164 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
           </div>
         </div>
       </header>
+
+      {/* Bell Messages Reader Modal / Dropdown Panel */}
+      {isBellOpen && (
+        <FluentModal
+          isOpen={isBellOpen}
+          onClose={() => setIsBellOpen(false)}
+          title="🔔 إشعارات المراسلات الواردة"
+          subtitle="اضغط على أي رسالة لقراءتها أو فتحها في شاشة منبثقة للرد المباشر"
+          maxWidth="lg"
+        >
+          {myMessages.length === 0 ? (
+            <div className="p-6 text-center text-xs text-[#94A3B8] space-y-2">
+              <Mail className="w-8 h-8 text-sky-400/50 mx-auto" />
+              <p>لا توجد رسائل واردة في الجرس حتى الآن.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+              {myMessages.map((msg) => {
+                const threadItems =
+                  msg.thread && msg.thread.length > 0
+                    ? msg.thread
+                    : [
+                        {
+                          id: msg.id,
+                          sender: 'user' as const,
+                          senderName: msg.senderUsername,
+                          text: msg.content,
+                          createdAt: msg.createdAt,
+                        },
+                      ];
+                const lastEntry = threadItems[threadItems.length - 1];
+                return (
+                  <div
+                    key={msg.id}
+                    className="p-3.5 rounded-xl bg-[#0A192F] border border-sky-400/40 space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="font-extrabold text-sky-400">
+                        {lastEntry.sender === 'admin'
+                          ? 'رد من إدارة الموقع'
+                          : `مراسلة: ${msg.senderUsername}`}
+                      </span>
+                      <span className="text-[11px] text-[#94A3B8] font-mono-tabular">
+                        {new Date(
+                          msg.updatedAt || lastEntry.createdAt || msg.createdAt
+                        ).toLocaleString('ar-EG')}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-[#112240] border border-[#334155] text-xs sm:text-sm text-[#F8FAFC] whitespace-pre-line leading-relaxed">
+                      {lastEntry.text}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="text-[11px] text-emerald-300 font-bold">
+                        إجمالي الرسائل في المحادثة: {threadItems.length}
+                      </span>
+                      <FluentButton
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleOpenPopupMessage(msg)}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>فتح الرسالة في شاشة منبثقة والرد</span>
+                      </FluentButton>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </FluentModal>
+      )}
+
+      {/* Popup Conversation & Direct Reply Modal (فتح الرسالة في شاشة منبثقة وإرسال رد) */}
+      {activePopupMessage && (
+        <FluentModal
+          isOpen={!!activePopupMessage}
+          onClose={() => setActivePopupMessageId(null)}
+          title={`محادثة مع الإدارة — ${activePopupMessage.senderUsername}`}
+          subtitle="يمكنك قراءة كافة الرسائل وإرسال رسالة للرد المباشر"
+          maxWidth="lg"
+        >
+          <div className="space-y-4">
+            <div className="max-h-80 overflow-y-auto space-y-2.5 p-3 rounded-xl bg-[#0A192F] border border-[#334155]">
+              {(activePopupMessage.thread && activePopupMessage.thread.length > 0
+                ? activePopupMessage.thread
+                : [
+                    {
+                      id: activePopupMessage.id,
+                      sender: 'user' as const,
+                      senderName: activePopupMessage.senderUsername,
+                      text: activePopupMessage.content,
+                      createdAt: activePopupMessage.createdAt,
+                    },
+                  ]
+              ).map((entry) => {
+                const isAdminSender = entry.sender === 'admin';
+                return (
+                  <div
+                    key={entry.id}
+                    className={`p-3 rounded-xl border text-xs sm:text-sm space-y-1 ${
+                      isAdminSender
+                        ? 'bg-emerald-950/40 border-emerald-400/50 text-emerald-100 mr-4'
+                        : 'bg-[#112240] border-sky-400/40 text-[#F8FAFC] ml-4'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span
+                        className={`font-extrabold ${
+                          isAdminSender ? 'text-emerald-400' : 'text-sky-400'
+                        }`}
+                      >
+                        {isAdminSender ? 'إدارة الموقع' : entry.senderName}
+                      </span>
+                      <span className="text-[#94A3B8] font-mono-tabular">
+                        {new Date(entry.createdAt).toLocaleString('ar-EG')}
+                      </span>
+                    </div>
+                    <p className="whitespace-pre-line leading-relaxed">{entry.text}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <form onSubmit={handleSendReply} className="space-y-2.5">
+              <label className="block text-xs font-bold text-sky-300">
+                اكتب رسالتك للرد:
+              </label>
+              <textarea
+                rows={3}
+                required
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="اكتب ردك هنا ليصل فوراً..."
+                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 p-3 text-xs sm:text-sm text-[#F8FAFC] outline-none resize-none"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <FluentButton
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setActivePopupMessageId(null)}
+                >
+                  إغلاق
+                </FluentButton>
+                <FluentButton
+                  type="submit"
+                  variant="primary"
+                  disabled={!replyText.trim()}
+                >
+                  <Send className="w-4 h-4" />
+                  <span>إرسال رسالة</span>
+                </FluentButton>
+              </div>
+            </form>
+          </div>
+        </FluentModal>
+      )}
 
       {/* Ad Packages Modal (Triggered by Crown 👑 "للإعلانات") */}
       <FluentModal

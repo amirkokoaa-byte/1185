@@ -59,6 +59,7 @@ import { TopBannersAndSquareAds } from './components/TopBannersAndSquareAds';
 import { AuthModal } from './components/AuthModal';
 import { FooterAndContactModal } from './components/FooterAndContactModal';
 import { PortalSectionsWorkspace } from './components/PortalSectionsWorkspace';
+import { CommunityHubView } from './components/CommunityHubView';
 
 export default function App() {
   // Activate Windows 10 Fluent Reveal Highlight & Glowing Borders on Mouse Hover & Mobile Touch
@@ -94,6 +95,22 @@ export default function App() {
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+
+  // External triggers for Global Private Chat (from Settings -> عدد المتصلين الآن and Login External Notification)
+  const [externalOpenChatTarget, setExternalOpenChatTarget] = useState<{
+    partnerId: string;
+    partnerUsername: string;
+    tick: number;
+  } | null>(null);
+  const [externalOpenHistoryModalTick, setExternalOpenHistoryModalTick] =
+    useState<number>(0);
+  const [externalLoginNotification, setExternalLoginNotification] = useState<{
+    senderUsername: string;
+    partnerId: string;
+    partnerUsername: string;
+    text: string;
+    tick: number;
+  } | null>(null);
 
   useEffect(() => {
     try {
@@ -245,6 +262,36 @@ export default function App() {
 
   const visitorId = getOrCreateVisitorId(currentUser);
 
+  const triggerLoginExternalNotification = (loggedUser: UserAccount) => {
+    const normName = loggedUser.username.trim().toLowerCase();
+    const unreadPriv = (dbState.privateChatMessages || []).filter((m) => {
+      const rNorm = m.receiverUsername.trim().toLowerCase();
+      return (
+        (m.receiverId === loggedUser.id || rNorm === normName) &&
+        m.senderUsername.trim().toLowerCase() !== normName &&
+        !m.isRead
+      );
+    });
+    if (unreadPriv.length > 0) {
+      const latest = unreadPriv[unreadPriv.length - 1];
+      setExternalLoginNotification({
+        senderUsername: latest.senderUsername,
+        partnerId: latest.senderId,
+        partnerUsername: latest.senderUsername,
+        text: latest.text,
+        tick: Date.now(),
+      });
+    } else {
+      setExternalLoginNotification({
+        senderUsername: loggedUser.username,
+        partnerId: loggedUser.id,
+        partnerUsername: loggedUser.username,
+        text: `مرحباً بك يا ${loggedUser.username}، تم تسجيل الدخول وتفعيل المحادثات المباشرة.`,
+        tick: Date.now(),
+      });
+    }
+  };
+
   // --- Authentication Handlers (with Instant Browser Cache & Instant Online Presence Broadcast on Login/Logout) ---
   const handleAuthenticate = (user: UserAccount, rememberMe: boolean) => {
     const onlineUser: UserAccount = { ...user, isOnline: true };
@@ -265,6 +312,7 @@ export default function App() {
     });
     setCurrentUser(onlineUser);
     setOnlineStats(syncRealOnlinePresence(onlineUser, false));
+    triggerLoginExternalNotification(onlineUser);
   };
 
   const handleRegisterNewUser = (newUser: UserAccount, rememberMe: boolean) => {
@@ -280,6 +328,7 @@ export default function App() {
     });
     setCurrentUser(onlineNewUser);
     setOnlineStats(syncRealOnlinePresence(onlineNewUser, false));
+    triggerLoginExternalNotification(onlineNewUser);
   };
 
   const handleResetUserPassword = (userId: string, newPassword: string) => {
@@ -295,7 +344,7 @@ export default function App() {
     const loggingOutUserId = currentUser?.id;
     setCurrentUser(null);
     storageEngine.saveAuthenticatedUser(null, false);
-    // Mark user offline and clear private chats when logging out
+    // Mark user offline when logging out
     updateAndPersist((prev) => ({
       ...prev,
       users: loggingOutUserId
@@ -303,8 +352,6 @@ export default function App() {
             u.id === loggingOutUserId ? { ...u, isOnline: false } : u
           )
         : prev.users,
-      privateChatMessages: [],
-      privateChatStatuses: {},
     }));
     setOnlineStats(syncRealOnlinePresence(null, false));
     if (activeSection === 'settings') {
@@ -312,23 +359,201 @@ export default function App() {
     }
   };
 
-  // --- Footer Contact Message to Admin Handler ---
+  // --- Footer Contact Message to Admin Handler (Merges into existing message if account sent before) ---
   const handleSendMessageToAdmin = (
     content: string,
     senderUsername: string,
     senderId: string
   ) => {
-    const newMsg: AdminMessage = {
-      id: `msg-${Date.now()}`,
-      senderId,
-      senderUsername,
-      content,
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
+    const nowIso = new Date().toISOString();
+    const effectiveSenderId = senderId === 'guest' ? visitorId : senderId;
+    const cleanSenderName = senderUsername.trim();
+    const lowerSenderName = cleanSenderName.toLowerCase();
+
+    updateAndPersist((prev) => {
+      const existingIdx = prev.messages.findIndex((m) => {
+        if (
+          effectiveSenderId &&
+          m.senderId === effectiveSenderId &&
+          m.senderId !== 'guest'
+        ) {
+          return true;
+        }
+        return m.senderUsername.trim().toLowerCase() === lowerSenderName;
+      });
+
+      const newEntry = {
+        id: `th-${Date.now()}`,
+        sender: 'user' as const,
+        senderName: cleanSenderName,
+        text: content,
+        createdAt: nowIso,
+      };
+
+      if (existingIdx !== -1) {
+        const target = prev.messages[existingIdx];
+        const prevThread =
+          target.thread && target.thread.length > 0
+            ? target.thread
+            : [
+                {
+                  id: target.id,
+                  sender: 'user' as const,
+                  senderName: target.senderUsername,
+                  text: target.content,
+                  createdAt: target.createdAt,
+                },
+              ];
+        const updatedMsg: AdminMessage = {
+          ...target,
+          senderId: effectiveSenderId,
+          senderUsername: cleanSenderName,
+          content,
+          isRead: false,
+          updatedAt: nowIso,
+          thread: [...prevThread, newEntry],
+        };
+        const rest = prev.messages.filter((_, idx) => idx !== existingIdx);
+        return {
+          ...prev,
+          messages: [updatedMsg, ...rest],
+        };
+      }
+
+      const newMsg: AdminMessage = {
+        id: `msg-${Date.now()}`,
+        senderId: effectiveSenderId,
+        senderUsername: cleanSenderName,
+        content,
+        isRead: false,
+        unreadForUserCount: 0,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        thread: [newEntry],
+      };
+      return {
+        ...prev,
+        messages: [newMsg, ...prev.messages],
+      };
+    });
+  };
+
+  // --- Admin Reply to User Message (Notifies User's Bell Icon) ---
+  const handleAdminReplyToMessage = (messageId: string, replyText: string) => {
+    const cleanReply = replyText.trim();
+    if (!cleanReply) return;
+    const nowIso = new Date().toISOString();
+
+    updateAndPersist((prev) => {
+      const target = prev.messages.find((m) => m.id === messageId);
+      const targetSenderKey = target
+        ? target.senderUsername.trim().toLowerCase()
+        : '';
+
+      return {
+        ...prev,
+        messages: prev.messages.map((m) => {
+          const isMatch =
+            m.id === messageId ||
+            (targetSenderKey &&
+              m.senderUsername.trim().toLowerCase() === targetSenderKey);
+          if (!isMatch) return m;
+          const prevThread =
+            m.thread && m.thread.length > 0
+              ? m.thread
+              : [
+                  {
+                    id: m.id,
+                    sender: 'user' as const,
+                    senderName: m.senderUsername,
+                    text: m.content,
+                    createdAt: m.createdAt,
+                  },
+                ];
+          return {
+            ...m,
+            isRead: true,
+            unreadForUserCount: (m.unreadForUserCount || 0) + 1,
+            updatedAt: nowIso,
+            thread: [
+              ...prevThread,
+              {
+                id: `adm-rep-${Date.now()}`,
+                sender: 'admin' as const,
+                senderName: 'إدارة الموقع',
+                text: cleanReply,
+                createdAt: nowIso,
+              },
+            ],
+          };
+        }),
+      };
+    });
+  };
+
+  // --- User Reply from Bell Popup Modal back to Admin ---
+  const handleUserReplyToAdminMessage = (
+    messageId: string,
+    replyText: string
+  ) => {
+    const cleanReply = replyText.trim();
+    if (!cleanReply) return;
+    const nowIso = new Date().toISOString();
+    const senderLabel = currentUser?.username || 'زائر (غير مسجل)';
+
     updateAndPersist((prev) => ({
       ...prev,
-      messages: [newMsg, ...prev.messages],
+      messages: prev.messages.map((m) => {
+        if (m.id !== messageId) return m;
+        const prevThread =
+          m.thread && m.thread.length > 0
+            ? m.thread
+            : [
+                {
+                  id: m.id,
+                  sender: 'user' as const,
+                  senderName: m.senderUsername,
+                  text: m.content,
+                  createdAt: m.createdAt,
+                },
+              ];
+        return {
+          ...m,
+          content: cleanReply,
+          isRead: false,
+          unreadForUserCount: 0,
+          updatedAt: nowIso,
+          thread: [
+            ...prevThread,
+            {
+              id: `usr-rep-${Date.now()}`,
+              sender: 'user' as const,
+              senderName: senderLabel,
+              text: cleanReply,
+              createdAt: nowIso,
+            },
+          ],
+        };
+      }),
+    }));
+  };
+
+  const handleMarkUserMessagesRead = (messageId?: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      messages: prev.messages.map((m) => {
+        if (messageId && m.id !== messageId) return m;
+        if (currentUser?.role === 'admin') {
+          return { ...m, isRead: true };
+        }
+        const belongsToMe = currentUser
+          ? m.senderId === currentUser.id ||
+            m.senderUsername.trim().toLowerCase() ===
+              currentUser.username.trim().toLowerCase()
+          : m.senderId === visitorId;
+        if (!belongsToMe) return m;
+        return { ...m, unreadForUserCount: 0 };
+      }),
     }));
   };
 
@@ -2598,10 +2823,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-[#0A192F] text-[#F8FAFC] flex flex-col">
-      {/* Header + Marquee + Live Clock + Auth + Crown 👑 Ad Packages */}
+      {/* Header + Marquee + Live Clock + Auth + Crown 👑 Ad Packages + Bell 🔔 */}
       <HeaderAndAdPackages
         settings={dbState.settings}
         currentUser={currentUser}
+        visitorId={visitorId}
+        messages={dbState.messages}
+        onMarkUserMessagesRead={handleMarkUserMessagesRead}
+        onReplyToAdminMessage={handleUserReplyToAdminMessage}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
         onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
@@ -2690,12 +2919,6 @@ export default function App() {
                   </strong>
                 </div>
               </div>
-
-              {onlineStats.registeredUsernames.length > 0 && (
-                <div className="text-[10px] text-emerald-300 font-bold truncate relative z-10">
-                  مسجلون متصلون: {onlineStats.registeredUsernames.join(' ، ')}
-                </div>
-              )}
             </div>
           </div>
         </aside>
@@ -2801,11 +3024,6 @@ export default function App() {
                       </strong>
                     </div>
                   </div>
-                  {onlineStats.registeredUsernames.length > 0 && (
-                    <div className="text-[10px] text-emerald-300 font-bold truncate pt-1">
-                      مسجلون متصلون: {onlineStats.registeredUsernames.join(' ، ')}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -2927,6 +3145,20 @@ export default function App() {
             onUpdatePopupAd={handleUpdatePopupAd}
             onMarkMessageRead={handleMarkMessageRead}
             onDeleteMessage={handleDeleteMessage}
+            onAdminReplyToMessage={handleAdminReplyToMessage}
+            onOpenPrivateChatWithUser={(targetUserId, targetUsername) =>
+              setExternalOpenChatTarget({
+                partnerId: targetUserId,
+                partnerUsername: targetUsername,
+                tick: Date.now(),
+              })
+            }
+            onOpenPrivateChatHistoryModal={() =>
+              setExternalOpenHistoryModalTick(Date.now())
+            }
+            externalOpenChatTarget={externalOpenChatTarget}
+            externalOpenHistoryModalTick={externalOpenHistoryModalTick}
+            externalLoginNotification={externalLoginNotification}
             onRenameStoreCategory={handleRenameStoreCategory}
             onAddUtilityType={handleAddUtilityType}
             onSaveUtilitySubmission={handleSaveUtilitySubmission}
@@ -2976,6 +3208,71 @@ export default function App() {
             onTogglePinBuySellComment={handleTogglePinBuySellComment}
             onToggleHideBuySellComment={handleToggleHideBuySellComment}
           />
+
+          {/* Global Private Chat Popup & External Login Notification when outside Buy/Sell section */}
+          {activeSection !== 'buy_sell' && (
+            <CommunityHubView
+              posts={dbState.buySellPosts || []}
+              liveChatMessages={dbState.liveChatMessages || []}
+              onlineCount={onlineStats.totalOnline}
+              onlineStats={onlineStats}
+              currentUser={currentUser}
+              users={dbState.users}
+              chatOnlyOverlayMode={true}
+              enableBuySellPrivateChat={true}
+              externalOpenChatTarget={externalOpenChatTarget}
+              externalOpenHistoryModalTick={externalOpenHistoryModalTick}
+              externalLoginNotification={externalLoginNotification}
+              chatPenalties={dbState.chatPenalties || []}
+              privateChatMessages={dbState.privateChatMessages || []}
+              privateChatStatuses={dbState.privateChatStatuses || {}}
+              chatTypingMap={dbState.chatTypingMap || {}}
+              userBlockedMap={dbState.userBlockedMap || {}}
+              privateChatReports={dbState.privateChatReports || []}
+              onOpenAuthModal={() => setIsAuthModalOpen(true)}
+              onAddCommunityPost={handleAddBuySellPost}
+              onEditCommunityPost={handleEditBuySellPost}
+              onUpdatePostStatus={handleUpdateBuySellPostStatus}
+              onDeletePost={handleDeleteBuySellPost}
+              onTogglePinPost={handleTogglePinBuySellPost}
+              onTogglePostSold={handleToggleBuySellPostSold}
+              onTogglePostCommentsDisabled={
+                handleToggleBuySellPostCommentsDisabled
+              }
+              onTogglePostLike={handleToggleBuySellPostLike}
+              onTogglePostDislike={handleToggleBuySellPostDislike}
+              onReportPost={handleReportBuySellPost}
+              onRestoreReportedPost={handleRestoreReportedBuySellPost}
+              onAddCommentToPost={handleAddCommentToBuySellPost}
+              onToggleCommentLike={handleToggleBuySellCommentLike}
+              onToggleCommentEmoji={handleToggleBuySellCommentEmoji}
+              onAddReplyToComment={handleAddReplyToBuySellComment}
+              onReportComment={handleReportBuySellComment}
+              onDeleteComment={handleDeleteBuySellComment}
+              onRestoreReportedComment={handleRestoreReportedBuySellComment}
+              onTogglePinComment={handleTogglePinBuySellComment}
+              onToggleHideComment={handleToggleHideBuySellComment}
+              onSendChatMessage={handleSendChatMessage}
+              onReportChatMessage={handleReportChatMessage}
+              onDeleteChatMessage={handleDeleteChatMessage}
+              onUpdateChatCooldown={handleUpdateChatCooldown}
+              onUpdateAutoClearMinutes={handleUpdateAutoClearMinutes}
+              onClearPublicChatNow={handleClearPublicChatNow}
+              onClearPrivateChatSession={handleClearPrivateChatSession}
+              onApplyChatPenalty={handleApplyChatPenalty}
+              onSendPrivateMessage={handleSendPrivateMessage}
+              onMarkPrivateMessagesRead={handleMarkPrivateMessagesRead}
+              onSetChatTypingStatus={handleSetChatTypingStatus}
+              onRespondPrivateChatRequest={handleRespondPrivateChatRequest}
+              onBlockUserInChat={handleBlockUserInChat}
+              onUnblockUserInChat={handleUnblockUserInChat}
+              onTogglePrivateMessageReaction={handleTogglePrivateMessageReaction}
+              onReportPrivateChatMessage={handleReportPrivateChatMessage}
+              onReportUserInPrivateChat={handleReportUserInPrivateChat}
+              onDismissPrivateChatReport={handleDismissPrivateChatReport}
+              onDeleteUserAccountFromChat={handleDeleteUserAccountFromChat}
+            />
+          )}
         </main>
       </div>
 

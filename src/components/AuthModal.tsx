@@ -102,12 +102,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   // 2. Register New Account Handler
+  const isAdminAccountInput = accountName.trim().toLowerCase() === 'admin';
+
   const handleRegister = () => {
     resetMessages();
     const cleanAccount = accountName.trim();
-    const cleanDisplay = displayName.trim();
+    const lowerAccount = cleanAccount.toLowerCase();
+    const cleanDisplay =
+      lowerAccount === 'admin' ? 'admin' : displayName.trim();
 
-    if (!cleanAccount || !cleanDisplay || !password) {
+    if (!cleanAccount || (!isAdminAccountInput && !cleanDisplay) || !password) {
       setFeedback({
         type: 'error',
         message:
@@ -116,8 +120,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    const lowerAccount = cleanAccount.toLowerCase();
     const lowerDisplay = cleanDisplay.toLowerCase();
+
+    if (lowerAccount !== 'admin' && lowerDisplay === 'admin') {
+      setFeedback({
+        type: 'error',
+        message:
+          'الاسم الظاهر (admin) مخصص لمدير النظام فقط، يرجى اختيار اسم آخر يظهر للمستخدمين.',
+      });
+      return;
+    }
 
     // Prevent duplicate accountName or displayName
     const duplicateUser = users.some(
@@ -140,12 +152,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     const createdUser: UserAccount = {
       id: `usr-${Date.now()}`,
       accountName: cleanAccount,
-      username: cleanDisplay,
+      username: lowerAccount === 'admin' ? 'admin' : cleanDisplay,
       password, // Accepts numbers, letters, or symbols freely
-      role:
-        lowerAccount === 'admin' || lowerDisplay === 'admin'
-          ? 'admin'
-          : 'user',
+      role: lowerAccount === 'admin' ? 'admin' : 'user',
       createdAt: new Date().toISOString(),
     };
 
@@ -256,25 +265,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
 
-          {/* 2. Public Display Name Input (الاسم الذي يظهر للمستخدمين - أسفل اسم الحساب وقت إنشاء الحساب) */}
-          <div>
-            <label className="block text-xs font-bold text-emerald-300 mb-1.5">
-              الاسم الذي يظهر للمستخدمين (عند إنشاء حساب جديد)
-            </label>
-            <div className="relative">
-              <UserPlus className="w-4 h-4 text-emerald-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => {
-                  setDisplayName(e.target.value);
-                  resetMessages();
-                }}
-                placeholder="اكتب الاسم الذي يظهر للمستخدمين في الموقع..."
-                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-emerald-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
-              />
+          {/* 2. Public Display Name Input (الاسم الذي يظهر للمستخدمين - يظهر فقط للمستخدمين الآخرين وليس لـ admin) */}
+          {!isAdminAccountInput && (
+            <div>
+              <label className="block text-xs font-bold text-emerald-300 mb-1.5">
+                الاسم الذي يظهر للمستخدمين (عند إنشاء حساب جديد)
+              </label>
+              <div className="relative">
+                <UserPlus className="w-4 h-4 text-emerald-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => {
+                    setDisplayName(e.target.value);
+                    resetMessages();
+                  }}
+                  placeholder="اكتب الاسم الذي يظهر للمستخدمين في الموقع..."
+                  className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-emerald-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* 3. Password Input (خانة الباسورد) */}
           <div>

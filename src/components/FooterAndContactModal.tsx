@@ -42,8 +42,45 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
   };
 
   const handleOpenFacebook = () => {
-    const targetUrl = settings.facebookPageUrl?.trim() || 'https://www.facebook.com';
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    const rawUrl = settings.facebookPageUrl?.trim() || 'https://www.facebook.com';
+    const targetUrl =
+      rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+        ? rawUrl
+        : `https://${rawUrl}`;
+
+    const ua = navigator.userAgent || '';
+    const isAndroid = /Android/i.test(ua);
+    const isIOS = /iPhone|iPad|iPod/i.test(ua);
+
+    if (isAndroid) {
+      const intentUrl = `intent://facewebmodal/f?href=${encodeURIComponent(
+        targetUrl
+      )}#Intent;package=com.facebook.katana;scheme=fb;S.browser_fallback_url=${encodeURIComponent(
+        targetUrl
+      )};end`;
+      window.location.href = intentUrl;
+      return;
+    }
+
+    if (isIOS) {
+      const fbDeepLink = `fb://facewebmodal/f?href=${encodeURIComponent(targetUrl)}`;
+      window.location.href = fbDeepLink;
+      setTimeout(() => {
+        if (document.visibilityState === 'visible') {
+          window.location.href = targetUrl;
+        }
+      }, 1200);
+      return;
+    }
+
+    // Desktop / other platforms: try fb:// protocol first, then navigate to URL
+    const fbAppUrl = `fb://facewebmodal/f?href=${encodeURIComponent(targetUrl)}`;
+    const link = document.createElement('a');
+    link.href = fbAppUrl;
+    link.click();
+    setTimeout(() => {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    }, 400);
   };
 
   const handleMessageTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

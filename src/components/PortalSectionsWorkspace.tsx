@@ -166,6 +166,22 @@ interface PortalSectionsWorkspaceProps {
   onUpdatePopupAd: (popup: PopupAdConfig) => void;
   onMarkMessageRead: (id: string) => void;
   onDeleteMessage: (id: string) => void;
+  onAdminReplyToMessage?: (messageId: string, replyText: string) => void;
+  onOpenPrivateChatWithUser?: (targetUserId: string, targetUsername: string) => void;
+  onOpenPrivateChatHistoryModal?: () => void;
+  externalOpenChatTarget?: {
+    partnerId: string;
+    partnerUsername: string;
+    tick: number;
+  } | null;
+  externalOpenHistoryModalTick?: number;
+  externalLoginNotification?: {
+    senderUsername: string;
+    partnerId: string;
+    partnerUsername: string;
+    text: string;
+    tick: number;
+  } | null;
   onRenameStoreCategory: (oldName: string, newName: string) => void;
   onAddUtilityType: (newTypeName: string) => void;
   onSaveUtilitySubmission: (item: UtilitySubmissionItem) => void;
@@ -323,6 +339,12 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onUpdatePopupAd,
   onMarkMessageRead,
   onDeleteMessage,
+  onAdminReplyToMessage,
+  onOpenPrivateChatWithUser,
+  onOpenPrivateChatHistoryModal,
+  externalOpenChatTarget,
+  externalOpenHistoryModalTick,
+  externalLoginNotification,
   onRenameStoreCategory,
   onAddUtilityType,
   onSaveUtilitySubmission,
@@ -582,6 +604,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         allowedPostTypes={['بائع', 'مشتري']}
         topWarningBannerText="الموقع غير مسؤل عن اي عمليات شراء  او بيع  وليس له اي عمولات علي البيع و جميع العمليات المسؤل عنها صاحبها فقط"
         enableBuySellPrivateChat={true}
+        externalOpenChatTarget={externalOpenChatTarget}
+        externalOpenHistoryModalTick={externalOpenHistoryModalTick}
+        externalLoginNotification={externalLoginNotification}
         onOpenAuthModal={onOpenAuthModal}
         onAddCommunityPost={onAddBuySellPost}
         onEditCommunityPost={onEditBuySellPost}
@@ -647,6 +672,8 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   return (
     <AdminSettingsHubView
       state={state}
+      currentUser={currentUser}
+      onlineStats={onlineStats}
       connStatus={connStatus}
       connMessage={connMessage}
       onUpdateSettings={onUpdateSettings}
@@ -666,7 +693,10 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
       onUpdatePopupAd={onUpdatePopupAd}
       onMarkMessageRead={onMarkMessageRead}
       onDeleteMessage={onDeleteMessage}
+      onAdminReplyToMessage={onAdminReplyToMessage}
       onRenameStoreCategory={onRenameStoreCategory}
+      onOpenPrivateChatWithUser={onOpenPrivateChatWithUser}
+      onOpenPrivateChatHistoryModal={onOpenPrivateChatHistoryModal}
     />
   );
 };

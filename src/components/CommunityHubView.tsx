@@ -78,6 +78,20 @@ interface CommunityHubViewProps {
   allowedPostTypes?: CommunityPostType[];
   topWarningBannerText?: string;
   enableBuySellPrivateChat?: boolean;
+  chatOnlyOverlayMode?: boolean;
+  externalOpenChatTarget?: {
+    partnerId: string;
+    partnerUsername: string;
+    tick: number;
+  } | null;
+  externalOpenHistoryModalTick?: number;
+  externalLoginNotification?: {
+    senderUsername: string;
+    partnerId: string;
+    partnerUsername: string;
+    text: string;
+    tick: number;
+  } | null;
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];
   privateChatStatuses?: Record<string, PrivateChatStatus>;
@@ -296,6 +310,10 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   allowedPostTypes = ['استفسار', 'اقتراح', 'بيع'],
   topWarningBannerText,
   enableBuySellPrivateChat = false,
+  chatOnlyOverlayMode = false,
+  externalOpenChatTarget = null,
+  externalOpenHistoryModalTick = 0,
+  externalLoginNotification = null,
   chatPenalties = [],
   privateChatMessages = [],
   privateChatStatuses = {},
@@ -650,6 +668,25 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     screenNotifTimeoutRef.current = setTimeout(() => {
       setScreenChatNotification(null);
     }, 5000);
+
+    // Also trigger external browser Notification API if available
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission === 'granted') {
+          const n = new Notification(`رسالة خاصة من ${senderUsername}`, {
+            body: text,
+          });
+          n.onclick = () => {
+            window.focus();
+            openBottomLeftPrivateChat(partnerId || partnerUsername, partnerUsername);
+          };
+        } else if (Notification.permission === 'default') {
+          Notification.requestPermission().catch(() => {});
+        }
+      }
+    } catch {
+      // ignore
+    }
   };
 
   useEffect(() => {
@@ -721,6 +758,36 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     recordPartnerInHistory(target.partnerId, target.partnerUsername);
     onMarkPrivateMessagesRead?.(target.partnerUsername);
   };
+
+  useEffect(() => {
+    if (externalOpenChatTarget && externalOpenChatTarget.tick > 0) {
+      openBottomLeftPrivateChat(
+        externalOpenChatTarget.partnerId,
+        externalOpenChatTarget.partnerUsername
+      );
+    }
+  }, [externalOpenChatTarget?.tick]);
+
+  useEffect(() => {
+    if (externalOpenHistoryModalTick && externalOpenHistoryModalTick > 0) {
+      setIsChatHistoryModalOpen(true);
+    }
+  }, [externalOpenHistoryModalTick]);
+
+  useEffect(() => {
+    if (externalLoginNotification && externalLoginNotification.tick > 0) {
+      recordPartnerInHistory(
+        externalLoginNotification.partnerId,
+        externalLoginNotification.partnerUsername
+      );
+      triggerScreenChatNotification(
+        externalLoginNotification.senderUsername,
+        externalLoginNotification.partnerId,
+        externalLoginNotification.partnerUsername,
+        externalLoginNotification.text
+      );
+    }
+  }, [externalLoginNotification?.tick]);
 
   // Close ONLY a single person's chat tab (via the 'x' button next to their name)
   const closeSingleChatTab = (partnerUsernameToClose: string) => {
@@ -1608,10 +1675,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const visiblePostsSlice = filteredApprovedPosts.slice(0, visiblePostCount);
 
   return (
-    <div className="space-y-4 w-full max-w-4xl mx-auto overflow-x-hidden">
-      {/* رسالة تحذيرية بالأعلى في قسم بيع واشتري */}
-      {topWarningBannerText && (
-        <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-400/80 text-amber-200 shadow-lg flex items-start sm:items-center gap-3">
+    <div
+      className={
+        chatOnlyOverlayMode
+          ? 'w-0 h-0 overflow-visible'
+          : 'space-y-4 w-full max-w-4xl mx-auto overflow-x-hidden'
+      }
+    >
+      {!chatOnlyOverlayMode && (
+        <>
+          {/* رسالة تحذيرية بالأعلى في قسم بيع واشتري */}
+          {topWarningBannerText && (
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-400/80 text-amber-200 shadow-lg flex items-start sm:items-center gap-3">
           <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
           <p className="text-xs sm:text-sm font-extrabold leading-relaxed text-[#F8FAFC]">
             {topWarningBannerText}
@@ -2912,6 +2987,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             </div>
           )}
         </FluentModal>
+      )}
+        </>
       )}
 
       {/* شاشة سجل المحادثات السابقة ("زر باسم سجل المحادثات يوجد به المحادثات السابقه") */}

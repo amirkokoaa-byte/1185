@@ -29,6 +29,10 @@ import {
   Link as LinkIcon,
   Compass,
   CreditCard,
+  Radio,
+  MessageCircle,
+  Send,
+  History,
 } from 'lucide-react';
 import {
   AdminMessage,
@@ -47,6 +51,7 @@ import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import {
   createBannerSvg,
   createSquareAdSvg,
+  RealOnlinePresenceStats,
   uploadImageDynamic,
 } from '../services/storageService';
 import {
@@ -61,10 +66,13 @@ export type AdminSettingsSubSectionId =
   | 'ad_packages'
   | 'messages'
   | 'new_category'
-  | 'storage';
+  | 'storage'
+  | 'online_users';
 
 interface AdminSettingsHubViewProps {
   state: PlatformDatabaseState;
+  currentUser?: UserAccount | null;
+  onlineStats?: RealOnlinePresenceStats;
   connStatus: 'local' | 'firebase_connected' | 'firebase_error';
   connMessage: string;
   onUpdateSettings: (settings: PlatformSettings) => void;
@@ -89,12 +97,18 @@ interface AdminSettingsHubViewProps {
   // 5. Messages
   onMarkMessageRead: (id: string) => void;
   onDeleteMessage: (id: string) => void;
+  onAdminReplyToMessage?: (messageId: string, replyText: string) => void;
   // 6. Categories rename helper
   onRenameStoreCategory: (oldName: string, newName: string) => void;
+  // 8. Online Users Private Chat Trigger
+  onOpenPrivateChatWithUser?: (targetUserId: string, targetUsername: string) => void;
+  onOpenPrivateChatHistoryModal?: () => void;
 }
 
 export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   state,
+  currentUser,
+  onlineStats,
   connStatus,
   connMessage,
   onUpdateSettings,
@@ -114,7 +128,10 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   onUpdatePopupAd,
   onMarkMessageRead,
   onDeleteMessage,
+  onAdminReplyToMessage,
   onRenameStoreCategory,
+  onOpenPrivateChatWithUser,
+  onOpenPrivateChatHistoryModal,
 }) => {
   const [activeSubTab, setActiveSubTab] =
     useState<AdminSettingsSubSectionId>('driver_requests');
@@ -125,12 +142,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     setTimeout(() => setToastMsg(''), 3800);
   };
 
-  // --- General Header Fields: Site Name & Contact Number ---
+  // --- General Header Fields: Site Name, Contact Number, Facebook Link & Marquee ---
   const [generalSiteName, setGeneralSiteName] = useState(state.settings.siteName);
   const [generalContactPhone, setGeneralContactPhone] = useState(
     state.settings.adminWhatsapp
   );
+  const [generalFacebookUrl, setGeneralFacebookUrl] = useState(
+    state.settings.facebookPageUrl || ''
+  );
   const [generalMarquee, setGeneralMarquee] = useState(state.settings.marqueeText);
+
+  // Messages Reply & Correspondence History Modal State
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [isMessagesHistoryModalOpen, setIsMessagesHistoryModalOpen] = useState(false);
 
   const handleSaveGeneralTopFields = (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,9 +162,10 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       ...state.settings,
       siteName: generalSiteName.trim() || state.settings.siteName,
       adminWhatsapp: generalContactPhone.trim() || state.settings.adminWhatsapp,
+      facebookPageUrl: generalFacebookUrl.trim() || state.settings.facebookPageUrl,
       marqueeText: generalMarquee.trim() || state.settings.marqueeText,
     });
-    showToast('تم حفظ اسم الموقع ورقم التواصل والشريط الإخباري لحظياً!');
+    showToast('تم حفظ اسم الموقع ورقم التواصل ولينك الفيس بوك والشريط الإخباري لحظياً!');
   };
 
   // ============================================================================
@@ -198,6 +223,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   // 2. الحسابات (Accounts State)
   // ============================================================================
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
+  const [usrAccountName, setUsrAccountName] = useState('');
   const [usrUsername, setUsrUsername] = useState('');
   const [usrPassword, setUsrPassword] = useState('');
   const [usrPhone, setUsrPhone] = useState('');
@@ -205,6 +231,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
   const openEditUserModal = (u: UserAccount) => {
     setEditingUser(u);
+    setUsrAccountName(u.accountName || u.username);
     setUsrUsername(u.username);
     setUsrPassword(u.password);
     setUsrPhone(u.phone || '');
@@ -213,16 +240,25 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
   const handleSaveEditedUser = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingUser || !usrUsername.trim() || !usrPassword.trim()) return;
+    if (!editingUser || !usrPassword.trim()) return;
+    const isEditingAdmin =
+      usrRole === 'admin' ||
+      editingUser.role === 'admin' ||
+      usrAccountName.trim().toLowerCase() === 'admin';
+    const nextDisplayName = isEditingAdmin
+      ? 'admin'
+      : usrUsername.trim() || usrAccountName.trim();
+    if (!nextDisplayName) return;
     onUpdateUserAccount({
       ...editingUser,
-      username: usrUsername.trim(),
+      accountName: usrAccountName.trim() || nextDisplayName,
+      username: nextDisplayName,
       password: usrPassword,
       phone: usrPhone.trim() || undefined,
       role: usrRole,
     });
     setEditingUser(null);
-    showToast(`تم تعديل حساب "${usrUsername.trim()}" بنجاح.`);
+    showToast(`تم تعديل حساب "${nextDisplayName}" بنجاح.`);
   };
 
   const handleToggleModeratorRole = (u: UserAccount) => {
@@ -713,7 +749,105 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       subtitle: 'إعدادات API رفع الصور',
       icon: Database,
     },
+    {
+      id: 'online_users',
+      number: 8,
+      label: 'عدد المتصلين الآن',
+      subtitle: 'أسماء المتصلين الآن ومحادثة خاصة معهم',
+      icon: Radio,
+      badge: onlineStats?.totalOnline || 1,
+    },
   ];
+
+  // Unified messages grouped by sender account so any repeat message from the same account appears in the same message entry
+  const unifiedMessages: AdminMessage[] = React.useMemo(() => {
+    const map = new Map<string, AdminMessage>();
+    // Sort oldest to newest first so thread builds chronologically
+    const chronological = [...state.messages].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    for (const msg of chronological) {
+      const senderKey =
+        msg.senderId && msg.senderId !== 'guest'
+          ? `id:${msg.senderId.trim().toLowerCase()}`
+          : `name:${msg.senderUsername.trim().toLowerCase()}`;
+      const entries =
+        msg.thread && msg.thread.length > 0
+          ? msg.thread
+          : [
+              {
+                id: msg.id,
+                sender: 'user' as const,
+                senderName: msg.senderUsername,
+                text: msg.content,
+                createdAt: msg.createdAt,
+              },
+            ];
+      const existing = map.get(senderKey);
+      if (!existing) {
+        map.set(senderKey, {
+          ...msg,
+          thread: [...entries],
+        });
+      } else {
+        const mergedThread = [...(existing.thread || [])];
+        for (const e of entries) {
+          if (!mergedThread.some((x) => x.id === e.id)) {
+            mergedThread.push(e);
+          }
+        }
+        map.set(senderKey, {
+          ...existing,
+          content: msg.content,
+          isRead: existing.isRead && msg.isRead,
+          updatedAt: msg.updatedAt || msg.createdAt,
+          thread: mergedThread,
+        });
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt).getTime() -
+        new Date(a.updatedAt || a.createdAt).getTime()
+    );
+  }, [state.messages]);
+
+  // Connected online usernames list for section 8 (عدد المتصلين الآن)
+  const connectedOnlineUsers = React.useMemo(() => {
+    const namesSet = new Set<string>();
+    const result: Array<{ id: string; username: string; role?: UserRoleType }> = [];
+
+    const addByName = (name: string) => {
+      const clean = name.trim();
+      if (!clean) return;
+      const lower = clean.toLowerCase();
+      if (namesSet.has(lower)) return;
+      namesSet.add(lower);
+      const matchedUser = state.users.find(
+        (u) =>
+          u.username.trim().toLowerCase() === lower ||
+          (u.accountName && u.accountName.trim().toLowerCase() === lower)
+      );
+      result.push({
+        id: matchedUser?.id || clean,
+        username: matchedUser?.username || clean,
+        role: matchedUser?.role,
+      });
+    };
+
+    if (onlineStats?.registeredUsernames) {
+      onlineStats.registeredUsernames.forEach(addByName);
+    }
+    state.users.forEach((u) => {
+      if (u.isOnline) {
+        addByName(u.username);
+      }
+    });
+    if (currentUser) {
+      addByName(currentUser.username);
+    }
+    return result;
+  }, [onlineStats?.registeredUsernames, state.users, currentUser]);
 
   const getDaysRemainingBadge = (expiresAt?: string) => {
     if (!expiresAt) return 'مفتوح المدة';
@@ -778,7 +912,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           onSubmit={handleSaveGeneralTopFields}
           className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end"
         >
-          <div className="md:col-span-4">
+          <div className="md:col-span-3">
             <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
               اسم الموقع (يظهر في الهيدر والتقارير)
             </label>
@@ -791,7 +925,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
             />
           </div>
 
-          <div className="md:col-span-3">
+          <div className="md:col-span-2">
             <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
               رقم التواصل / واتساب الإدارة
             </label>
@@ -805,6 +939,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           </div>
 
           <div className="md:col-span-3">
+            <label className="block text-xs font-bold text-blue-300 mb-1.5">
+              لينك حساب الفيس بوك
+            </label>
+            <input
+              type="url"
+              value={generalFacebookUrl}
+              onChange={(e) => setGeneralFacebookUrl(e.target.value)}
+              placeholder="https://www.facebook.com/..."
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-blue-400 px-3.5 py-2.5 text-xs sm:text-sm text-[#F8FAFC] font-mono-tabular outline-none"
+            />
+          </div>
+
+          <div className="md:col-span-2">
             <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
               نص الشريط الإخباري العلوي (Marquee)
             </label>
@@ -1060,6 +1207,21 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-4 text-xs text-[#94A3B8]">
+                        <span>
+                          اسم الحساب:{' '}
+                          <strong className="text-[#F8FAFC]">
+                            {u.accountName || u.username}
+                          </strong>
+                        </span>
+                        {u.role !== 'admin' &&
+                          u.username.trim().toLowerCase() !== 'admin' && (
+                            <span>
+                              الاسم الذي يظهر للمستخدمين (عند إنشاء حساب جديد):{' '}
+                              <strong className="text-emerald-300">
+                                {u.username}
+                              </strong>
+                            </span>
+                          )}
                         <span>
                           الباسورد:{' '}
                           <code className="text-sky-400 font-mono-tabular">
@@ -1971,69 +2133,180 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           )}
 
           {/* ====================================================================
-              5. الرسائل (Messages Inbox from Footer "أرسل رسالة")
+              5. الرسائل (Messages Inbox from Footer "أرسل رسالة" - Unified per Sender + سجل المراسلات + Reply to User Bell)
              ==================================================================== */}
           {activeSubTab === 'messages' && (
             <FluentCard className="space-y-4">
-              <div className="pb-3 border-b border-[#334155]">
-                <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
-                  <Mail className="w-5 h-5 text-sky-400" />
-                  <span>
-                    5. صندوق الرسائل الواردة من زر &quot;أرسل رسالة&quot; ({state.messages.length})
-                  </span>
-                </h3>
-                <p className="text-xs text-[#94A3B8]">
-                  جميع الرسائل المرسلة من المستخدمين عبر الفوتر مع اسم الحساب المرسل وتاريخ الإرسال.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#334155]">
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                    <Mail className="w-5 h-5 text-sky-400" />
+                    <span>
+                      5. صندوق الرسائل الواردة من زر &quot;أرسل رسالة&quot; ({unifiedMessages.length})
+                    </span>
+                  </h3>
+                  <p className="text-xs text-[#94A3B8]">
+                    إذا أرسل الحساب رسالة من قبل تظهر في نفس الرسالة مع إمكانية كتابة رد وإرساله ليظهر في زر الجرس لدى المستخدم.
+                  </p>
+                </div>
+
+                <FluentButton
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsMessagesHistoryModalOpen(true)}
+                >
+                  <History className="w-4 h-4" />
+                  <span>سجل المراسلات ({unifiedMessages.length})</span>
+                </FluentButton>
               </div>
 
-              {state.messages.length === 0 ? (
+              {unifiedMessages.length === 0 ? (
                 <p className="text-xs text-[#94A3B8] py-8 text-center">
                   صندوق الوارد فارغ حالياً.
                 </p>
               ) : (
-                <div className="space-y-3">
-                  {state.messages.map((msg: AdminMessage) => (
-                    <div
-                      key={msg.id}
-                      className={`p-4 rounded-xl border space-y-2 ${
-                        msg.isRead
-                          ? 'bg-[#0A192F]/70 border-[#334155]'
-                          : 'bg-[#1E293B] border-sky-400/60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-extrabold text-sky-400">
-                          المرسل: {msg.senderUsername}
-                        </span>
-                        <span className="text-[#94A3B8] font-mono-tabular">
-                          {new Date(msg.createdAt).toLocaleString('ar-EG')}
-                        </span>
+                <div className="space-y-4">
+                  {unifiedMessages.map((msg: AdminMessage) => {
+                    const threadItems =
+                      msg.thread && msg.thread.length > 0
+                        ? msg.thread
+                        : [
+                            {
+                              id: msg.id,
+                              sender: 'user' as const,
+                              senderName: msg.senderUsername,
+                              text: msg.content,
+                              createdAt: msg.createdAt,
+                            },
+                          ];
+                    const draftText = replyDrafts[msg.id] || '';
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`p-4 rounded-xl border space-y-3 ${
+                          msg.isRead
+                            ? 'bg-[#0A192F]/70 border-[#334155]'
+                            : 'bg-[#1E293B] border-sky-400/60'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs pb-2 border-b border-[#334155]">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-sky-400 text-sm">
+                              المرسل: {msg.senderUsername}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[11px] font-bold">
+                              عدد الرسائل: {threadItems.length}
+                            </span>
+                          </div>
+                          <span className="text-[#94A3B8] font-mono-tabular">
+                            {new Date(
+                              msg.updatedAt || msg.createdAt
+                            ).toLocaleString('ar-EG')}
+                          </span>
+                        </div>
+
+                        {/* All messages in the same unified card */}
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                          {threadItems.map((entry) => {
+                            const isAdminEntry = entry.sender === 'admin';
+                            return (
+                              <div
+                                key={entry.id}
+                                className={`p-3 rounded-xl border text-xs sm:text-sm space-y-1 ${
+                                  isAdminEntry
+                                    ? 'bg-emerald-950/35 border-emerald-400/50 text-emerald-100 mr-4'
+                                    : 'bg-[#112240] border-[#334155] text-[#F8FAFC] ml-4'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span
+                                    className={`font-extrabold ${
+                                      isAdminEntry
+                                        ? 'text-emerald-400'
+                                        : 'text-sky-400'
+                                    }`}
+                                  >
+                                    {isAdminEntry
+                                      ? 'رد الإدارة'
+                                      : entry.senderName}
+                                  </span>
+                                  <span className="text-[#94A3B8] font-mono-tabular">
+                                    {new Date(entry.createdAt).toLocaleString(
+                                      'ar-EG'
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="leading-relaxed whitespace-pre-line">
+                                  {entry.text}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Reply Box + Send Message Button */}
+                        <div className="pt-2 border-t border-[#334155] space-y-2">
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="text"
+                              value={draftText}
+                              onChange={(e) =>
+                                setReplyDrafts((prev) => ({
+                                  ...prev,
+                                  [msg.id]: e.target.value,
+                                }))
+                              }
+                              placeholder={`اكتب رداً إلى ${msg.senderUsername} ليظهر في الجرس لديه...`}
+                              className="flex-1 rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2 text-xs sm:text-sm text-[#F8FAFC] outline-none"
+                            />
+                            <FluentButton
+                              type="button"
+                              variant="primary"
+                              size="sm"
+                              disabled={!draftText.trim()}
+                              onClick={() => {
+                                if (!draftText.trim()) return;
+                                onAdminReplyToMessage?.(
+                                  msg.id,
+                                  draftText.trim()
+                                );
+                                setReplyDrafts((prev) => ({
+                                  ...prev,
+                                  [msg.id]: '',
+                                }));
+                                showToast(
+                                  `تم إرسال الرسالة إلى "${msg.senderUsername}" وظهرت في أيقونة الجرس لديه!`
+                                );
+                              }}
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>إرسال رسالة</span>
+                            </FluentButton>
+                          </div>
+
+                          <div className="flex justify-end gap-2">
+                            {!msg.isRead && (
+                              <FluentButton
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => onMarkMessageRead(msg.id)}
+                              >
+                                تحديد كمقروءة
+                              </FluentButton>
+                            )}
+                            <FluentButton
+                              variant="danger"
+                              size="sm"
+                              onClick={() => onDeleteMessage(msg.id)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>حذف</span>
+                            </FluentButton>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line">
-                        {msg.content}
-                      </p>
-                      <div className="flex justify-end gap-2 pt-2">
-                        {!msg.isRead && (
-                          <FluentButton
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => onMarkMessageRead(msg.id)}
-                          >
-                            تحديد كمقروءة
-                          </FluentButton>
-                        )}
-                        <FluentButton
-                          variant="danger"
-                          size="sm"
-                          onClick={() => onDeleteMessage(msg.id)}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>حذف</span>
-                        </FluentButton>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </FluentCard>
@@ -2176,8 +2449,235 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
               </div>
             </div>
           )}
+
+          {/* ====================================================================
+              8. عدد المتصلين الآن (Online Users Now - Click any name to open Private Chat)
+             ==================================================================== */}
+          {activeSubTab === 'online_users' && (
+            <FluentCard className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#334155]">
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                    <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
+                    <span>
+                      8. عدد المتصلين الآن ({onlineStats?.totalOnline || 1})
+                    </span>
+                  </h3>
+                  <p className="text-xs text-[#94A3B8]">
+                    أسماء المتصلين الآن في الموقع — اضغط على أي اسم لفتح محادثة خاصة فورية معه مثل شات بيع واشتري وتُحفظ في سجل المحادثات.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <FluentButton
+                    variant="primary"
+                    size="sm"
+                    onClick={() => onOpenPrivateChatHistoryModal?.()}
+                  >
+                    <History className="w-4 h-4" />
+                    <span>سجل المحادثات</span>
+                  </FluentButton>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-emerald-400/40 flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#94A3B8]">
+                    إجمالي المتصلين الآن:
+                  </span>
+                  <strong className="text-base font-extrabold text-emerald-400 font-mono-tabular">
+                    {onlineStats?.totalOnline || 1}
+                  </strong>
+                </div>
+                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-sky-400/40 flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#94A3B8]">
+                    المتصلين المسجلين:
+                  </span>
+                  <strong className="text-base font-extrabold text-sky-400 font-mono-tabular">
+                    {onlineStats?.registeredCount ?? connectedOnlineUsers.length}
+                  </strong>
+                </div>
+                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-amber-400/40 flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#94A3B8]">
+                    الزائرين الآن:
+                  </span>
+                  <strong className="text-base font-extrabold text-amber-400 font-mono-tabular">
+                    {onlineStats?.guestsCount || 0}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="space-y-2.5 pt-2">
+                <div className="text-xs font-extrabold text-emerald-300">
+                  أسماء المتصلين الآن (اضغط على أي اسم لفتح محادثة خاصة معه):
+                </div>
+
+                {connectedOnlineUsers.length === 0 ? (
+                  <p className="text-xs text-[#94A3B8] py-6 text-center">
+                    لا يوجد مستخدمون مسجلون متصلون حالياً.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {connectedOnlineUsers.map((onlineUsr) => (
+                      <button
+                        key={onlineUsr.username}
+                        type="button"
+                        onClick={() =>
+                          onOpenPrivateChatWithUser?.(
+                            onlineUsr.id,
+                            onlineUsr.username
+                          )
+                        }
+                        className="fluent-reveal p-3.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-emerald-400/40 hover:border-sky-400 flex items-center justify-between gap-3 text-right cursor-pointer transition-all"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 relative z-10">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399] shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                              {onlineUsr.username}
+                            </div>
+                            <div className="text-[10px] text-emerald-300">
+                              متصل الآن · اضغط للمراسلة الخاصة
+                            </div>
+                          </div>
+                        </div>
+
+                        <span className="relative z-10 px-2.5 py-1 rounded-lg bg-sky-600/25 border border-sky-400/50 text-sky-300 text-[11px] font-extrabold flex items-center gap-1 shrink-0">
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>محادثة خاصة</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </FluentCard>
+          )}
         </div>
       </div>
+
+      {/* Modal: سجل المراسلات (Correspondence History & Direct Reply to User Bell) */}
+      {isMessagesHistoryModalOpen && (
+        <FluentModal
+          isOpen={isMessagesHistoryModalOpen}
+          onClose={() => setIsMessagesHistoryModalOpen(false)}
+          title="سجل المراسلات السابقة"
+          subtitle="جميع المراسلات السابقة مع إمكانية كتابة رد وإرساله ليظهر في أيقونة الجرس لدى المستخدم"
+          maxWidth="2xl"
+        >
+          {unifiedMessages.length === 0 ? (
+            <p className="text-xs text-[#94A3B8] py-8 text-center">
+              لا توجد مراسلات سابقة مسجلة حتى الآن.
+            </p>
+          ) : (
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {unifiedMessages.map((msg) => {
+                const threadItems =
+                  msg.thread && msg.thread.length > 0
+                    ? msg.thread
+                    : [
+                        {
+                          id: msg.id,
+                          sender: 'user' as const,
+                          senderName: msg.senderUsername,
+                          text: msg.content,
+                          createdAt: msg.createdAt,
+                        },
+                      ];
+                const draftText = replyDrafts[`modal_${msg.id}`] || '';
+                return (
+                  <div
+                    key={msg.id}
+                    className="p-4 rounded-xl bg-[#0A192F] border border-sky-400/40 space-y-3"
+                  >
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-[#334155]">
+                      <span className="font-extrabold text-sky-400 text-sm">
+                        الحساب: {msg.senderUsername}
+                      </span>
+                      <span className="text-[#94A3B8] font-mono-tabular">
+                        {new Date(
+                          msg.updatedAt || msg.createdAt
+                        ).toLocaleString('ar-EG')}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {threadItems.map((entry) => {
+                        const isAdminEntry = entry.sender === 'admin';
+                        return (
+                          <div
+                            key={entry.id}
+                            className={`p-2.5 rounded-xl border text-xs space-y-1 ${
+                              isAdminEntry
+                                ? 'bg-emerald-950/35 border-emerald-400/50 text-emerald-100 mr-4'
+                                : 'bg-[#112240] border-[#334155] text-[#F8FAFC] ml-4'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span
+                                className={`font-extrabold ${
+                                  isAdminEntry
+                                    ? 'text-emerald-400'
+                                    : 'text-sky-400'
+                                }`}
+                              >
+                                {isAdminEntry ? 'رد الإدارة' : entry.senderName}
+                              </span>
+                              <span className="text-[#94A3B8] font-mono-tabular">
+                                {new Date(entry.createdAt).toLocaleString(
+                                  'ar-EG'
+                                )}
+                              </span>
+                            </div>
+                            <p className="whitespace-pre-line leading-relaxed">
+                              {entry.text}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-[#334155]">
+                      <input
+                        type="text"
+                        value={draftText}
+                        onChange={(e) =>
+                          setReplyDrafts((prev) => ({
+                            ...prev,
+                            [`modal_${msg.id}`]: e.target.value,
+                          }))
+                        }
+                        placeholder={`اكتب رداً إلى ${msg.senderUsername}...`}
+                        className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3.5 py-2 text-xs sm:text-sm text-[#F8FAFC] outline-none"
+                      />
+                      <FluentButton
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        disabled={!draftText.trim()}
+                        onClick={() => {
+                          if (!draftText.trim()) return;
+                          onAdminReplyToMessage?.(msg.id, draftText.trim());
+                          setReplyDrafts((prev) => ({
+                            ...prev,
+                            [`modal_${msg.id}`]: '',
+                          }));
+                          showToast(
+                            `تم إرسال الرسالة إلى "${msg.senderUsername}" وظهرت في زر الجرس لديه!`
+                          );
+                        }}
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>إرسال رسالة</span>
+                      </FluentButton>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </FluentModal>
+      )}
 
       {/* ========================================================================
           MODALS FOR SUB-SECTIONS 1, 2, AND 3
@@ -2371,16 +2871,32 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           <form onSubmit={handleSaveEditedUser} className="space-y-3.5">
             <div>
               <label className="block text-xs font-bold text-[#94A3B8] mb-1">
-                اسم المستخدم
+                اسم الحساب (الخاص بتسجيل الدخول)
               </label>
               <input
                 type="text"
                 required
-                value={usrUsername}
-                onChange={(e) => setUsrUsername(e.target.value)}
+                value={usrAccountName}
+                onChange={(e) => setUsrAccountName(e.target.value)}
                 className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3.5 py-2 text-sm text-[#F8FAFC] outline-none"
               />
             </div>
+            {editingUser.role !== 'admin' &&
+              usrRole !== 'admin' &&
+              usrAccountName.trim().toLowerCase() !== 'admin' && (
+                <div>
+                  <label className="block text-xs font-bold text-emerald-300 mb-1">
+                    الاسم الذي يظهر للمستخدمين (عند إنشاء حساب جديد)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={usrUsername}
+                    onChange={(e) => setUsrUsername(e.target.value)}
+                    className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3.5 py-2 text-sm text-[#F8FAFC] outline-none"
+                  />
+                </div>
+              )}
             <div>
               <label className="block text-xs font-bold text-[#94A3B8] mb-1">
                 الباسورد

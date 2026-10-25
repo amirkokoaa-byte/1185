@@ -73,6 +73,17 @@ export interface PopupAdConfig {
   expiresAt?: string;
 }
 
+export interface AdminMessageThreadEntry {
+  id: string;
+  sender: 'user' | 'admin';
+  senderRole?: 'user' | 'admin';
+  senderName: string;
+  text: string;
+  createdAt: string;
+  isReadByAdmin?: boolean;
+  isReadByUser?: boolean;
+}
+
 export interface AdminMessage {
   id: string;
   senderId: string;
@@ -80,6 +91,9 @@ export interface AdminMessage {
   senderPhone?: string;
   content: string;
   isRead: boolean;
+  unreadForUserCount?: number;
+  thread?: AdminMessageThreadEntry[];
+  updatedAt?: string;
   createdAt: string;
 }
 

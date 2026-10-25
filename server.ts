@@ -189,6 +189,7 @@ async function startServer() {
       chatTypingMap: state.chatTypingMap || {},
       chatPenalties: state.chatPenalties || [],
       userBlockedMap: state.userBlockedMap || {},
+      buySellPosts: state.buySellPosts || [],
       storeInteractionsMap,
     };
 

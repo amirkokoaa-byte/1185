@@ -584,6 +584,9 @@ class HybridStorageEngine {
           utilityPosts: Array.isArray(parsed.utilityPosts)
             ? normalizeCommunityPostsList(parsed.utilityPosts)
             : [],
+          buySellPosts: Array.isArray(parsed.buySellPosts)
+            ? normalizeCommunityPostsList(parsed.buySellPosts)
+            : [],
           liveChatMessages: normalizeLiveChatList(parsed.liveChatMessages),
           chatPenalties: Array.isArray(parsed.chatPenalties)
             ? parsed.chatPenalties
@@ -625,6 +628,7 @@ class HybridStorageEngine {
         communityPosts: INITIAL_COMMUNITY_POSTS,
         utilitySubmissions: [],
         utilityPosts: [],
+        buySellPosts: [],
         liveChatMessages: INITIAL_LIVE_CHAT,
         chatPenalties: [],
         privateChatMessages: [],
@@ -649,6 +653,7 @@ class HybridStorageEngine {
         communityPosts: INITIAL_COMMUNITY_POSTS,
         utilitySubmissions: [],
         utilityPosts: [],
+        buySellPosts: [],
         liveChatMessages: INITIAL_LIVE_CHAT,
         chatPenalties: [],
         privateChatMessages: [],
@@ -681,6 +686,7 @@ class HybridStorageEngine {
           communityPosts: state.communityPosts,
           utilitySubmissions: normalizeUtilitySubmissionsList(state.utilitySubmissions),
           utilityPosts: state.utilityPosts || [],
+          buySellPosts: state.buySellPosts || [],
           liveChatMessages: normalizeLiveChatList(state.liveChatMessages),
           chatPenalties: state.chatPenalties || [],
           privateChatMessages: state.privateChatMessages || [],
@@ -810,6 +816,9 @@ class HybridStorageEngine {
       utilityPosts: Array.isArray(remoteData.utilityPosts)
         ? normalizeCommunityPostsList(remoteData.utilityPosts as CommunityPostItem[])
         : base.utilityPosts || [],
+      buySellPosts: Array.isArray(remoteData.buySellPosts)
+        ? normalizeCommunityPostsList(remoteData.buySellPosts as CommunityPostItem[])
+        : base.buySellPosts || [],
       liveChatMessages: Array.isArray(remoteData.liveChatMessages)
         ? normalizeLiveChatList(remoteData.liveChatMessages as LiveChatMessageItem[])
         : base.liveChatMessages || [],
@@ -932,6 +941,9 @@ class HybridStorageEngine {
       utilityPosts: Array.isArray(chatPatch.utilityPosts)
         ? normalizeCommunityPostsList(chatPatch.utilityPosts as CommunityPostItem[])
         : base.utilityPosts || [],
+      buySellPosts: Array.isArray(chatPatch.buySellPosts)
+        ? normalizeCommunityPostsList(chatPatch.buySellPosts as CommunityPostItem[])
+        : base.buySellPosts || [],
       communityPosts: Array.isArray(chatPatch.communityPosts)
         ? normalizeCommunityPostsList(chatPatch.communityPosts as CommunityPostItem[])
         : base.communityPosts,
@@ -1265,6 +1277,7 @@ class HybridStorageEngine {
       privateChatReports: nextState.privateChatReports || [],
       utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),
       utilityPosts: nextState.utilityPosts || [],
+      buySellPosts: nextState.buySellPosts || [],
       communityPosts: nextState.communityPosts || [],
       liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,
       liveChatAutoClearMinutes: nextState.settings.liveChatAutoClearMinutes ?? 60,

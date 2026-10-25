@@ -4,6 +4,7 @@ export type MainSectionId =
   | 'tawsila'
   | 'community'
   | 'utilities'
+  | 'buy_sell'
   | 'settings';
 
 export type UserRoleType = 'admin' | 'moderator' | 'user';
@@ -161,7 +162,7 @@ export interface TawsilaRideItem {
   createdAt: string; // تاريخ تسجيل الحساب لحساب مهلة الـ 3 أيام
 }
 
-export type CommunityPostType = 'استفسار' | 'اقتراح' | 'بيع';
+export type CommunityPostType = 'استفسار' | 'اقتراح' | 'بيع' | 'بائع' | 'مشتري';
 
 export type CommunityPostStatus = 'pending' | 'approved' | 'rejected';
 
@@ -335,6 +336,7 @@ export interface PlatformDatabaseState {
   communityPosts: CommunityPostItem[];
   utilitySubmissions?: UtilitySubmissionItem[];
   utilityPosts?: CommunityPostItem[];
+  buySellPosts?: CommunityPostItem[];
   liveChatMessages?: LiveChatMessageItem[];
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];

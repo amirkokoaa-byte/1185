@@ -6,6 +6,7 @@ import {
   CommunityCommentReply,
   CommunityPostItem,
   CommunityPostStatus,
+  CommunityPostType,
   CommunityReportReason,
   MainSectionId,
   PlatformDatabaseState,
@@ -61,7 +62,7 @@ interface PortalSectionsWorkspaceProps {
   onEditCommunityPost?: (
     postId: string,
     updatedContent: string,
-    updatedPostType?: 'استفسار' | 'اقتراح' | 'بيع'
+    updatedPostType?: CommunityPostType
   ) => void;
   onUpdatePostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeletePost: (postId: string) => void;
@@ -150,7 +151,7 @@ interface PortalSectionsWorkspaceProps {
   onEditUtilityPost: (
     postId: string,
     updatedContent: string,
-    updatedPostType?: 'استفسار' | 'اقتراح' | 'بيع'
+    updatedPostType?: CommunityPostType
   ) => void;
   onUpdateUtilityPostStatus: (postId: string, status: CommunityPostStatus) => void;
   onDeleteUtilityPost: (postId: string) => void;
@@ -178,6 +179,38 @@ interface PortalSectionsWorkspaceProps {
   onDeleteUtilityComment: (postId: string, commentId: string) => void;
   onRestoreReportedUtilityComment: (postId: string, commentId: string) => void;
   onTogglePinUtilityComment: (postId: string, commentId: string) => void;
+  onAddBuySellPost: (post: CommunityPostItem) => void;
+  onEditBuySellPost: (
+    postId: string,
+    updatedContent: string,
+    updatedPostType?: CommunityPostType
+  ) => void;
+  onUpdateBuySellPostStatus: (postId: string, status: CommunityPostStatus) => void;
+  onDeleteBuySellPost: (postId: string) => void;
+  onToggleBuySellPostLike: (postId: string) => void;
+  onToggleBuySellPostDislike: (postId: string) => void;
+  onReportBuySellPost: (postId: string, reason: CommunityReportReason) => void;
+  onRestoreReportedBuySellPost: (postId: string) => void;
+  onAddCommentToBuySellPost: (postId: string, comment: CommunityCommentItem) => void;
+  onToggleBuySellCommentLike: (postId: string, commentId: string) => void;
+  onToggleBuySellCommentEmoji: (
+    postId: string,
+    commentId: string,
+    reaction: CommentEmojiReactionType
+  ) => void;
+  onAddReplyToBuySellComment: (
+    postId: string,
+    commentId: string,
+    reply: CommunityCommentReply
+  ) => void;
+  onReportBuySellComment: (
+    postId: string,
+    commentId: string,
+    reason: CommunityReportReason
+  ) => void;
+  onDeleteBuySellComment: (postId: string, commentId: string) => void;
+  onRestoreReportedBuySellComment: (postId: string, commentId: string) => void;
+  onTogglePinBuySellComment: (postId: string, commentId: string) => void;
 }
 
 export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = ({
@@ -270,6 +303,22 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onDeleteUtilityComment,
   onRestoreReportedUtilityComment,
   onTogglePinUtilityComment,
+  onAddBuySellPost,
+  onEditBuySellPost,
+  onUpdateBuySellPostStatus,
+  onDeleteBuySellPost,
+  onToggleBuySellPostLike,
+  onToggleBuySellPostDislike,
+  onReportBuySellPost,
+  onRestoreReportedBuySellPost,
+  onAddCommentToBuySellPost,
+  onToggleBuySellCommentLike,
+  onToggleBuySellCommentEmoji,
+  onAddReplyToBuySellComment,
+  onReportBuySellComment,
+  onDeleteBuySellComment,
+  onRestoreReportedBuySellComment,
+  onTogglePinBuySellComment,
 }) => {
   // Settings is strictly for Admin only (Moderators can review posts & edit other sections EXCEPT Settings)
   const isStrictAdmin = currentUser?.role === 'admin';
@@ -446,7 +495,68 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
     );
   }
 
-  // ================= 6. ADMIN SETTINGS (الإعدادات - يظهر للـ Admin فقط وليس المشرف) =================
+  // ================= 6. BUY & SELL (بيع واشتري) =================
+  if (activeSection === 'buy_sell') {
+    return (
+      <CommunityHubView
+        posts={state.buySellPosts || []}
+        liveChatMessages={state.liveChatMessages || []}
+        onlineCount={onlineCount}
+        onlineStats={onlineStats}
+        currentUser={currentUser}
+        users={state.users}
+        cooldownConfigSeconds={state.settings.liveChatCooldownSeconds ?? 5}
+        autoClearMinutes={state.settings.liveChatAutoClearMinutes ?? 60}
+        lastClearedAt={state.settings.liveChatLastClearedAt}
+        chatPenalties={state.chatPenalties || []}
+        privateChatMessages={state.privateChatMessages || []}
+        privateChatStatuses={state.privateChatStatuses || {}}
+        chatTypingMap={state.chatTypingMap || {}}
+        userBlockedMap={state.userBlockedMap || {}}
+        privateChatReports={state.privateChatReports || []}
+        sectionTitle="بيع واشتري"
+        sectionSubtitle="بيع وشراء مباشر بين الأهالي بدون أي عمولات"
+        hideLiveChatButton={true}
+        savedPostsNamespace="buy_sell"
+        allowedPostTypes={['بائع', 'مشتري']}
+        topWarningBannerText="الموقع غير مسؤل عن اي عمليات شراء  او بيع  وليس له اي عمولات علي البيع و جميع العمليات المسؤل عنها صاحبها فقط"
+        enableBuySellPrivateChat={true}
+        onOpenAuthModal={onOpenAuthModal}
+        onAddCommunityPost={onAddBuySellPost}
+        onEditCommunityPost={onEditBuySellPost}
+        onUpdatePostStatus={onUpdateBuySellPostStatus}
+        onDeletePost={onDeleteBuySellPost}
+        onTogglePostLike={onToggleBuySellPostLike}
+        onTogglePostDislike={onToggleBuySellPostDislike}
+        onReportPost={onReportBuySellPost}
+        onRestoreReportedPost={onRestoreReportedBuySellPost}
+        onAddCommentToPost={onAddCommentToBuySellPost}
+        onToggleCommentLike={onToggleBuySellCommentLike}
+        onToggleCommentEmoji={onToggleBuySellCommentEmoji}
+        onAddReplyToComment={onAddReplyToBuySellComment}
+        onReportComment={onReportBuySellComment}
+        onDeleteComment={onDeleteBuySellComment}
+        onRestoreReportedComment={onRestoreReportedBuySellComment}
+        onTogglePinComment={onTogglePinBuySellComment}
+        onSendChatMessage={onSendChatMessage}
+        onReportChatMessage={onReportChatMessage}
+        onDeleteChatMessage={onDeleteChatMessage}
+        onUpdateChatCooldown={onUpdateChatCooldown}
+        onUpdateAutoClearMinutes={onUpdateAutoClearMinutes}
+        onClearPublicChatNow={onClearPublicChatNow}
+        onClearPrivateChatSession={onClearPrivateChatSession}
+        onApplyChatPenalty={onApplyChatPenalty}
+        onSendPrivateMessage={onSendPrivateMessage}
+        onMarkPrivateMessagesRead={onMarkPrivateMessagesRead}
+        onSetChatTypingStatus={onSetChatTypingStatus}
+        onRespondPrivateChatRequest={onRespondPrivateChatRequest}
+        onBlockUserInChat={onBlockUserInChat}
+        onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
+      />
+    );
+  }
+
+  // ================= 7. ADMIN SETTINGS (الإعدادات - يظهر للـ Admin فقط وليس المشرف) =================
   if (!isStrictAdmin) {
     return (
       <FluentCard className="p-8 text-center space-y-3">

@@ -47,7 +47,10 @@ import {
   ABUSIVE_CONTENT_WARNING_MESSAGE,
   containsAbusiveWords,
 } from '../services/profanityFilter';
-import { RealOnlinePresenceStats } from '../services/storageService';
+import {
+  getOrCreateVisitorId,
+  RealOnlinePresenceStats,
+} from '../services/storageService';
 
 interface CommunityHubViewProps {
   posts: CommunityPostItem[];
@@ -63,6 +66,9 @@ interface CommunityHubViewProps {
   sectionSubtitle?: string;
   hideLiveChatButton?: boolean;
   savedPostsNamespace?: string;
+  allowedPostTypes?: CommunityPostType[];
+  topWarningBannerText?: string;
+  enableBuySellPrivateChat?: boolean;
   chatPenalties?: ChatModerationPenalty[];
   privateChatMessages?: PrivateChatMessageItem[];
   privateChatStatuses?: Record<string, PrivateChatStatus>;
@@ -250,6 +256,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   sectionSubtitle = 'شارك استفساراتك، اقتراحاتك، وإعلانات البيع والشراء مع أهالي المنطقة',
   hideLiveChatButton = false,
   savedPostsNamespace = 'community',
+  allowedPostTypes = ['استفسار', 'اقتراح', 'بيع'],
+  topWarningBannerText,
+  enableBuySellPrivateChat = false,
   chatPenalties = [],
   privateChatMessages = [],
   privateChatStatuses = {},
@@ -291,7 +300,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const isStrictAdmin = currentUser?.role === 'admin';
   const isAdmin =
     currentUser?.role === 'admin' || currentUser?.role === 'moderator';
-  const visitorId = currentUser?.id || 'guest-visitor';
+  const visitorId = getOrCreateVisitorId(currentUser);
   const visitorName = currentUser?.username || 'زائر';
 
   // Live Chat Modal State ("محادثة لايف")
@@ -376,19 +385,34 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
   // Facebook-style Post Composer States
   const [composerText, setComposerText] = useState<string>('');
-  const [composerPostType, setComposerPostType] =
-    useState<CommunityPostType>('استفسار');
+  const [composerPostType, setComposerPostType] = useState<CommunityPostType>(
+    allowedPostTypes[0] || 'استفسار'
+  );
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState<boolean>(false);
   const [activeEmojiGroupIdx, setActiveEmojiGroupIdx] = useState<number>(0);
   const [submissionNotice, setSubmissionNotice] = useState<string>('');
   const [profanityAlert, setProfanityAlert] = useState<string>('');
+
+  useEffect(() => {
+    if (!allowedPostTypes.includes(composerPostType)) {
+      setComposerPostType(allowedPostTypes[0] || 'استفسار');
+    }
+    if (
+      selectedPostTypeFilter !== 'الكل' &&
+      !allowedPostTypes.includes(selectedPostTypeFilter)
+    ) {
+      setSelectedPostTypeFilter('الكل');
+    }
+  }, [allowedPostTypes, composerPostType, selectedPostTypeFilter]);
 
   // Per-Post Interactive UI States ("المزيد" menu, inline editing, reporting)
   const [openMoreMenuPostId, setOpenMoreMenuPostId] = useState<string | null>(null);
   const [openReportSubMenuPostId, setOpenReportSubMenuPostId] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingPostContent, setEditingPostContent] = useState<string>('');
-  const [editingPostType, setEditingPostType] = useState<CommunityPostType>('استفسار');
+  const [editingPostType, setEditingPostType] = useState<CommunityPostType>(
+    allowedPostTypes[0] || 'استفسار'
+  );
   const [openReportMenuId, setOpenReportMenuId] = useState<string | null>(null);
   const [openCommentInputForPost, setOpenCommentInputForPost] = useState<
     Record<string, boolean>
@@ -402,6 +426,244 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   );
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [reportFeedbackBanner, setReportFeedbackBanner] = useState<string>('');
+
+  // Close "المزيد" menu when clicking anywhere outside
+  useEffect(() => {
+    if (!openMoreMenuPostId) return;
+    const handleDocClick = (ev: MouseEvent) => {
+      const target = ev.target as HTMLElement | null;
+      if (target && target.closest('[data-more-menu-container="true"]')) {
+        return;
+      }
+      setOpenMoreMenuPostId(null);
+      setOpenReportSubMenuPostId(null);
+    };
+    document.addEventListener('mousedown', handleDocClick);
+    return () => document.removeEventListener('mousedown', handleDocClick);
+  }, [openMoreMenuPostId]);
+
+  // ============================================================================
+  // Persistent Bottom-Left Square Private Chat Box & Chat History ("بيع واشتري")
+  // ============================================================================
+  const openPopupStorageKey = 'nakhil_1185_buy_sell_open_popup_v1';
+  const chatHistoryPartnersStorageKey = `nakhil_1185_buy_sell_history_partners_v1_${visitorId}`;
+
+  const [activeBottomLeftChat, setActiveBottomLeftChat] = useState<{
+    partnerId: string;
+    partnerUsername: string;
+  } | null>(() => {
+    try {
+      const raw = localStorage.getItem(openPopupStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.partnerUsername) {
+          return {
+            partnerId: parsed.partnerId || parsed.partnerUsername,
+            partnerUsername: parsed.partnerUsername,
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  });
+
+  const [savedHistoryPartners, setSavedHistoryPartners] = useState<
+    Array<{ partnerId: string; partnerUsername: string; updatedAt: string }>
+  >(() => {
+    try {
+      const raw = localStorage.getItem(chatHistoryPartnersStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(chatHistoryPartnersStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setSavedHistoryPartners(parsed);
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [chatHistoryPartnersStorageKey]);
+
+  const [isChatHistoryModalOpen, setIsChatHistoryModalOpen] = useState<boolean>(false);
+  const [bottomLeftChatDraft, setBottomLeftChatDraft] = useState<string>('');
+  const bottomLeftMessagesEndRef = useRef<HTMLDivElement | null>(null);
+  const bottomLeftTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const recordPartnerInHistory = (partnerId: string, partnerUsername: string) => {
+    const cleanName = partnerUsername.trim();
+    if (!cleanName) return;
+    setSavedHistoryPartners((prev) => {
+      const norm = cleanName.toLowerCase();
+      const filtered = prev.filter(
+        (item) => item.partnerUsername.trim().toLowerCase() !== norm
+      );
+      const next = [
+        {
+          partnerId: partnerId || cleanName,
+          partnerUsername: cleanName,
+          updatedAt: new Date().toISOString(),
+        },
+        ...filtered,
+      ];
+      try {
+        localStorage.setItem(chatHistoryPartnersStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const openBottomLeftPrivateChat = (partnerId: string, partnerUsername: string) => {
+    const target = {
+      partnerId: partnerId || partnerUsername,
+      partnerUsername: partnerUsername.trim(),
+    };
+    setActiveBottomLeftChat(target);
+    try {
+      localStorage.setItem(openPopupStorageKey, JSON.stringify(target));
+    } catch {
+      // ignore
+    }
+    recordPartnerInHistory(target.partnerId, target.partnerUsername);
+    onMarkPrivateMessagesRead?.(target.partnerUsername);
+  };
+
+  const closeBottomLeftPrivateChat = () => {
+    if (activeBottomLeftChat) {
+      onSetChatTypingStatus?.(`private:${activeBottomLeftChat.partnerUsername}`, false);
+    }
+    setActiveBottomLeftChat(null);
+    try {
+      localStorage.removeItem(openPopupStorageKey);
+    } catch {
+      // ignore
+    }
+  };
+
+  // Compute all conversations involving the current user for "سجل المحادثات"
+  const myNormName = visitorName.trim().toLowerCase();
+  const previousConversationsList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        partnerId: string;
+        partnerUsername: string;
+        lastMessageText: string;
+        lastMessageAt: string;
+        unreadCount: number;
+        totalMessages: number;
+      }
+    >();
+
+    // 1. Seed from saved history partners
+    savedHistoryPartners.forEach((p) => {
+      const norm = p.partnerUsername.trim().toLowerCase();
+      if (!norm) return;
+      map.set(norm, {
+        partnerId: p.partnerId,
+        partnerUsername: p.partnerUsername,
+        lastMessageText: 'بدأت محادثة خاصة',
+        lastMessageAt: p.updatedAt,
+        unreadCount: 0,
+        totalMessages: 0,
+      });
+    });
+
+    // 2. Merge actual privateChatMessages involving current user
+    (privateChatMessages || []).forEach((msg) => {
+      const sNorm = msg.senderUsername.trim().toLowerCase();
+      const rNorm = msg.receiverUsername.trim().toLowerCase();
+      const isMeSender = msg.senderId === visitorId || sNorm === myNormName;
+      const isMeReceiver = msg.receiverId === visitorId || rNorm === myNormName;
+      if (!isMeSender && !isMeReceiver) return;
+
+      const partnerUsername = isMeSender
+        ? msg.receiverUsername
+        : msg.senderUsername;
+      const partnerId = isMeSender ? msg.receiverId : msg.senderId;
+      const partnerNorm = partnerUsername.trim().toLowerCase();
+      if (!partnerNorm) return;
+
+      const existing = map.get(partnerNorm);
+      const unreadIncrement = isMeReceiver && !msg.isRead ? 1 : 0;
+      map.set(partnerNorm, {
+        partnerId: partnerId || existing?.partnerId || partnerUsername,
+        partnerUsername: existing?.partnerUsername || partnerUsername,
+        lastMessageText: msg.text,
+        lastMessageAt: msg.createdAt,
+        unreadCount: (existing?.unreadCount || 0) + unreadIncrement,
+        totalMessages: (existing?.totalMessages || 0) + 1,
+      });
+    });
+
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+    );
+  }, [savedHistoryPartners, privateChatMessages, visitorId, myNormName]);
+
+  // Messages for the currently open bottom-left square chat popup
+  const activeBottomLeftMessages = useMemo(() => {
+    if (!activeBottomLeftChat) return [];
+    const targetNorm = activeBottomLeftChat.partnerUsername.trim().toLowerCase();
+    return (privateChatMessages || []).filter((msg) => {
+      const sNorm = msg.senderUsername.trim().toLowerCase();
+      const rNorm = msg.receiverUsername.trim().toLowerCase();
+      const isMeSender = msg.senderId === visitorId || sNorm === myNormName;
+      const isMeReceiver = msg.receiverId === visitorId || rNorm === myNormName;
+      if (targetNorm === myNormName) {
+        return isMeSender && isMeReceiver;
+      }
+      return (
+        (isMeSender && rNorm === targetNorm) ||
+        (isMeReceiver && sNorm === targetNorm)
+      );
+    });
+  }, [activeBottomLeftChat, privateChatMessages, visitorId, myNormName]);
+
+  // Check if the partner in the bottom-left chat popup is currently typing to us
+  const isBottomLeftPartnerTyping = useMemo(() => {
+    if (!activeBottomLeftChat) return false;
+    const partnerNorm = activeBottomLeftChat.partnerUsername.trim().toLowerCase();
+    const now = Date.now();
+    return Object.values(chatTypingMap || {}).some((entry) => {
+      if (!entry || now - entry.updatedAt >= 6000) return false;
+      const entryUserNorm = entry.username.trim().toLowerCase();
+      if (entryUserNorm !== partnerNorm) return false;
+      const targetClean = (entry.targetUsername || entry.targetKey || '')
+        .replace(/^private:/i, '')
+        .trim()
+        .toLowerCase();
+      return targetClean === myNormName || targetClean === visitorId.toLowerCase();
+    });
+  }, [activeBottomLeftChat, chatTypingMap, myNormName, visitorId]);
+
+  useEffect(() => {
+    if (activeBottomLeftChat && activeBottomLeftMessages.length > 0) {
+      bottomLeftMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      onMarkPrivateMessagesRead?.(activeBottomLeftChat.partnerUsername);
+    }
+  }, [
+    activeBottomLeftChat,
+    activeBottomLeftMessages.length,
+    isBottomLeftPartnerTyping,
+  ]);
 
   const myBlockedUserKeys = useMemo(() => {
     const list1 = userBlockedMap[visitorId] || [];
@@ -516,7 +778,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     setSubmissionNotice('يتم عرض المنشور للموافقة عليه من المسؤول');
   };
 
-  // Badge styling helper for Post Type ('استفسار' | 'اقتراح' | 'بيع')
+  // Badge styling helper for Post Type ('استفسار' | 'اقتراح' | 'بيع' | 'بائع' | 'مشتري')
   const getPostTypeBadgeStyle = (type: CommunityPostType) => {
     switch (type) {
       case 'استفسار':
@@ -524,7 +786,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       case 'اقتراح':
         return 'bg-purple-500/20 text-purple-300 border-purple-400/50';
       case 'بيع':
+      case 'بائع':
         return 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50';
+      case 'مشتري':
+        return 'bg-amber-500/20 text-amber-300 border-amber-400/50';
+      default:
+        return 'bg-sky-500/20 text-sky-300 border-sky-400/50';
     }
   };
 
@@ -888,7 +1155,17 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
   return (
     <div className="space-y-4 w-full max-w-4xl mx-auto overflow-x-hidden">
-      {/* 1. Top Bar: Title + Single-Row Controls on Mobile ("المنشورات المحفوظة" ثم "محادثة لايف" ثم "قائمة منسدلة الفلترة" في سطر واحد بدون مسطرة تحريك يمين أو يسار) */}
+      {/* رسالة تحذيرية بالأعلى في قسم بيع واشتري */}
+      {topWarningBannerText && (
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-400/80 text-amber-200 shadow-lg flex items-start sm:items-center gap-3">
+          <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+          <p className="text-xs sm:text-sm font-extrabold leading-relaxed text-[#F8FAFC]">
+            {topWarningBannerText}
+          </p>
+        </div>
+      )}
+
+      {/* 1. Top Bar: Title + Single-Row Controls on Mobile */}
       <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl p-2 sm:p-4 shadow-lg space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 overflow-hidden">
         <div className="flex items-center justify-between gap-2 w-full sm:w-auto">
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
@@ -922,8 +1199,23 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           )}
         </div>
 
-        {/* Single-Row Controls on Mobile: 1) المنشورات المحفوظة -> 2) محادثة لايف -> 3) قائمة منسدلة الفلترة (No horizontal scrollbar) */}
+        {/* Single-Row Controls on Mobile */}
         <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-1 sm:gap-2 flex-nowrap overflow-hidden">
+          {/* زر سجل المحادثات في الأعلى في بيع واشتري */}
+          {enableBuySellPrivateChat && (
+            <button
+              type="button"
+              onClick={() => setIsChatHistoryModalOpen(true)}
+              className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-400/60 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shadow-sm"
+            >
+              <MessageSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 shrink-0" />
+              <span className="truncate">سجل المحادثات</span>
+              <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-emerald-500/25 text-emerald-200 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
+                {previousConversationsList.length}
+              </span>
+            </button>
+          )}
+
           {/* 1. زر المنشورات المحفوظة */}
           <button
             type="button"
@@ -965,15 +1257,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs text-[#F8FAFC] font-extrabold outline-none truncate"
             >
               <option value="الكل">الكل ({approvedPosts.length})</option>
-              <option value="استفسار">
-                استفسار ({approvedPosts.filter((p) => p.postType === 'استفسار').length})
-              </option>
-              <option value="اقتراح">
-                اقتراح ({approvedPosts.filter((p) => p.postType === 'اقتراح').length})
-              </option>
-              <option value="بيع">
-                بيع ({approvedPosts.filter((p) => p.postType === 'بيع').length})
-              </option>
+              {allowedPostTypes.map((typeOption) => (
+                <option key={typeOption} value={typeOption}>
+                  {typeOption} (
+                  {approvedPosts.filter((p) => p.postType === typeOption).length})
+                </option>
+              ))}
             </select>
           </div>
 
@@ -1050,9 +1339,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               }
               className="rounded-xl bg-[#0A192F] border border-sky-400/50 px-2.5 py-1 text-xs text-sky-300 font-extrabold outline-none"
             >
-              <option value="استفسار">استفسار</option>
-              <option value="اقتراح">اقتراح</option>
-              <option value="بيع">بيع</option>
+              {allowedPostTypes.map((typeOption) => (
+                <option key={typeOption} value={typeOption}>
+                  {typeOption}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -1234,7 +1525,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                 isMoreMenuOpen ? 'z-40 relative' : 'relative'
               }`}
             >
-              {/* السطر الأول: الاسم في سطر واحد على اليمين | وعلى أقصى اليسار نوع المنشور + زر المزيد */}
+              {/* السطر الأول: الاسم في سطر واحد على اليمين (وبجانبه محادثة خاصة في بيع واشتري) | وعلى أقصى اليسار نوع المنشور + زر المزيد */}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="w-7 h-7 rounded-lg bg-[#0A192F] border border-sky-400/40 flex items-center justify-center text-sky-400 font-extrabold text-xs shrink-0">
@@ -1243,6 +1534,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
                     {post.authorUsername}
                   </div>
+                  {enableBuySellPrivateChat && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openBottomLeftPrivateChat(post.authorId, post.authorUsername)
+                      }
+                      className="fluent-reveal px-2 sm:px-2.5 py-1 rounded-lg bg-emerald-600/25 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-400/60 text-[10px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 transition-all shadow-sm whitespace-nowrap"
+                    >
+                      <MessageSquare className="w-3 h-3 shrink-0" />
+                      <span>محادثة خاصة</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* على أقصى اليسار: نوع المنشور + زر "المزيد" */}
@@ -1256,7 +1559,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   </span>
 
                   {/* زر "المزيد" على يسار المنشور في الأعلى */}
-                  <div className="relative">
+                  <div className="relative" data-more-menu-container="true">
                     <button
                       type="button"
                       onClick={() => {
@@ -1270,7 +1573,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       <ChevronDown className="w-3 h-3 text-[#94A3B8]" />
                     </button>
 
-                    {/* القائمة المنسدلة لزر "المزيد": تظهر بالكامل ولا يختفي منها أي جزء في نسخة الهاتف */}
+                    {/* القائمة المنسدلة لزر "المزيد": عند اختيار أي خيار يتم غلق القائمة مرة أخرى */}
                     {isMoreMenuOpen && (
                       <div className="absolute left-0 top-full mt-1.5 w-52 max-w-[calc(100vw-2rem)] rounded-xl bg-[#0A192F] border border-sky-400/60 shadow-2xl z-50 py-1.5 overflow-hidden">
                         {isPostOwner ? (
@@ -1282,6 +1585,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                                 setEditingPostId(post.id);
                                 setEditingPostContent(post.content);
                                 setEditingPostType(post.postType);
+                                setOpenReportSubMenuPostId(null);
                                 setOpenMoreMenuPostId(null);
                               }}
                               className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-sky-300 hover:bg-sky-500/20 flex items-center gap-2 cursor-pointer"
@@ -1293,6 +1597,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               type="button"
                               onClick={() => {
                                 onDeletePost(post.id);
+                                setOpenReportSubMenuPostId(null);
                                 setOpenMoreMenuPostId(null);
                               }}
                               className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-rose-300 hover:bg-rose-600/25 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
@@ -1302,12 +1607,13 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             </button>
                           </>
                         ) : (
-                          /* لباقي المستخدمين: حفظ + الإبلاغ */
+                          /* لباقي المستخدمين: حفظ + خيارات الإبلاغ (وعند اختيار أي خيار تُغلق القائمة فوراً) */
                           <>
                             <button
                               type="button"
                               onClick={() => {
                                 toggleSavePost(post.id);
+                                setOpenReportSubMenuPostId(null);
                                 setOpenMoreMenuPostId(null);
                               }}
                               className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-sky-300 hover:bg-sky-500/20 flex items-center gap-2 cursor-pointer"
@@ -1360,6 +1666,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                                 type="button"
                                 onClick={() => {
                                   onDeletePost(post.id);
+                                  setOpenReportSubMenuPostId(null);
                                   setOpenMoreMenuPostId(null);
                                 }}
                                 className="w-full text-right px-3.5 py-2 text-xs font-extrabold text-rose-400 hover:bg-rose-600/25 flex items-center gap-2 cursor-pointer border-t border-[#334155]/60"
@@ -1402,9 +1709,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       }
                       className="rounded-lg bg-[#112240] border border-sky-400/40 px-2 py-1 text-xs text-sky-300 font-bold outline-none"
                     >
-                      <option value="استفسار">استفسار</option>
-                      <option value="اقتراح">اقتراح</option>
-                      <option value="بيع">بيع</option>
+                      {allowedPostTypes.map((typeOption) => (
+                        <option key={typeOption} value={typeOption}>
+                          {typeOption}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <textarea
@@ -1920,6 +2229,229 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             </div>
           )}
         </FluentModal>
+      )}
+
+      {/* شاشة سجل المحادثات السابقة ("زر باسم سجل المحادثات يوجد به المحادثات السابقه") */}
+      {enableBuySellPrivateChat && isChatHistoryModalOpen && (
+        <FluentModal
+          isOpen={isChatHistoryModalOpen}
+          onClose={() => setIsChatHistoryModalOpen(false)}
+          title="سجل المحادثات"
+          subtitle={`جميع المحادثات السابقة في قسم بيع واشتري (${previousConversationsList.length} محادثة)`}
+          maxWidth="lg"
+        >
+          {previousConversationsList.length === 0 ? (
+            <div className="p-8 text-center space-y-2">
+              <MessageSquare className="w-10 h-10 text-emerald-400 mx-auto opacity-80" />
+              <div className="text-sm font-extrabold text-[#F8FAFC]">
+                لا توجد محادثات سابقة حالياً
+              </div>
+              <p className="text-xs text-[#94A3B8]">
+                اضغط على زر &quot;محادثة خاصة&quot; بجانب اسم صاحب أي منشور لبدء التواصل الفوري.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5 max-h-[65vh] overflow-y-auto pr-1">
+              {previousConversationsList.map((conv) => (
+                <div
+                  key={conv.partnerUsername}
+                  onClick={() => {
+                    openBottomLeftPrivateChat(conv.partnerId, conv.partnerUsername);
+                    setIsChatHistoryModalOpen(false);
+                  }}
+                  className="fluent-reveal p-3.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] hover:border-emerald-400/60 flex items-center justify-between gap-3 cursor-pointer transition-all"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-300 font-extrabold text-sm shrink-0">
+                      {conv.partnerUsername.slice(0, 1)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                          {conv.partnerUsername}
+                        </span>
+                        {conv.unreadCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-mono-tabular font-extrabold">
+                            {conv.unreadCount} جديد
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-[#94A3B8] truncate mt-0.5">
+                        {conv.lastMessageText}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="text-[10px] text-sky-300 font-bold">
+                      {formatTextualArabicElapsedTime(conv.lastMessageAt, liveTimeTick)}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-600/25 border border-emerald-400/50 text-emerald-300 text-[10px] font-extrabold">
+                      فتح المحادثة
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </FluentModal>
+      )}
+
+      {/* الشاشة المنبثقة من الأسفل على يسار الموقع (مربع الشات الخاص المستمر حتى بعد عمل ريفريش للصفحة ولا يُغلق إلا بزر إغلاق بالداخل) */}
+      {enableBuySellPrivateChat && activeBottomLeftChat && (
+        <div className="fixed bottom-3 left-3 sm:bottom-5 sm:left-5 z-50 w-[330px] sm:w-[375px] h-[385px] sm:h-[420px] max-w-[calc(100vw-1.5rem)] rounded-2xl bg-[#112240] border-2 border-sky-400 shadow-[0_12px_45px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden">
+          {/* Header: اسم الشخص الذي يتم التواصل معه + زر إغلاق لإغلاق المحادثة نهائياً */}
+          <div className="px-3.5 py-2.5 bg-[#0A192F] border-b border-[#334155] flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-300 font-extrabold text-xs shrink-0">
+                {activeBottomLeftChat.partnerUsername.slice(0, 1)}
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                  {activeBottomLeftChat.partnerUsername}
+                </div>
+                <div className="text-[10px] font-bold text-emerald-400 truncate">
+                  {isBottomLeftPartnerTyping ? 'يكتب رسالة الآن...' : 'محادثة خاصة مباشرة'}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={closeBottomLeftPrivateChat}
+              className="fluent-reveal px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 shadow"
+              title="إغلاق المحادثة نهائياً"
+            >
+              <XCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>إغلاق</span>
+            </button>
+          </div>
+
+          {/* Messages Feed */}
+          <div className="flex-1 p-3 overflow-y-auto space-y-2 bg-[#0A192F]/85">
+            {activeBottomLeftMessages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center p-4 space-y-1.5 text-[#94A3B8]">
+                <MessageSquare className="w-7 h-7 text-sky-400 opacity-75" />
+                <div className="text-xs font-extrabold text-[#F8FAFC]">
+                  محادثة خاصة مع {activeBottomLeftChat.partnerUsername}
+                </div>
+                <p className="text-[11px]">
+                  اكتب رسالتك بالأسفل للتواصل المباشر الفوري.
+                </p>
+              </div>
+            ) : (
+              activeBottomLeftMessages.map((msg) => {
+                const isMine =
+                  msg.senderId === visitorId ||
+                  msg.senderUsername.trim().toLowerCase() === myNormName;
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col ${
+                      isMine ? 'items-start' : 'items-end'
+                    }`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs space-y-1 ${
+                        isMine
+                          ? 'bg-sky-600 text-white rounded-tr-none'
+                          : 'bg-[#1E293B] text-[#F8FAFC] border border-[#334155] rounded-tl-none'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[10px] opacity-85 font-extrabold">
+                        <span>{msg.senderUsername}</span>
+                        <span>
+                          {new Date(msg.createdAt).toLocaleTimeString('ar-EG', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                      <p className="leading-relaxed break-words whitespace-pre-wrap font-bold">
+                        {msg.text}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+
+            {isBottomLeftPartnerTyping && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[11px] font-extrabold w-fit">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>{activeBottomLeftChat.partnerUsername} يكتب الآن...</span>
+              </div>
+            )}
+
+            <div ref={bottomLeftMessagesEndRef} />
+          </div>
+
+          {/* Input Form */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const clean = bottomLeftChatDraft.trim();
+              if (!clean || !activeBottomLeftChat) return;
+              if (containsAbusiveWords(clean)) {
+                setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                return;
+              }
+              recordPartnerInHistory(
+                activeBottomLeftChat.partnerId,
+                activeBottomLeftChat.partnerUsername
+              );
+              onSendPrivateMessage?.(
+                activeBottomLeftChat.partnerId,
+                activeBottomLeftChat.partnerUsername,
+                clean,
+                '#F8FAFC'
+              );
+              setBottomLeftChatDraft('');
+              if (bottomLeftTypingTimeoutRef.current) {
+                clearTimeout(bottomLeftTypingTimeoutRef.current);
+              }
+              onSetChatTypingStatus?.(
+                `private:${activeBottomLeftChat.partnerUsername}`,
+                false
+              );
+            }}
+            className="p-2.5 bg-[#0A192F] border-t border-[#334155] flex items-center gap-2 shrink-0"
+          >
+            <input
+              type="text"
+              value={bottomLeftChatDraft}
+              onChange={(e) => {
+                const val = e.target.value;
+                setBottomLeftChatDraft(val);
+                if (!activeBottomLeftChat) return;
+                onSetChatTypingStatus?.(
+                  `private:${activeBottomLeftChat.partnerUsername}`,
+                  val.trim().length > 0
+                );
+                if (bottomLeftTypingTimeoutRef.current) {
+                  clearTimeout(bottomLeftTypingTimeoutRef.current);
+                }
+                if (val.trim().length > 0) {
+                  bottomLeftTypingTimeoutRef.current = setTimeout(() => {
+                    onSetChatTypingStatus?.(
+                      `private:${activeBottomLeftChat.partnerUsername}`,
+                      false
+                    );
+                  }, 3000);
+                }
+              }}
+              placeholder={`اكتب رسالة إلى ${activeBottomLeftChat.partnerUsername}...`}
+              className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs text-[#F8FAFC] outline-none"
+            />
+            <button
+              type="submit"
+              className="fluent-reveal px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 shadow"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>إرسال</span>
+            </button>
+          </form>
+        </div>
       )}
 
       {/* Live Chat Modal ("محادثة لايف") */}

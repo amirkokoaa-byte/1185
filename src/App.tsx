@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Radio,
   FileText,
+  ShoppingBag,
 } from 'lucide-react';
 import {
   AdminMessage,
@@ -23,6 +24,7 @@ import {
   CommunityCommentReply,
   CommunityPostItem,
   CommunityPostStatus,
+  CommunityPostType,
   CommunityReportReason,
   LiveChatMessageItem,
   MainSectionId,
@@ -71,9 +73,35 @@ export default function App() {
     return storageEngine.loadAuthenticatedUser(initialDb.users);
   });
 
-  const [activeSection, setActiveSection] = useState<MainSectionId>('directory');
+  const [activeSection, setActiveSection] = useState<MainSectionId>(() => {
+    try {
+      const saved = sessionStorage.getItem('nakhil_1185_active_section_v1');
+      if (
+        saved === 'directory' ||
+        saved === 'services_numbers' ||
+        saved === 'tawsila' ||
+        saved === 'community' ||
+        saved === 'utilities' ||
+        saved === 'buy_sell' ||
+        saved === 'settings'
+      ) {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return 'directory';
+  });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('nakhil_1185_active_section_v1', activeSection);
+    } catch {
+      // ignore
+    }
+  }, [activeSection]);
 
   const [connStatus, setConnStatus] = useState<
     'local' | 'firebase_connected' | 'firebase_error'
@@ -121,17 +149,6 @@ export default function App() {
     };
     const handleBeforeUnload = () => {
       removeCurrentTabPresence();
-      try {
-        // Upon exiting the site, clear ephemeral private chat history from local storage
-        const currentLocal = storageEngine.loadLocalState();
-        storageEngine.saveLocalState({
-          ...currentLocal,
-          privateChatMessages: [],
-          privateChatStatuses: {},
-        });
-      } catch {
-        // Ignore unload storage errors
-      }
     };
 
     window.addEventListener('storage', refreshFromBroadcast);
@@ -512,7 +529,7 @@ export default function App() {
   const handleEditCommunityPost = (
     postId: string,
     updatedContent: string,
-    updatedPostType?: 'استفسار' | 'اقتراح' | 'بيع'
+    updatedPostType?: CommunityPostType
   ) => {
     updateAndPersist((prev) => ({
       ...prev,
@@ -1307,7 +1324,7 @@ export default function App() {
   const handleEditUtilityPost = (
     postId: string,
     updatedContent: string,
-    updatedPostType?: 'استفسار' | 'اقتراح' | 'بيع'
+    updatedPostType?: CommunityPostType
   ) => {
     updateAndPersist((prev) => ({
       ...prev,
@@ -1578,6 +1595,288 @@ export default function App() {
     }));
   };
 
+  // --- Buy & Sell (بيع واشتري) Posts Handlers ---
+  const handleAddBuySellPost = (post: CommunityPostItem) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: [post, ...(prev.buySellPosts || [])],
+    }));
+  };
+
+  const handleEditBuySellPost = (
+    postId: string,
+    updatedContent: string,
+    updatedPostType?: CommunityPostType
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) =>
+        p.id === postId
+          ? {
+              ...p,
+              content: updatedContent,
+              postType: updatedPostType || p.postType,
+            }
+          : p
+      ),
+    }));
+  };
+
+  const handleUpdateBuySellPostStatus = (
+    postId: string,
+    status: CommunityPostStatus
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) =>
+        p.id === postId ? { ...p, status } : p
+      ),
+    }));
+  };
+
+  const handleDeleteBuySellPost = (postId: string) => {
+    if (currentUser?.role === 'moderator') return;
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).filter((p) => p.id !== postId),
+    }));
+  };
+
+  const handleToggleBuySellPostLike = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        const alreadyLiked = p.likes.includes(visitorId);
+        return {
+          ...p,
+          likes: alreadyLiked
+            ? p.likes.filter((id) => id !== visitorId)
+            : [...p.likes, visitorId],
+          dislikes: p.dislikes.filter((id) => id !== visitorId),
+        };
+      }),
+    }));
+  };
+
+  const handleToggleBuySellPostDislike = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        const alreadyDisliked = p.dislikes.includes(visitorId);
+        return {
+          ...p,
+          dislikes: alreadyDisliked
+            ? p.dislikes.filter((id) => id !== visitorId)
+            : [...p.dislikes, visitorId],
+          likes: p.likes.filter((id) => id !== visitorId),
+        };
+      }),
+    }));
+  };
+
+  const handleReportBuySellPost = (
+    postId: string,
+    reason: CommunityReportReason
+  ) => {
+    const reporterName = currentUser?.username || 'زائر';
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) =>
+        p.id === postId
+          ? {
+              ...p,
+              reports: [
+                ...p.reports,
+                {
+                  id: `rep-bsp-${Date.now()}`,
+                  reporterId: visitorId,
+                  reporterUsername: reporterName,
+                  reason,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+            }
+          : p
+      ),
+    }));
+  };
+
+  const handleRestoreReportedBuySellPost = (postId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) =>
+        p.id === postId ? { ...p, reports: [] } : p
+      ),
+    }));
+  };
+
+  const handleAddCommentToBuySellPost = (
+    postId: string,
+    comment: CommunityCommentItem
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) =>
+        p.id === postId ? { ...p, comments: [...p.comments, comment] } : p
+      ),
+    }));
+  };
+
+  const handleToggleBuySellCommentLike = (
+    postId: string,
+    commentId: string
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) => {
+            if (c.id !== commentId) return c;
+            const liked = c.likes.includes(visitorId);
+            return {
+              ...c,
+              likes: liked
+                ? c.likes.filter((id) => id !== visitorId)
+                : [...c.likes, visitorId],
+            };
+          }),
+        };
+      }),
+    }));
+  };
+
+  const handleToggleBuySellCommentEmoji = (
+    postId: string,
+    commentId: string,
+    reaction: CommentEmojiReactionType
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) => {
+            if (c.id !== commentId) return c;
+            const currentArr = c.reactions[reaction] || [];
+            const hasReacted = currentArr.includes(visitorId);
+            return {
+              ...c,
+              reactions: {
+                ...c.reactions,
+                [reaction]: hasReacted
+                  ? currentArr.filter((id) => id !== visitorId)
+                  : [...currentArr, visitorId],
+              },
+            };
+          }),
+        };
+      }),
+    }));
+  };
+
+  const handleAddReplyToBuySellComment = (
+    postId: string,
+    commentId: string,
+    reply: CommunityCommentReply
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, replies: [...c.replies, reply] } : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleReportBuySellComment = (
+    postId: string,
+    commentId: string,
+    reason: CommunityReportReason
+  ) => {
+    const reporterName = currentUser?.username || 'زائر';
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId
+              ? {
+                  ...c,
+                  reports: [
+                    ...c.reports,
+                    {
+                      id: `rep-bsc-${Date.now()}`,
+                      reporterId: visitorId,
+                      reporterUsername: reporterName,
+                      reason,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ],
+                }
+              : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleDeleteBuySellComment = (postId: string, commentId: string) => {
+    if (currentUser?.role === 'moderator') return;
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) =>
+        p.id === postId
+          ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) }
+          : p
+      ),
+    }));
+  };
+
+  const handleRestoreReportedBuySellComment = (
+    postId: string,
+    commentId: string
+  ) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, reports: [] } : c
+          ),
+        };
+      }),
+    }));
+  };
+
+  const handleTogglePinBuySellComment = (postId: string, commentId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: (prev.buySellPosts || []).map((p) => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          comments: p.comments.map((c) =>
+            c.id === commentId ? { ...c, isPinned: !c.isPinned } : c
+          ),
+        };
+      }),
+    }));
+  };
+
   // --- Stage 5: Admin Settings, Accounts, Stores, Categories & Ads Handlers ---
   const handleUpdateSettings = (nextSettings: PlatformSettings) => {
     updateAndPersist((prev) => ({
@@ -1773,8 +2072,15 @@ export default function App() {
       icon: FileText,
     },
     {
-      id: 'settings',
+      id: 'buy_sell',
       number: '6',
+      label: 'بيع واشتري',
+      subtitle: 'بيع وشراء مباشر بين الأهالي',
+      icon: ShoppingBag,
+    },
+    {
+      id: 'settings',
+      number: '7',
       label: 'الإعدادات',
       subtitle: 'لوحة الـ Admin والتخزين والمراسلات',
       icon: Settings,
@@ -2122,6 +2428,22 @@ export default function App() {
             onDeleteUtilityComment={handleDeleteUtilityComment}
             onRestoreReportedUtilityComment={handleRestoreReportedUtilityComment}
             onTogglePinUtilityComment={handleTogglePinUtilityComment}
+            onAddBuySellPost={handleAddBuySellPost}
+            onEditBuySellPost={handleEditBuySellPost}
+            onUpdateBuySellPostStatus={handleUpdateBuySellPostStatus}
+            onDeleteBuySellPost={handleDeleteBuySellPost}
+            onToggleBuySellPostLike={handleToggleBuySellPostLike}
+            onToggleBuySellPostDislike={handleToggleBuySellPostDislike}
+            onReportBuySellPost={handleReportBuySellPost}
+            onRestoreReportedBuySellPost={handleRestoreReportedBuySellPost}
+            onAddCommentToBuySellPost={handleAddCommentToBuySellPost}
+            onToggleBuySellCommentLike={handleToggleBuySellCommentLike}
+            onToggleBuySellCommentEmoji={handleToggleBuySellCommentEmoji}
+            onAddReplyToBuySellComment={handleAddReplyToBuySellComment}
+            onReportBuySellComment={handleReportBuySellComment}
+            onDeleteBuySellComment={handleDeleteBuySellComment}
+            onRestoreReportedBuySellComment={handleRestoreReportedBuySellComment}
+            onTogglePinBuySellComment={handleTogglePinBuySellComment}
           />
         </main>
       </div>

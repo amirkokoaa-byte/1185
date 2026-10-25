@@ -43,6 +43,7 @@ import {
   UtilitySubmissionItem,
 } from './types';
 import {
+  getOrCreateVisitorId,
   RealOnlinePresenceStats,
   removeCurrentTabPresence,
   storageEngine,
@@ -225,7 +226,7 @@ export default function App() {
     });
   };
 
-  const visitorId = currentUser?.id || 'guest-visitor';
+  const visitorId = getOrCreateVisitorId(currentUser);
 
   // --- Authentication Handlers (with Instant Browser Cache & Instant Online Presence Broadcast on Login/Logout) ---
   const handleAuthenticate = (user: UserAccount, rememberMe: boolean) => {

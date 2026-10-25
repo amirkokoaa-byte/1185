@@ -163,6 +163,21 @@ async function startServer() {
       return;
     }
 
+    const storeInteractionsMap: Record<string, unknown> = {};
+    if (Array.isArray(state.stores)) {
+      for (const st of state.stores as Array<Record<string, unknown>>) {
+        if (st && typeof st.id === 'string') {
+          storeInteractionsMap[st.id] = {
+            likes: Array.isArray(st.likes) ? st.likes : [],
+            dislikes: Array.isArray(st.dislikes) ? st.dislikes : [],
+            ratings: st.ratings && typeof st.ratings === 'object' ? st.ratings : {},
+            viewsCount: typeof st.viewsCount === 'number' ? st.viewsCount : 0,
+            comments: Array.isArray(st.comments) ? st.comments : [],
+          };
+        }
+      }
+    }
+
     authoritativeState = state;
     stateVersion = Date.now();
     chatVersion = stateVersion;
@@ -174,6 +189,7 @@ async function startServer() {
       chatTypingMap: state.chatTypingMap || {},
       chatPenalties: state.chatPenalties || [],
       userBlockedMap: state.userBlockedMap || {},
+      storeInteractionsMap,
     };
 
     broadcastSseEvent('state_update', {
@@ -232,9 +248,40 @@ async function startServer() {
         (authoritativeState.settings as Record<string, unknown>) || {};
       const patchSettings =
         (chatPatch.settings as Record<string, unknown>) || {};
+      let mergedStores = authoritativeState.stores;
+      if (
+        Array.isArray(authoritativeState.stores) &&
+        chatPatch.storeInteractionsMap &&
+        typeof chatPatch.storeInteractionsMap === 'object'
+      ) {
+        const map = chatPatch.storeInteractionsMap as Record<
+          string,
+          Record<string, unknown>
+        >;
+        mergedStores = (authoritativeState.stores as Array<Record<string, unknown>>).map(
+          (st) => {
+            const id = typeof st.id === 'string' ? st.id : '';
+            const delta = id ? map[id] : undefined;
+            if (!delta) return st;
+            return {
+              ...st,
+              likes: Array.isArray(delta.likes) ? delta.likes : st.likes,
+              dislikes: Array.isArray(delta.dislikes) ? delta.dislikes : st.dislikes,
+              ratings:
+                delta.ratings && typeof delta.ratings === 'object'
+                  ? delta.ratings
+                  : st.ratings,
+              viewsCount:
+                typeof delta.viewsCount === 'number' ? delta.viewsCount : st.viewsCount,
+              comments: Array.isArray(delta.comments) ? delta.comments : st.comments,
+            };
+          }
+        );
+      }
       const nextState: Record<string, unknown> = {
         ...authoritativeState,
         ...chatPatch,
+        stores: mergedStores,
         settings: {
           ...prevSettings,
           ...patchSettings,

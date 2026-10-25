@@ -867,8 +867,41 @@ class HybridStorageEngine {
   private applyIncomingFastChatPatch(chatPatch: Record<string, unknown>) {
     const base = this.latestState || this.loadLocalState();
     const patchSettings = (chatPatch.settings as Partial<PlatformSettings>) || {};
+    let mergedStores = base.stores;
+    if (
+      chatPatch.storeInteractionsMap &&
+      typeof chatPatch.storeInteractionsMap === 'object'
+    ) {
+      const interactionsMap = chatPatch.storeInteractionsMap as Record<
+        string,
+        {
+          likes?: string[];
+          dislikes?: string[];
+          ratings?: Record<string, number>;
+          viewsCount?: number;
+          comments?: StoreListingItem['comments'];
+        }
+      >;
+      mergedStores = base.stores.map((st) => {
+        const delta = interactionsMap[st.id];
+        if (!delta) return st;
+        return {
+          ...st,
+          likes: Array.isArray(delta.likes) ? delta.likes : st.likes,
+          dislikes: Array.isArray(delta.dislikes) ? delta.dislikes : st.dislikes,
+          ratings:
+            delta.ratings && typeof delta.ratings === 'object'
+              ? delta.ratings
+              : st.ratings,
+          viewsCount:
+            typeof delta.viewsCount === 'number' ? delta.viewsCount : st.viewsCount,
+          comments: Array.isArray(delta.comments) ? delta.comments : st.comments,
+        };
+      });
+    }
     const mergedState: PlatformDatabaseState = {
       ...base,
+      stores: mergedStores,
       liveChatMessages: Array.isArray(chatPatch.liveChatMessages)
         ? normalizeLiveChatList(chatPatch.liveChatMessages as LiveChatMessageItem[])
         : base.liveChatMessages || [],
@@ -1193,12 +1226,36 @@ class HybridStorageEngine {
     }
   }
 
+  private buildStoreInteractionsMap(stores: StoreListingItem[]) {
+    const map: Record<
+      string,
+      {
+        likes: string[];
+        dislikes: string[];
+        ratings: Record<string, number>;
+        viewsCount: number;
+        comments: StoreListingItem['comments'];
+      }
+    > = {};
+    for (const st of stores || []) {
+      map[st.id] = {
+        likes: Array.isArray(st.likes) ? st.likes : [],
+        dislikes: Array.isArray(st.dislikes) ? st.dislikes : [],
+        ratings: st.ratings && typeof st.ratings === 'object' ? st.ratings : {},
+        viewsCount: typeof st.viewsCount === 'number' ? st.viewsCount : 0,
+        comments: Array.isArray(st.comments) ? st.comments : [],
+      };
+    }
+    return map;
+  }
+
   public async persistState(nextState: PlatformDatabaseState, activeUserId?: string) {
     const tabId = getOrCreateTabSessionId();
     this.saveLocalState(nextState, activeUserId);
     this.notifyData(nextState);
 
     const fastChatPatch = sanitizeForFirebase({
+      storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: nextState.privateChatMessages || [],
@@ -1291,7 +1348,7 @@ class HybridStorageEngine {
 
   /**
    * Dedicated ultra-fast (< 3KB payload) sync for Live Chat messages, Private Chat messages,
-   * Read Receipts (✓✓), and Typing Indicators ("يكتب الآن...") without serializing the heavy database.
+   * Read Receipts (✓✓), Typing Indicators ("يكتب الآن..."), and Store Likes/Dislikes without serializing the heavy database.
    */
   public async persistChatFast(nextState: PlatformDatabaseState, activeUserId?: string) {
     const tabId = getOrCreateTabSessionId();
@@ -1300,6 +1357,7 @@ class HybridStorageEngine {
     this.scheduleDeferredLocalSave(nextState, activeUserId);
 
     const ultraLightChatPatch = sanitizeForFirebase({
+      storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: (nextState.privateChatMessages || []).slice(-150),
@@ -1383,6 +1441,7 @@ interface StoredPresenceSession {
 }
 
 const TAB_SESSION_STORAGE_KEY = 'nakhil_1185_real_tab_session_id';
+const GUEST_VISITOR_STORAGE_KEY = 'nakhil_1185_unique_visitor_id_v1';
 const REAL_PRESENCE_MAP_KEY = 'nakhil_1185_real_presence_v3';
 
 function getOrCreateTabSessionId(): string {
@@ -1395,6 +1454,22 @@ function getOrCreateTabSessionId(): string {
     return tabId;
   } catch {
     return 'tab_default_single';
+  }
+}
+
+export function getOrCreateVisitorId(currentUser: UserAccount | null): string {
+  if (currentUser && currentUser.id) {
+    return currentUser.id;
+  }
+  try {
+    let guestId = localStorage.getItem(GUEST_VISITOR_STORAGE_KEY);
+    if (!guestId) {
+      guestId = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem(GUEST_VISITOR_STORAGE_KEY, guestId);
+    }
+    return guestId;
+  } catch {
+    return `guest_${getOrCreateTabSessionId()}`;
   }
 }
 

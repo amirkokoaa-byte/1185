@@ -35,7 +35,11 @@ import {
   UserAccount,
 } from '../types';
 import { FluentButton, FluentCard, FluentModal } from './FluentUI';
-import { createSquareAdSvg, uploadImageDynamic } from '../services/storageService';
+import {
+  createSquareAdSvg,
+  getOrCreateVisitorId,
+  uploadImageDynamic,
+} from '../services/storageService';
 import {
   exportStoresToExcel,
   exportStoresToPDF,
@@ -88,7 +92,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   const isStrictAdmin = currentUser?.role === 'admin';
   const isAdmin = canManage;
-  const currentVisitorId = currentUser?.id || 'guest-visitor';
+  const currentVisitorId = getOrCreateVisitorId(currentUser);
 
   const getCleanStoreDetails = (store: StoreListingItem): string => {
     const raw = (store.details || '').trim();
@@ -186,6 +190,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   // Submit New Store
   const handleCreateStoreSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!editingStoreObj && !isStrictAdmin) return;
     if (!storeName.trim() || !storePhone.trim()) return;
 
     const cleanName = storeName.trim();
@@ -481,20 +486,22 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             </h1>
           </div>
 
-          {/* Primary Button right beside the title on the same line */}
-          <FluentButton
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              setEditingStoreObj(null);
-              setStoreCategory(settings.storeCategories[0] || 'سوبر ماركت');
-              setIsAddModalOpen(true);
-            }}
-            className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
-          >
-            <Plus className="w-4 h-4 shrink-0" />
-            <span>أضف منتج / محل</span>
-          </FluentButton>
+          {/* Primary Button right beside the title on the same line (Strict Admin Only) */}
+          {isStrictAdmin && (
+            <FluentButton
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setEditingStoreObj(null);
+                setStoreCategory(settings.storeCategories[0] || 'سوبر ماركت');
+                setIsAddModalOpen(true);
+              }}
+              className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
+            >
+              <Plus className="w-4 h-4 shrink-0" />
+              <span>أضف منتج / محل</span>
+            </FluentButton>
+          )}
         </div>
 
         {/* Import & Export Toolbar: Admin & Moderator */}
@@ -636,9 +643,11 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           <div className="text-base font-bold text-[#F8FAFC]">
             لا توجد عناصر مطابقة لبحثك في هذا القسم حالياً
           </div>
-          <p className="text-xs text-[#94A3B8]">
-            اضغط على زر &quot;أضف منتج / محل&quot; بالأعلى للإضافة في هذا القسم
-          </p>
+          {isStrictAdmin && (
+            <p className="text-xs text-[#94A3B8]">
+              اضغط على زر &quot;أضف منتج / محل&quot; بالأعلى للإضافة في هذا القسم
+            </p>
+          )}
         </FluentCard>
       ) : storeLayoutMode === 'horizontal' ? (
         /* ================= HORIZONTAL VIEW: خلفية بيضاء وخط أسود واضح ================= */
@@ -1283,6 +1292,51 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 </div>
               );
             })()}
+
+            {/* شريط الإعجاب (لايك 👍) والديس لايك (👎) وعدد المشاهدات لحظياً داخل تفاصيل المحل */}
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-2 flex-nowrap">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onToggleStoreLike(activeStore.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                    activeStore.likes.includes(currentVisitorId)
+                      ? 'bg-[#1877F2] text-white border-[#1877F2] shadow'
+                      : 'bg-white text-black hover:bg-slate-100 border-slate-300'
+                  }`}
+                >
+                  <span>👍</span>
+                  <span>أعجبني</span>
+                  <span className="font-mono-tabular px-1.5 py-0.5 rounded-md bg-black/10">
+                    {activeStore.likes.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onToggleStoreDislike(activeStore.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                    activeStore.dislikes.includes(currentVisitorId)
+                      ? 'bg-rose-600 text-white border-rose-500 shadow'
+                      : 'bg-white text-black hover:bg-slate-100 border-slate-300'
+                  }`}
+                >
+                  <span>👎</span>
+                  <span>لم يعجبني</span>
+                  <span className="font-mono-tabular px-1.5 py-0.5 rounded-md bg-black/10">
+                    {activeStore.dislikes.length}
+                  </span>
+                </button>
+              </div>
+
+              <span
+                title="عدد المشاهدات"
+                className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-extrabold text-black flex items-center justify-center gap-1.5 font-mono-tabular shrink-0"
+              >
+                <Eye className="w-3.5 h-3.5 text-sky-700 shrink-0" />
+                <span>{activeStore.viewsCount || 0}</span>
+              </span>
+            </div>
 
             {/* Store Full Details (Only shown if non-empty after cleaning default "محل" text for pharmacies/clinics) */}
             {getCleanStoreDetails(activeStore) && (

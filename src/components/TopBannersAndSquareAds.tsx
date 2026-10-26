@@ -45,8 +45,8 @@ interface TopBannersAndSquareAdsProps {
   ) => void;
 }
 
-const ROTATION_STORAGE_KEY = 'fluent_square_ads_rotation_v2';
-const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+const ROTATION_STORAGE_KEY = 'fluent_square_ads_rotation_10m_v1';
+const TEN_MINUTES_MS = 10 * 60 * 1000;
 
 export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   topBanners,
@@ -142,7 +142,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     setTimeout(() => setIsBannerPaused(false), 1200);
   };
 
-  // 2. Moving Square Ads Logic
+  // 2. Moving Square Ads Logic (10-minute store rotation + permanent First Package ads until expiration)
   const displayedSquareAds = useMemo(() => {
     const validAds = squareAds
       .filter((ad) => {
@@ -152,13 +152,15 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
       })
       .map((ad) => ({
         ...ad,
+        isAdminPinned: true, // يظل موجوداً دائماً في اللوحة المتحركة حتى انتهاء فترة الإعلان
         imageUrl: normalizeWhiteAdSvg(ad.imageUrl, ad.title, ad.category),
       }));
 
     const storeDerivedAds: SquareMovingAd[] = stores
-      .filter((s) => s.approved)
+      .filter((s) => s.approved && !s.hiddenFromMarquee)
       .map((s) => ({
         id: `store-sq-${s.id}`,
+        storeId: s.id,
         title: s.name,
         category: s.category,
         imageUrl: normalizeWhiteAdSvg(s.menuImages?.[0], s.name, s.category),
@@ -175,20 +177,21 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
     const combinedPool = [...validAds];
     storeDerivedAds.forEach((sd) => {
-      if (!combinedPool.some((c) => c.title === sd.title)) {
+      const alreadyInFirstPackage = combinedPool.some(
+        (c) =>
+          (c.storeId && sd.storeId && c.storeId === sd.storeId) ||
+          c.title.trim() === sd.title.trim()
+      );
+      if (!alreadyInFirstPackage) {
         combinedPool.push(sd);
       }
     });
 
     const adminPinnedAds = combinedPool.filter((ad) => ad.isAdminPinned);
+    const unpinnedPool = combinedPool.filter((ad) => !ad.isAdminPinned);
+    const rotatedRandom = selectRandomPerCategoryEvery10Minutes(unpinnedPool, nowTick);
 
-    if (adminPinnedAds.length > 0) {
-      const unpinnedPool = combinedPool.filter((ad) => !ad.isAdminPinned);
-      const rotatedRandom = selectRandomPerCategoryEvery3Hours(unpinnedPool, nowTick);
-      return [...adminPinnedAds, ...rotatedRandom];
-    }
-
-    return selectRandomPerCategoryEvery3Hours(combinedPool, nowTick);
+    return [...adminPinnedAds, ...rotatedRandom];
   }, [squareAds, stores, nowTick]);
 
   const handleConfirmExecuteBulkDelete = () => {
@@ -951,18 +954,22 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   );
 };
 
-function selectRandomPerCategoryEvery3Hours(
+function selectRandomPerCategoryEvery10Minutes(
   pool: SquareMovingAd[],
   nowMs: number
 ): SquareMovingAd[] {
   if (pool.length === 0) return [];
 
-  const currentBucket = Math.floor(nowMs / THREE_HOURS_MS);
+  const currentBucket = Math.floor(nowMs / TEN_MINUTES_MS);
+  let previousIds: string[] = [];
 
   try {
     const cachedRaw = localStorage.getItem(ROTATION_STORAGE_KEY);
     if (cachedRaw) {
       const parsed = JSON.parse(cachedRaw);
+      if (Array.isArray(parsed.ids)) {
+        previousIds = parsed.ids;
+      }
       if (parsed.bucket === currentBucket && Array.isArray(parsed.ids)) {
         const matched = parsed.ids
           .map((id: string) => pool.find((item) => item.id === id))
@@ -976,6 +983,7 @@ function selectRandomPerCategoryEvery3Hours(
     // ignore storage errors
   }
 
+  const prevSet = new Set(previousIds);
   const byCategory = new Map<string, SquareMovingAd[]>();
   pool.forEach((ad) => {
     const list = byCategory.get(ad.category) || [];
@@ -985,8 +993,11 @@ function selectRandomPerCategoryEvery3Hours(
 
   const selected: SquareMovingAd[] = [];
   byCategory.forEach((items) => {
-    const randomIndex = Math.floor(Math.random() * items.length);
-    selected.push(items[randomIndex]);
+    const candidates =
+      items.length > 1 ? items.filter((it) => !prevSet.has(it.id)) : items;
+    const finalPool = candidates.length > 0 ? candidates : items;
+    const randomIndex = Math.floor(Math.random() * finalPool.length);
+    selected.push(finalPool[randomIndex]);
   });
 
   try {

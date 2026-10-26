@@ -2766,6 +2766,12 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       squareAds: [ad, ...prev.squareAds],
+      stores: prev.stores.map((s) =>
+        (ad.storeId && s.id === ad.storeId) ||
+        s.name.trim() === ad.title.trim()
+          ? { ...s, hiddenFromMarquee: false }
+          : s
+      ),
     }));
   };
 
@@ -2773,6 +2779,12 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       squareAds: prev.squareAds.map((s) => (s.id === ad.id ? ad : s)),
+      stores: prev.stores.map((s) =>
+        (ad.storeId && s.id === ad.storeId) ||
+        s.name.trim() === ad.title.trim()
+          ? { ...s, hiddenFromMarquee: false }
+          : s
+      ),
     }));
   };
 
@@ -2958,6 +2970,9 @@ export default function App() {
             {visibleSidebarItems.map((item) => {
               const Icon = item.icon;
               const isSelected = activeSection === item.id;
+              const isItemDisabled = Boolean(
+                dbState.settings.disabledSections?.[item.id]
+              );
               return (
                 <button
                   key={item.id}
@@ -2977,14 +2992,25 @@ export default function App() {
                           : 'bg-[#1E293B] text-sky-400 border-[#334155]'
                       }`}
                     >
-                      <Icon className="w-5 h-5" />
+                      {isItemDisabled ? (
+                        <Settings className="w-5 h-5 text-amber-400 animate-spin" />
+                      ) : (
+                        <Icon className="w-5 h-5" />
+                      )}
                     </div>
                     <div className="min-w-0">
-                      <div className="text-sm font-extrabold truncate">
-                        {item.number}. {item.label}
+                      <div className="text-sm font-extrabold truncate flex items-center gap-1.5">
+                        <span>
+                          {item.number}. {item.label}
+                        </span>
+                        {isItemDisabled && (
+                          <Settings className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
+                        )}
                       </div>
                       <div className="text-[11px] text-[#94A3B8] truncate">
-                        {item.subtitle}
+                        {isItemDisabled
+                          ? 'معطل (في وضع الصيانة للمستخدمين)'
+                          : item.subtitle}
                       </div>
                     </div>
                   </div>
@@ -3068,6 +3094,9 @@ export default function App() {
                   {visibleSidebarItems.map((item) => {
                     const Icon = item.icon;
                     const isSelected = activeSection === item.id;
+                    const isItemDisabled = Boolean(
+                      dbState.settings.disabledSections?.[item.id]
+                    );
                     return (
                       <button
                         key={item.id}
@@ -3083,13 +3112,24 @@ export default function App() {
                         }`}
                       >
                         <div className="flex items-center gap-3 relative z-10">
-                          <Icon className="w-5 h-5 text-sky-400 shrink-0" />
+                          {isItemDisabled ? (
+                            <Settings className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
+                          ) : (
+                            <Icon className="w-5 h-5 text-sky-400 shrink-0" />
+                          )}
                           <div>
-                            <div className="text-sm font-extrabold text-[#F8FAFC]">
-                              {item.number}. {item.label}
+                            <div className="text-sm font-extrabold text-[#F8FAFC] flex items-center gap-1.5">
+                              <span>
+                                {item.number}. {item.label}
+                              </span>
+                              {isItemDisabled && (
+                                <Settings className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
+                              )}
                             </div>
                             <div className="text-[11px] text-[#94A3B8]">
-                              {item.subtitle}
+                              {isItemDisabled
+                                ? 'معطل (في وضع الصيانة للمستخدمين)'
+                                : item.subtitle}
                             </div>
                           </div>
                         </div>
@@ -3158,20 +3198,37 @@ export default function App() {
               const sqSet = new Set(squareAdIds);
               const tbSet = new Set(topBannerIds);
               const stSet = new Set(storeIds);
-              updateAndPersist((prev) => ({
-                ...prev,
-                squareAds: prev.squareAds.filter((a) => !sqSet.has(a.id)),
-                topBanners: prev.topBanners.filter((b) => !tbSet.has(b.id)),
-                stores: prev.stores.filter((s) => !stSet.has(s.id)),
-                deletedRecordIds: Array.from(
-                  new Set([
-                    ...(prev.deletedRecordIds || []),
-                    ...squareAdIds,
-                    ...topBannerIds,
-                    ...storeIds,
-                  ])
-                ),
-              }));
+              updateAndPersist((prev) => {
+                const deletedSqAds = prev.squareAds.filter((a) => sqSet.has(a.id));
+                const deletedSqTitles = new Set(
+                  deletedSqAds.map((a) => a.title.trim())
+                );
+                const deletedSqStoreIds = new Set(
+                  deletedSqAds
+                    .map((a) => a.storeId)
+                    .filter((id): id is string => Boolean(id))
+                );
+                return {
+                  ...prev,
+                  squareAds: prev.squareAds.filter((a) => !sqSet.has(a.id)),
+                  topBanners: prev.topBanners.filter((b) => !tbSet.has(b.id)),
+                  // لا يتم حذف المحل من القوائم إطلاقاً؛ يختفي فقط من اللوحة المتحركة
+                  stores: prev.stores.map((s) =>
+                    stSet.has(s.id) ||
+                    deletedSqStoreIds.has(s.id) ||
+                    deletedSqTitles.has(s.name.trim())
+                      ? { ...s, hiddenFromMarquee: true, featuredInMarquee: false }
+                      : s
+                  ),
+                  deletedRecordIds: Array.from(
+                    new Set([
+                      ...(prev.deletedRecordIds || []),
+                      ...squareAdIds,
+                      ...topBannerIds,
+                    ])
+                  ),
+                };
+              });
             }}
             onEntryPopupClosed={() => {
               if (!currentUser) {

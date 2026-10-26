@@ -40,6 +40,7 @@ export interface TopBannerAd {
 
 export interface SquareMovingAd {
   id: string;
+  storeId?: string; // معرف المحل المرتبط في حالة اختيار محل من الدليل لعمل إعلان بالباقة الأولى
   title: string; // اسم المكان
   category: string;
   imageUrl: string; // الصورة الرئيسية
@@ -139,6 +140,7 @@ export interface StoreListingItem {
   lng?: number;
   workingHours?: boolean | string;
   featuredInMarquee?: boolean;
+  hiddenFromMarquee?: boolean;
   approved: boolean;
   createdAt: string;
 }

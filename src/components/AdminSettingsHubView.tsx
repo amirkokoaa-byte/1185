@@ -37,6 +37,7 @@ import {
   ChevronUp,
   X,
   Wrench,
+  Settings,
   Download,
   RotateCcw,
   HardDrive,
@@ -389,9 +390,11 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   const [adPopupActive, setAdPopupActive] = useState<boolean>(state.popupAd.active);
   const [uploadingAdMain, setUploadingAdMain] = useState<boolean>(false);
   const [uploadingAdExtra, setUploadingAdExtra] = useState<boolean>(false);
+  const [adSelectedStoreId, setAdSelectedStoreId] = useState<string>('');
 
   const resetAdForm = () => {
     setEditingAdId(null);
+    setAdSelectedStoreId('');
     setAdDurationDays(5);
     setAdPlaceName('');
     setAdCategoryOrSub(state.settings.storeCategories[0] || 'مطعم');
@@ -493,6 +496,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
       const sqPayload: SquareMovingAd = {
         id: editingAdId || `sq-${Date.now()}`,
+        storeId: adSelectedStoreId || undefined,
         title: adPlaceName.trim(),
         category: adCategoryOrSub.trim() || 'عام',
         imageUrl: finalImg,
@@ -502,7 +506,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         targetSection: targetSectionVal,
         menuImages: adMenuImages,
         description: `إعلان نشط لمدة ${days} يوم`,
-        isAdminPinned: adPinned,
+        isAdminPinned: true,
         durationDays: days,
         expiresAt: expiresAtIso,
         active: true,
@@ -1605,6 +1609,38 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                       </button>
                     )}
                   </div>
+
+                  {activeAdPackageTab === 'moving_square' && (
+                    <div className="p-3 rounded-xl bg-[#112240] border border-amber-400/40 space-y-1.5">
+                      <label className="block text-xs font-extrabold text-amber-300">
+                        اختيار محل من المحلات المسجلة لعمل إعلان له في الباقة الأولى (يظل موجوداً دائماً حتى انتهاء فترة الإعلان):
+                      </label>
+                      <select
+                        value={adSelectedStoreId}
+                        onChange={(e) => {
+                          const storeId = e.target.value;
+                          setAdSelectedStoreId(storeId);
+                          const found = state.stores.find((s) => s.id === storeId);
+                          if (found) {
+                            setAdPlaceName(found.name);
+                            setAdCategoryOrSub(found.category);
+                            setAdLocationUrl(found.locationUrl || '');
+                            setAdPhone(found.phone || '');
+                            applyCombinedAdImages(found.menuImages || []);
+                            setAdPinned(true);
+                          }
+                        }}
+                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-amber-400 px-3 py-2 text-xs sm:text-sm text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
+                      >
+                        <option value="">-- اختر محلاً مسجلاً أو أدخل بيانات الإعلان يدوياً بالأسفل --</option>
+                        {state.stores.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.category})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                     {/* 1. تحديد مدة الإعلان بالأيام */}
@@ -2853,21 +2889,30 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                               : 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
                           }`}
                         >
-                          <Wrench className="w-4 h-4" />
+                          {isDisabled ? (
+                            <Settings className="w-4 h-4 animate-spin text-amber-300" />
+                          ) : (
+                            <Wrench className="w-4 h-4" />
+                          )}
                         </div>
                         <div>
-                          <div className="text-sm sm:text-base font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                          <div className="text-sm sm:text-base font-extrabold text-[#F8FAFC] flex flex-wrap items-center gap-2">
                             <span>{sec.label}</span>
                             <span
-                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${
+                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold inline-flex items-center gap-1.5 ${
                                 isDisabled
                                   ? 'bg-amber-500/20 border border-amber-400/50 text-amber-300'
                                   : 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300'
                               }`}
                             >
-                              {isDisabled
-                                ? 'معطل (في وضع الصيانة للمستخدمين)'
-                                : 'مفعّل ويعمل للجميع'}
+                              {isDisabled && (
+                                <Settings className="w-3.5 h-3.5 animate-spin text-amber-300 shrink-0" />
+                              )}
+                              <span>
+                                {isDisabled
+                                  ? 'معطل (في وضع الصيانة للمستخدمين)'
+                                  : 'مفعّل ويعمل للجميع'}
+                              </span>
                             </span>
                           </div>
                           <div className="text-xs text-[#94A3B8] mt-0.5">

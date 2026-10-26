@@ -307,7 +307,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   sectionSubtitle = 'شارك استفساراتك، اقتراحاتك، وإعلانات البيع والشراء مع أهالي المنطقة',
   hideLiveChatButton = false,
   savedPostsNamespace = 'community',
-  allowedPostTypes = ['استفسار', 'اقتراح', 'بيع'],
+  allowedPostTypes = ['استفسار', 'اقتراح'],
   topWarningBannerText,
   enableBuySellPrivateChat = false,
   chatOnlyOverlayMode = false,
@@ -1739,19 +1739,19 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           )}
         </div>
 
-        {/* Single-Row Controls on Mobile */}
-        <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-1 sm:gap-2 flex-nowrap overflow-x-auto">
-          {/* زر سجل المحادثات + زر قائمة الحظر في الأعلى في بيع واشتري */}
-          {enableBuySellPrivateChat && (
-            <>
+        {/* Controls on Mobile & Desktop */}
+        {enableBuySellPrivateChat ? (
+          <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-end gap-2 overflow-hidden">
+            {/* السطر الأول في الهاتف: 3 أزرار في سطر واحد بكامل الكلمة وبدون اختفاء أي جزء أو مسطرة تمرير */}
+            <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-1 sm:gap-2 flex-nowrap overflow-hidden">
               <button
                 type="button"
                 onClick={() => setIsChatHistoryModalOpen(true)}
-                className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-400/60 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shadow-sm"
+                className="fluent-reveal flex-auto sm:flex-initial px-1 sm:px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-400/60 text-[9.5px] sm:text-xs font-extrabold flex items-center justify-center gap-0.5 sm:gap-1 cursor-pointer whitespace-nowrap shadow-sm"
               >
-                <MessageSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 shrink-0" />
-                <span className="truncate">سجل المحادثات</span>
-                <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-emerald-500/25 text-emerald-200 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
+                <MessageSquare className="hidden sm:inline-block w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>سجل المحادثات</span>
+                <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-emerald-500/25 text-emerald-200 text-[8.5px] sm:text-[10px] font-mono-tabular shrink-0">
                   {previousConversationsList.length}
                 </span>
               </button>
@@ -1759,83 +1759,136 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsBlockedUsersModalOpen(true)}
-                className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/35 text-rose-300 border border-rose-400/60 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shadow-sm"
+                className="fluent-reveal flex-auto sm:flex-initial px-1 sm:px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/35 text-rose-300 border border-rose-400/60 text-[9.5px] sm:text-xs font-extrabold flex items-center justify-center gap-0.5 sm:gap-1 cursor-pointer whitespace-nowrap shadow-sm"
               >
-                <Ban className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-400 shrink-0" />
-                <span className="truncate">قائمة الحظر</span>
-                <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-rose-500/25 text-rose-200 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
+                <Ban className="hidden sm:inline-block w-3.5 h-3.5 text-rose-400 shrink-0" />
+                <span>قائمة الحظر</span>
+                <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-rose-500/25 text-rose-200 text-[8.5px] sm:text-[10px] font-mono-tabular shrink-0">
                   {myBlockedAccountsList.length}
                 </span>
               </button>
-            </>
-          )}
 
-          {/* 1. زر المنشورات المحفوظة */}
-          <button
-            type="button"
-            onClick={() => setIsSavedPostsModalOpen(true)}
-            className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
-          >
-            <Bookmark className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-sky-400 shrink-0" />
-            <span className="truncate">المنشورات المحفوظة</span>
-            <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-200 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
-              {savedPostsList.length}
-            </span>
-          </button>
-
-          {/* 2. ثم محادثة لايف */}
-          {!hideLiveChatButton && (
-            <button
-              type="button"
-              onClick={() => setIsLiveChatOpen(true)}
-              className="fluent-reveal flex-1 sm:flex-initial min-w-0 px-1.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap"
-            >
-              <Radio className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-pulse relative z-10 shrink-0" />
-              <span className="relative z-10 truncate">محادثة لايف</span>
-              <span className="relative z-10 px-1 sm:px-1.5 py-0.2 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[9px] sm:text-[10px] font-mono-tabular shrink-0">
-                {liveChatMessages.length}
-              </span>
-            </button>
-          )}
-
-          {/* 3. ثم قائمة منسدلة الفلترة */}
-          <div className="flex-1 sm:flex-initial min-w-0 flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
-            <select
-              value={selectedPostTypeFilter}
-              onChange={(e) =>
-                setSelectedPostTypeFilter(
-                  e.target.value as 'الكل' | CommunityPostType
-                )
-              }
-              className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs text-[#F8FAFC] font-extrabold outline-none truncate"
-            >
-              <option value="الكل">الكل ({approvedPosts.length})</option>
-              {allowedPostTypes.map((typeOption) => (
-                <option key={typeOption} value={typeOption}>
-                  {typeOption} (
-                  {approvedPosts.filter((p) => p.postType === typeOption).length})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setIsAdminManagementView(true)}
-              className="fluent-reveal hidden sm:flex px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[11px] sm:text-xs font-extrabold items-center gap-1 cursor-pointer shadow-lg whitespace-nowrap shrink-0"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-              <span>إدارة</span>
-              {totalAdminAlertsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-[#0A192F] text-amber-300 text-[10px] font-mono-tabular">
-                  {totalAdminAlertsCount}
+              <button
+                type="button"
+                onClick={() => setIsSavedPostsModalOpen(true)}
+                className="fluent-reveal flex-auto sm:flex-initial px-1.5 sm:px-3 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-[9.5px] sm:text-xs font-extrabold flex items-center justify-center gap-0.5 sm:gap-1 cursor-pointer whitespace-nowrap shadow-sm"
+              >
+                <Bookmark className="hidden sm:inline-block w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span>المنشورات المحفوظة</span>
+                <span className="px-1 sm:px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-200 text-[8.5px] sm:text-[10px] font-mono-tabular shrink-0">
+                  {savedPostsList.length}
                 </span>
+              </button>
+            </div>
+
+            {/* السطر الثاني في الهاتف: القائمة المنسدلة (الكل / بائع / مشتري) بعرض شاشة الهاتف بالكامل أسفل الـ 3 أزرار */}
+            <div className="w-full sm:w-auto flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
+              <select
+                value={selectedPostTypeFilter}
+                onChange={(e) =>
+                  setSelectedPostTypeFilter(
+                    e.target.value as 'الكل' | CommunityPostType
+                  )
+                }
+                className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3 py-2 sm:py-1.5 text-xs text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
+              >
+                <option value="الكل">الكل ({approvedPosts.length})</option>
+                {allowedPostTypes.map((typeOption) => (
+                  <option key={typeOption} value={typeOption}>
+                    {typeOption} (
+                    {approvedPosts.filter((p) => p.postType === typeOption).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsAdminManagementView(true)}
+                className="fluent-reveal hidden sm:flex px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[11px] sm:text-xs font-extrabold items-center gap-1 cursor-pointer shadow-lg whitespace-nowrap shrink-0"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>إدارة</span>
+                {totalAdminAlertsCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-[#0A192F] text-amber-300 text-[10px] font-mono-tabular">
+                    {totalAdminAlertsCount}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-end gap-2 overflow-hidden">
+            {/* السطر الأول في الهاتف في مجتمع: زر المنشورات المحفوظة بشكل كامل وبجانبه محادثة لايف */}
+            <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 flex-nowrap overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setIsSavedPostsModalOpen(true)}
+                className="fluent-reveal flex-1 sm:flex-initial px-2 sm:px-3 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shadow-sm"
+              >
+                <Bookmark className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-sky-400 shrink-0" />
+                <span>المنشورات المحفوظة</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-200 text-[9.5px] sm:text-[10px] font-mono-tabular shrink-0">
+                  {savedPostsList.length}
+                </span>
+              </button>
+
+              {!hideLiveChatButton && (
+                <button
+                  type="button"
+                  onClick={() => setIsLiveChatOpen(true)}
+                  className="fluent-reveal flex-1 sm:flex-initial px-2 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 border border-emerald-400/60 cursor-pointer shadow-[0_0_16px_-3px_rgba(16,185,129,0.5)] whitespace-nowrap"
+                >
+                  <Radio className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-pulse relative z-10 shrink-0" />
+                  <span className="relative z-10">محادثة لايف</span>
+                  <span className="relative z-10 px-1.5 py-0.2 rounded-full bg-[#0A192F]/80 text-emerald-300 text-[9.5px] sm:text-[10px] font-mono-tabular shrink-0">
+                    {liveChatMessages.length}
+                  </span>
+                </button>
               )}
-            </button>
-          )}
-        </div>
+            </div>
+
+            {/* السطر الثاني في الهاتف في مجتمع: القائمة المنسدلة (الكل / استفسار / اقتراح) أسفل الزرين بعرض الشاشة */}
+            <div className="w-full sm:w-auto flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
+              <select
+                value={selectedPostTypeFilter}
+                onChange={(e) =>
+                  setSelectedPostTypeFilter(
+                    e.target.value as 'الكل' | CommunityPostType
+                  )
+                }
+                className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3 py-2 sm:py-1.5 text-xs text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
+              >
+                <option value="الكل">الكل ({approvedPosts.length})</option>
+                {allowedPostTypes.map((typeOption) => (
+                  <option key={typeOption} value={typeOption}>
+                    {typeOption} (
+                    {approvedPosts.filter((p) => p.postType === typeOption).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsAdminManagementView(true)}
+                className="fluent-reveal hidden sm:flex px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[11px] sm:text-xs font-extrabold items-center gap-1 cursor-pointer shadow-lg whitespace-nowrap shrink-0"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>إدارة</span>
+                {totalAdminAlertsCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-[#0A192F] text-amber-300 text-[10px] font-mono-tabular">
+                    {totalAdminAlertsCount}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Profanity Warning Banner */}
@@ -2109,7 +2162,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
                     {post.authorUsername}
                   </div>
-                  {enableBuySellPrivateChat && (
+                  {enableBuySellPrivateChat && !post.isSold && (
                     <button
                       type="button"
                       onClick={() =>
@@ -2123,19 +2176,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   )}
                 </div>
 
-                {/* على أقصى اليسار: شارة مثبت + شارة تم البيع + نوع المنشور + زر "المزيد" */}
+                {/* على أقصى اليسار: شارة مثبت + نوع المنشور + زر "المزيد" */}
                 <div className="flex items-center gap-1.5 shrink-0 relative flex-wrap justify-end">
                   {post.isPinned && (
                     <span className="px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/60 flex items-center gap-1 whitespace-nowrap">
                       <Pin className="w-3 h-3 text-amber-400 shrink-0" />
                       <span>مثبت</span>
-                    </span>
-                  )}
-
-                  {post.isSold && (
-                    <span className="px-2.5 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-extrabold bg-rose-600 text-white border border-rose-400 shadow-sm flex items-center gap-1 whitespace-nowrap">
-                      <CheckCircle2 className="w-3 h-3 shrink-0" />
-                      <span>تم البيع</span>
                     </span>
                   )}
 

@@ -401,6 +401,15 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
     activeSection !== 'settings' &&
     Boolean(state.settings.disabledSections?.[activeSection]);
 
+  const [maintenanceDotStep, setMaintenanceDotStep] = React.useState<number>(1);
+  React.useEffect(() => {
+    if (!isSectionDisabledInMaintenance || isStrictAdmin) return;
+    const timer = setInterval(() => {
+      setMaintenanceDotStep((prev) => (prev >= 4 ? 0 : prev + 1));
+    }, 400);
+    return () => clearInterval(timer);
+  }, [isSectionDisabledInMaintenance, isStrictAdmin]);
+
   if (isSectionDisabledInMaintenance && !isStrictAdmin) {
     return (
       <FluentCard className="p-8 sm:p-12 text-center space-y-6 border-2 border-amber-500/40 bg-[#112240]/95 shadow-2xl max-w-2xl mx-auto my-6">
@@ -426,34 +435,54 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
             </defs>
             <rect width="400" height="260" rx="18" fill="url(#maintBg)" />
             <circle cx="200" cy="115" r="76" fill="#F59E0B" fillOpacity="0.08" />
-            {/* Main Gear */}
+            {/* Main Gear (Animated Spinning Gear) */}
             <g transform="translate(175, 110)">
-              <circle cx="0" cy="0" r="38" fill="url(#amberGear)" />
-              <circle cx="0" cy="0" r="16" fill="#0F172A" />
-              <rect x="-6" y="-48" width="12" height="14" rx="3" fill="#F59E0B" />
-              <rect x="-6" y="34" width="12" height="14" rx="3" fill="#F59E0B" />
-              <rect x="-48" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
-              <rect x="34" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
-              <g transform="rotate(45)">
+              <g>
+                <animateTransform
+                  attributeName="transform"
+                  type="rotate"
+                  from="0 0 0"
+                  to="360 0 0"
+                  dur="5s"
+                  repeatCount="indefinite"
+                />
+                <circle cx="0" cy="0" r="38" fill="url(#amberGear)" />
+                <circle cx="0" cy="0" r="16" fill="#0F172A" />
                 <rect x="-6" y="-48" width="12" height="14" rx="3" fill="#F59E0B" />
                 <rect x="-6" y="34" width="12" height="14" rx="3" fill="#F59E0B" />
                 <rect x="-48" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
                 <rect x="34" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
+                <g transform="rotate(45)">
+                  <rect x="-6" y="-48" width="12" height="14" rx="3" fill="#F59E0B" />
+                  <rect x="-6" y="34" width="12" height="14" rx="3" fill="#F59E0B" />
+                  <rect x="-48" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
+                  <rect x="34" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
+                </g>
               </g>
             </g>
-            {/* Secondary Gear */}
+            {/* Secondary Gear (Counter-Rotating Spinning Gear) */}
             <g transform="translate(242, 78)">
-              <circle cx="0" cy="0" r="24" fill="url(#skyGear)" />
-              <circle cx="0" cy="0" r="10" fill="#0F172A" />
-              <rect x="-4" y="-31" width="8" height="10" rx="2" fill="#38BDF8" />
-              <rect x="-4" y="21" width="8" height="10" rx="2" fill="#38BDF8" />
-              <rect x="-31" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
-              <rect x="21" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
-              <g transform="rotate(45)">
+              <g>
+                <animateTransform
+                  attributeName="transform"
+                  type="rotate"
+                  from="360 0 0"
+                  to="0 0 0"
+                  dur="3.5s"
+                  repeatCount="indefinite"
+                />
+                <circle cx="0" cy="0" r="24" fill="url(#skyGear)" />
+                <circle cx="0" cy="0" r="10" fill="#0F172A" />
                 <rect x="-4" y="-31" width="8" height="10" rx="2" fill="#38BDF8" />
                 <rect x="-4" y="21" width="8" height="10" rx="2" fill="#38BDF8" />
                 <rect x="-31" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
                 <rect x="21" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
+                <g transform="rotate(45)">
+                  <rect x="-4" y="-31" width="8" height="10" rx="2" fill="#38BDF8" />
+                  <rect x="-4" y="21" width="8" height="10" rx="2" fill="#38BDF8" />
+                  <rect x="-31" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
+                  <rect x="21" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
+                </g>
               </g>
             </g>
             {/* Wrench / Maintenance Barrier */}
@@ -478,8 +507,22 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         </div>
 
         <div className="space-y-2">
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-amber-300 tracking-wide">
-            جاري التحديث ....
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-amber-300 tracking-wide inline-flex items-baseline justify-center">
+            <span>جاري التحديث&nbsp;</span>
+            <span className="inline-flex" aria-hidden="true">
+              <span className={maintenanceDotStep >= 1 ? 'opacity-100' : 'opacity-0'}>
+                .
+              </span>
+              <span className={maintenanceDotStep >= 2 ? 'opacity-100' : 'opacity-0'}>
+                .
+              </span>
+              <span className={maintenanceDotStep >= 3 ? 'opacity-100' : 'opacity-0'}>
+                .
+              </span>
+              <span className={maintenanceDotStep >= 4 ? 'opacity-100' : 'opacity-0'}>
+                .
+              </span>
+            </span>
           </h2>
           <p className="text-xs sm:text-sm font-bold text-[#94A3B8]">
             هذا القسم يخضع حالياً للصيانة والتحديث، وسيعود للعمل قريباً.
@@ -561,6 +604,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         chatTypingMap={state.chatTypingMap || {}}
         userBlockedMap={state.userBlockedMap || {}}
         privateChatReports={state.privateChatReports || []}
+        allowedPostTypes={['استفسار', 'اقتراح']}
         onOpenAuthModal={onOpenAuthModal}
         onAddCommunityPost={onAddCommunityPost}
         onEditCommunityPost={onEditCommunityPost}

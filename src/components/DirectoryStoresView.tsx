@@ -1344,20 +1344,20 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             })()}
 
             {/* شريط الإعجاب (لايك 👍) والديس لايك (👎) وعدد المشاهدات لحظياً داخل تفاصيل المحل */}
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-2 flex-nowrap">
-              <div className="flex items-center gap-2">
+            <div className="p-2.5 sm:p-3 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-1.5 sm:gap-2 flex-nowrap overflow-hidden">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap">
                 <button
                   type="button"
                   onClick={() => onToggleStoreLike(activeStore.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                  className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     activeStore.likes.includes(currentVisitorId)
                       ? 'bg-[#1877F2] text-white border-[#1877F2] shadow'
                       : 'bg-white text-black hover:bg-slate-100 border-slate-300'
                   }`}
                 >
                   <span>👍</span>
-                  <span>أعجبني</span>
-                  <span className="font-mono-tabular px-1.5 py-0.5 rounded-md bg-black/10">
+                  <span className="whitespace-nowrap">أعجبني</span>
+                  <span className="font-mono-tabular px-1 sm:px-1.5 py-0.5 rounded-md bg-black/10">
                     {activeStore.likes.length}
                   </span>
                 </button>
@@ -1365,15 +1365,15 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 <button
                   type="button"
                   onClick={() => onToggleStoreDislike(activeStore.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                  className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     activeStore.dislikes.includes(currentVisitorId)
                       ? 'bg-rose-600 text-white border-rose-500 shadow'
                       : 'bg-white text-black hover:bg-slate-100 border-slate-300'
                   }`}
                 >
                   <span>👎</span>
-                  <span>لم يعجبني</span>
-                  <span className="font-mono-tabular px-1.5 py-0.5 rounded-md bg-black/10">
+                  <span className="whitespace-nowrap">لم يعجبني</span>
+                  <span className="font-mono-tabular px-1 sm:px-1.5 py-0.5 rounded-md bg-black/10">
                     {activeStore.dislikes.length}
                   </span>
                 </button>
@@ -1381,7 +1381,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
               <span
                 title="عدد المشاهدات"
-                className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-extrabold text-black flex items-center justify-center gap-1.5 font-mono-tabular shrink-0"
+                className="px-2 sm:px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-[11px] sm:text-xs font-extrabold text-black flex items-center justify-center gap-1 sm:gap-1.5 font-mono-tabular whitespace-nowrap shrink-0"
               >
                 <Eye className="w-3.5 h-3.5 text-sky-700 shrink-0" />
                 <span>{activeStore.viewsCount || 0}</span>

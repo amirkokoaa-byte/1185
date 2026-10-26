@@ -33,6 +33,10 @@ import {
   MessageCircle,
   Send,
   History,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Wrench,
 } from 'lucide-react';
 import {
   AdminMessage,
@@ -67,7 +71,8 @@ export type AdminSettingsSubSectionId =
   | 'messages'
   | 'new_category'
   | 'storage'
-  | 'online_users';
+  | 'online_users'
+  | 'maintenance';
 
 interface AdminSettingsHubViewProps {
   state: PlatformDatabaseState;
@@ -152,8 +157,26 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   );
   const [generalMarquee, setGeneralMarquee] = useState(state.settings.marqueeText);
 
-  // Messages Reply & Correspondence History Modal State
+  React.useEffect(() => {
+    setGeneralSiteName(state.settings.siteName);
+    setGeneralContactPhone(state.settings.adminWhatsapp);
+    setGeneralFacebookUrl(state.settings.facebookPageUrl || '');
+    setGeneralMarquee(state.settings.marqueeText);
+  }, [
+    state.settings.siteName,
+    state.settings.adminWhatsapp,
+    state.settings.facebookPageUrl,
+    state.settings.marqueeText,
+  ]);
+
+  // Messages Reply, Collapsible Dropdown & Correspondence History Modal State
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [collapsedMessagesMap, setCollapsedMessagesMap] = useState<
+    Record<string, boolean>
+  >({});
+  const [collapsedModalMessagesMap, setCollapsedModalMessagesMap] = useState<
+    Record<string, boolean>
+  >({});
   const [isMessagesHistoryModalOpen, setIsMessagesHistoryModalOpen] = useState(false);
 
   const handleSaveGeneralTopFields = (e: React.FormEvent) => {
@@ -162,10 +185,11 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       ...state.settings,
       siteName: generalSiteName.trim() || state.settings.siteName,
       adminWhatsapp: generalContactPhone.trim() || state.settings.adminWhatsapp,
-      facebookPageUrl: generalFacebookUrl.trim() || state.settings.facebookPageUrl,
+      facebookPageUrl: generalFacebookUrl.trim(),
       marqueeText: generalMarquee.trim() || state.settings.marqueeText,
+      updatedAt: Date.now(),
     });
-    showToast('تم حفظ اسم الموقع ورقم التواصل ولينك الفيس بوك والشريط الإخباري لحظياً!');
+    showToast('تم حفظ اسم الموقع ورقم التواصل ولينك الفيس بوك والشريط الإخباري لحظياً وبشكل دائم!');
   };
 
   // ============================================================================
@@ -757,9 +781,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       icon: Radio,
       badge: onlineStats?.totalOnline || 1,
     },
+    {
+      id: 'maintenance',
+      number: 9,
+      label: 'الصيانة',
+      subtitle: 'تفعيل أو تعطيل أقسام القائمة الجانبية',
+      icon: Wrench,
+      badge:
+        Object.values(state.settings.disabledSections || {}).filter(Boolean).length ||
+        undefined,
+    },
   ];
 
-  // Unified messages grouped by sender account so any repeat message from the same account appears in the same message entry
+  // Unified messages grouped strictly by sender account so each account is completely separate from the other
   const unifiedMessages: AdminMessage[] = React.useMemo(() => {
     const map = new Map<string, AdminMessage>();
     // Sort oldest to newest first so thread builds chronologically
@@ -767,10 +801,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
     for (const msg of chronological) {
-      const senderKey =
-        msg.senderId && msg.senderId !== 'guest'
-          ? `id:${msg.senderId.trim().toLowerCase()}`
-          : `name:${msg.senderUsername.trim().toLowerCase()}`;
+      const senderKey = `acct:${msg.senderUsername.trim().toLowerCase()}`;
       const entries =
         msg.thread && msg.thread.length > 0
           ? msg.thread
@@ -812,7 +843,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     );
   }, [state.messages]);
 
-  // Connected online usernames list for section 8 (عدد المتصلين الآن)
+  // Connected online usernames list for section 8 (عدد المتصلين الآن) - Strictly real live active sessions only
   const connectedOnlineUsers = React.useMemo(() => {
     const namesSet = new Set<string>();
     const result: Array<{ id: string; username: string; role?: UserRoleType }> = [];
@@ -838,11 +869,6 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     if (onlineStats?.registeredUsernames) {
       onlineStats.registeredUsernames.forEach(addByName);
     }
-    state.users.forEach((u) => {
-      if (u.isOnline) {
-        addByName(u.username);
-      }
-    });
     if (currentUser) {
       addByName(currentUser.username);
     }
@@ -1966,20 +1992,32 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                   setAdLocationUrl(ad.locationUrl || '');
                                   setAdPhone(ad.phone || '');
                                   setAdDurationDays(ad.durationDays || 5);
+                                  if (ad.linkUrl) {
+                                    setAdNavMode('external_link');
+                                    setAdExternalLink(ad.linkUrl);
+                                  } else {
+                                    setAdNavMode('internal_section');
+                                    setAdInternalSection(
+                                      (ad.targetSection as MainSectionId) || 'directory'
+                                    );
+                                  }
                                   setAdMainImage(ad.imageUrl);
                                   setAdMenuImages(ad.menuImages || []);
                                   setAdPinned(ad.isAdminPinned);
+                                  showToast(`جاري تعديل بيانات وصور الإعلان "${ad.title}" في النموذج أعلاه.`);
                                 }}
-                                className="p-1.5 rounded bg-sky-600/20 text-sky-400 hover:bg-sky-600 hover:text-white cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
+                                <span>تعديل</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => onDeleteSquareAd(ad.id)}
-                                className="p-1.5 rounded bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
+                                <span>حذف</span>
                               </button>
                             </div>
                           </div>
@@ -2107,24 +2145,91 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                   setAdLocationUrl(b.locationUrl || '');
                                   setAdPhone(b.phone || b.whatsappPhone || '');
                                   setAdDurationDays(b.durationDays || 5);
+                                  if (b.linkUrl) {
+                                    setAdNavMode('external_link');
+                                    setAdExternalLink(b.linkUrl);
+                                  } else {
+                                    setAdNavMode('internal_section');
+                                    setAdInternalSection(
+                                      (b.targetSection as MainSectionId) || 'directory'
+                                    );
+                                  }
                                   setAdMainImage(b.imageUrl);
                                   setAdMenuImages(b.menuImages || []);
+                                  showToast(`جاري تعديل بيانات وصور البانر "${b.title}" في النموذج أعلاه.`);
                                 }}
-                                className="p-1.5 rounded bg-sky-600/20 text-sky-400 hover:bg-sky-600 hover:text-white cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
+                                <span>تعديل</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => onDeleteTopBanner(b.id)}
-                                className="p-1.5 rounded bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
+                                <span>حذف</span>
                               </button>
                             </div>
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {activeAdPackageTab === 'popup_entry' && state.popupAd && (
+                  <div className="space-y-2.5 pt-2">
+                    <div className="text-xs font-extrabold text-[#94A3B8]">
+                      إعلان الشاشة المنبثقة الحالي:
+                    </div>
+                    <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img
+                          src={state.popupAd.imageUrl}
+                          alt={state.popupAd.title}
+                          className="w-16 h-12 rounded-lg object-cover border border-[#334155] shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
+                            {state.popupAd.title}
+                          </div>
+                          <div className="text-[11px] text-sky-400 truncate">
+                            {state.popupAd.active ? 'مفعّل للزوار' : 'متوقف'} ·{' '}
+                            {getDaysRemainingBadge(state.popupAd.expiresAt)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            loadPopupIntoForm();
+                            showToast('تم تحميل بيانات وصور إعلان الشاشة المنبثقة للتعديل في النموذج أعلاه.');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>تعديل</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUpdatePopupAd({
+                              ...state.popupAd,
+                              active: false,
+                            });
+                            setAdPopupActive(false);
+                            showToast('تم إيقاف/حذف عرض إعلان الشاشة المنبثقة.');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>حذف</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2180,130 +2285,198 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             },
                           ];
                     const draftText = replyDrafts[msg.id] || '';
+                    const isCollapsed = Boolean(collapsedMessagesMap[msg.id]);
+                    const lastEntry = threadItems[threadItems.length - 1];
                     return (
                       <div
                         key={msg.id}
-                        className={`p-4 rounded-xl border space-y-3 ${
+                        className={`p-4 rounded-xl border space-y-3 transition-all ${
                           msg.isRead
                             ? 'bg-[#0A192F]/70 border-[#334155]'
                             : 'bg-[#1E293B] border-sky-400/60'
                         }`}
                       >
+                        {/* Clickable Message Header (عند الضغط على الرسالة تنزل قائمة منسدلة بالرسائل مرة أخرى) + زر إغلاق بجانب كل رسالة لإخفاء المحادثة */}
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs pb-2 border-b border-[#334155]">
-                          <div className="flex items-center gap-2">
-                            <span className="font-extrabold text-sky-400 text-sm">
-                              المرسل: {msg.senderUsername}
+                          <div
+                            onClick={() =>
+                              setCollapsedMessagesMap((prev) => ({
+                                ...prev,
+                                [msg.id]: false,
+                              }))
+                            }
+                            title="اضغط لعرض القائمة المنسدلة للرسائل"
+                            className="flex-1 flex flex-wrap items-center gap-2 cursor-pointer select-none py-0.5"
+                          >
+                            <span className="font-extrabold text-sky-400 text-sm flex items-center gap-1.5">
+                              {isCollapsed ? (
+                                <ChevronDown className="w-4 h-4 text-sky-400 shrink-0" />
+                              ) : (
+                                <ChevronUp className="w-4 h-4 text-sky-400 shrink-0" />
+                              )}
+                              <span>حساب المرسل: {msg.senderUsername}</span>
                             </span>
                             <span className="px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[11px] font-bold">
                               عدد الرسائل: {threadItems.length}
                             </span>
+                            {!msg.isRead && (
+                              <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-extrabold animate-pulse">
+                                جديد
+                              </span>
+                            )}
+                            {isCollapsed && (
+                              <span className="text-[11px] font-bold text-emerald-300 truncate max-w-[260px]">
+                                — اضغط لفتح القائمة المنسدلة ({lastEntry.text})
+                              </span>
+                            )}
                           </div>
-                          <span className="text-[#94A3B8] font-mono-tabular">
-                            {new Date(
-                              msg.updatedAt || msg.createdAt
-                            ).toLocaleString('ar-EG')}
-                          </span>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[#94A3B8] font-mono-tabular">
+                              {new Date(
+                                msg.updatedAt || msg.createdAt
+                              ).toLocaleString('ar-EG')}
+                            </span>
+
+                            {/* زر إغلاق بجانب كل رسالة: عند الضغط عليها يتم إخفاء المحادثة */}
+                            {!isCollapsed ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCollapsedMessagesMap((prev) => ({
+                                    ...prev,
+                                    [msg.id]: true,
+                                  }));
+                                }}
+                                title="إخفاء المحادثة"
+                                className="fluent-reveal px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span>إغلاق</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCollapsedMessagesMap((prev) => ({
+                                    ...prev,
+                                    [msg.id]: false,
+                                  }));
+                                }}
+                                className="fluent-reveal px-2.5 py-1 rounded-lg bg-sky-600/25 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-400/50 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                                <span>عرض الرسائل</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        {/* All messages in the same unified card */}
-                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                          {threadItems.map((entry) => {
-                            const isAdminEntry = entry.sender === 'admin';
-                            return (
-                              <div
-                                key={entry.id}
-                                className={`p-3 rounded-xl border text-xs sm:text-sm space-y-1 ${
-                                  isAdminEntry
-                                    ? 'bg-emerald-950/35 border-emerald-400/50 text-emerald-100 mr-4'
-                                    : 'bg-[#112240] border-[#334155] text-[#F8FAFC] ml-4'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span
-                                    className={`font-extrabold ${
+                        {/* Dropdown Conversation Body (القائمة المنسدلة بالرسائل والرد — تختفي عند الضغط على إغلاق وتظهر عند الضغط على الرسالة) */}
+                        {!isCollapsed && (
+                          <>
+                            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                              {threadItems.map((entry) => {
+                                const isAdminEntry = entry.sender === 'admin';
+                                return (
+                                  <div
+                                    key={entry.id}
+                                    className={`p-3 rounded-xl border text-xs sm:text-sm space-y-1 ${
                                       isAdminEntry
-                                        ? 'text-emerald-400'
-                                        : 'text-sky-400'
+                                        ? 'bg-emerald-950/35 border-emerald-400/50 text-emerald-100 mr-4'
+                                        : 'bg-[#112240] border-[#334155] text-[#F8FAFC] ml-4'
                                     }`}
                                   >
-                                    {isAdminEntry
-                                      ? 'رد الإدارة'
-                                      : entry.senderName}
-                                  </span>
-                                  <span className="text-[#94A3B8] font-mono-tabular">
-                                    {new Date(entry.createdAt).toLocaleString(
-                                      'ar-EG'
-                                    )}
-                                  </span>
-                                </div>
-                                <p className="leading-relaxed whitespace-pre-line">
-                                  {entry.text}
-                                </p>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span
+                                        className={`font-extrabold ${
+                                          isAdminEntry
+                                            ? 'text-emerald-400'
+                                            : 'text-sky-400'
+                                        }`}
+                                      >
+                                        {isAdminEntry
+                                          ? 'رد الإدارة'
+                                          : entry.senderName}
+                                      </span>
+                                      <span className="text-[#94A3B8] font-mono-tabular">
+                                        {new Date(
+                                          entry.createdAt
+                                        ).toLocaleString('ar-EG')}
+                                      </span>
+                                    </div>
+                                    <p className="leading-relaxed whitespace-pre-line">
+                                      {entry.text}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Reply Box + Send Message Button */}
+                            <div className="pt-2 border-t border-[#334155] space-y-2">
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                  type="text"
+                                  value={draftText}
+                                  onChange={(e) =>
+                                    setReplyDrafts((prev) => ({
+                                      ...prev,
+                                      [msg.id]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder={`اكتب رداً إلى ${msg.senderUsername} ليظهر لحظياً في الجرس لديه...`}
+                                  className="flex-1 rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2 text-xs sm:text-sm text-[#F8FAFC] outline-none"
+                                />
+                                <FluentButton
+                                  type="button"
+                                  variant="primary"
+                                  size="sm"
+                                  disabled={!draftText.trim()}
+                                  onClick={() => {
+                                    if (!draftText.trim()) return;
+                                    onAdminReplyToMessage?.(
+                                      msg.id,
+                                      draftText.trim()
+                                    );
+                                    setReplyDrafts((prev) => ({
+                                      ...prev,
+                                      [msg.id]: '',
+                                    }));
+                                    showToast(
+                                      `تم إرسال الرسالة لحظياً إلى "${msg.senderUsername}" وظهرت في أيقونة الجرس لديه!`
+                                    );
+                                  }}
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                  <span>إرسال رسالة</span>
+                                </FluentButton>
                               </div>
-                            );
-                          })}
-                        </div>
 
-                        {/* Reply Box + Send Message Button */}
-                        <div className="pt-2 border-t border-[#334155] space-y-2">
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <input
-                              type="text"
-                              value={draftText}
-                              onChange={(e) =>
-                                setReplyDrafts((prev) => ({
-                                  ...prev,
-                                  [msg.id]: e.target.value,
-                                }))
-                              }
-                              placeholder={`اكتب رداً إلى ${msg.senderUsername} ليظهر في الجرس لديه...`}
-                              className="flex-1 rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2 text-xs sm:text-sm text-[#F8FAFC] outline-none"
-                            />
-                            <FluentButton
-                              type="button"
-                              variant="primary"
-                              size="sm"
-                              disabled={!draftText.trim()}
-                              onClick={() => {
-                                if (!draftText.trim()) return;
-                                onAdminReplyToMessage?.(
-                                  msg.id,
-                                  draftText.trim()
-                                );
-                                setReplyDrafts((prev) => ({
-                                  ...prev,
-                                  [msg.id]: '',
-                                }));
-                                showToast(
-                                  `تم إرسال الرسالة إلى "${msg.senderUsername}" وظهرت في أيقونة الجرس لديه!`
-                                );
-                              }}
-                            >
-                              <Send className="w-3.5 h-3.5" />
-                              <span>إرسال رسالة</span>
-                            </FluentButton>
-                          </div>
-
-                          <div className="flex justify-end gap-2">
-                            {!msg.isRead && (
-                              <FluentButton
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => onMarkMessageRead(msg.id)}
-                              >
-                                تحديد كمقروءة
-                              </FluentButton>
-                            )}
-                            <FluentButton
-                              variant="danger"
-                              size="sm"
-                              onClick={() => onDeleteMessage(msg.id)}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>حذف</span>
-                            </FluentButton>
-                          </div>
-                        </div>
+                              <div className="flex justify-end gap-2">
+                                {!msg.isRead && (
+                                  <FluentButton
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => onMarkMessageRead(msg.id)}
+                                  >
+                                    تحديد كمقروءة
+                                  </FluentButton>
+                                )}
+                                <FluentButton
+                                  variant="danger"
+                                  size="sm"
+                                  onClick={() => onDeleteMessage(msg.id)}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>حذف</span>
+                                </FluentButton>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })}
@@ -2553,6 +2726,127 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
               </div>
             </FluentCard>
           )}
+
+          {/* ====================================================================
+              9. الصيانة (Maintenance - Enable / Disable Sidebar Sections)
+             ==================================================================== */}
+          {activeSubTab === 'maintenance' && (
+            <FluentCard className="space-y-4">
+              <div className="pb-3 border-b border-[#334155]">
+                <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                  <Wrench className="w-5 h-5 text-amber-400" />
+                  <span>9. الصيانة — التحكم في تفعيل وتعطيل أقسام القائمة الجانبية</span>
+                </h3>
+                <p className="text-xs text-[#94A3B8]">
+                  عند الضغط على زر (تعطيل) لأي قسم، يظهر لجميع المستخدمين عند الدخول للقسم رسالة &quot;جاري التحديث ....&quot; وصورة صيانة، ما عدا حساب الـ admin فقط يظهر له القسم بشكل طبيعي حتى بعد تفعيل زر التعطيل.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {(
+                  [
+                    { id: 'directory' as MainSectionId, label: 'أضف محل / الدليل' },
+                    { id: 'services_numbers' as MainSectionId, label: 'أرقام الخدمات' },
+                    { id: 'tawsila' as MainSectionId, label: 'توصيلة' },
+                    { id: 'community' as MainSectionId, label: 'مجتمع' },
+                    { id: 'utilities' as MainSectionId, label: 'تقديمات المرافق' },
+                    { id: 'buy_sell' as MainSectionId, label: 'بيع واشتري' },
+                  ] as const
+                ).map((sec) => {
+                  const isDisabled = Boolean(
+                    state.settings.disabledSections?.[sec.id]
+                  );
+                  return (
+                    <div
+                      key={sec.id}
+                      className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                        isDisabled
+                          ? 'bg-amber-950/25 border-amber-500/50'
+                          : 'bg-[#0A192F] border-[#334155]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
+                            isDisabled
+                              ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                              : 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                          }`}
+                        >
+                          <Wrench className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="text-sm sm:text-base font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                            <span>{sec.label}</span>
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${
+                                isDisabled
+                                  ? 'bg-amber-500/20 border border-amber-400/50 text-amber-300'
+                                  : 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300'
+                              }`}
+                            >
+                              {isDisabled
+                                ? 'معطل (في وضع الصيانة للمستخدمين)'
+                                : 'مفعّل ويعمل للجميع'}
+                            </span>
+                          </div>
+                          <div className="text-xs text-[#94A3B8] mt-0.5">
+                            {isDisabled
+                              ? 'يظهر حالياً للمستخدمين: "جاري التحديث ...." وصورة صيانة (يظهر للأدمن فقط)'
+                              : 'القسم متاح ومفتوح لجميع زوار ومستخدمي الموقع'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <FluentButton
+                          type="button"
+                          variant={!isDisabled ? 'emerald' : 'secondary'}
+                          size="sm"
+                          onClick={() => {
+                            onUpdateSettings({
+                              ...state.settings,
+                              disabledSections: {
+                                ...(state.settings.disabledSections || {}),
+                                [sec.id]: false,
+                              },
+                              updatedAt: Date.now(),
+                            });
+                            showToast(`تم تفعيل قسم "${sec.label}" لجميع المستخدمين!`);
+                          }}
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>تفعيل</span>
+                        </FluentButton>
+
+                        <FluentButton
+                          type="button"
+                          variant={isDisabled ? 'danger' : 'secondary'}
+                          size="sm"
+                          onClick={() => {
+                            onUpdateSettings({
+                              ...state.settings,
+                              disabledSections: {
+                                ...(state.settings.disabledSections || {}),
+                                [sec.id]: true,
+                              },
+                              updatedAt: Date.now(),
+                            });
+                            showToast(
+                              `تم تعطيل قسم "${sec.label}" وتفعيل شاشة الصيانة "جاري التحديث ...." للمستخدمين (يبقى متاحاً لحساب admin فقط).`
+                            );
+                          }}
+                        >
+                          <Ban className="w-4 h-4" />
+                          <span>تعطيل</span>
+                        </FluentButton>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </FluentCard>
+          )}
         </div>
       </div>
 
@@ -2585,92 +2879,148 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                         },
                       ];
                 const draftText = replyDrafts[`modal_${msg.id}`] || '';
+                const isModalCollapsed = Boolean(collapsedModalMessagesMap[msg.id]);
                 return (
                   <div
                     key={msg.id}
                     className="p-4 rounded-xl bg-[#0A192F] border border-sky-400/40 space-y-3"
                   >
-                    <div className="flex items-center justify-between text-xs pb-2 border-b border-[#334155]">
-                      <span className="font-extrabold text-sky-400 text-sm">
-                        الحساب: {msg.senderUsername}
-                      </span>
-                      <span className="text-[#94A3B8] font-mono-tabular">
-                        {new Date(
-                          msg.updatedAt || msg.createdAt
-                        ).toLocaleString('ar-EG')}
-                      </span>
-                    </div>
-
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {threadItems.map((entry) => {
-                        const isAdminEntry = entry.sender === 'admin';
-                        return (
-                          <div
-                            key={entry.id}
-                            className={`p-2.5 rounded-xl border text-xs space-y-1 ${
-                              isAdminEntry
-                                ? 'bg-emerald-950/35 border-emerald-400/50 text-emerald-100 mr-4'
-                                : 'bg-[#112240] border-[#334155] text-[#F8FAFC] ml-4'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between text-[10px]">
-                              <span
-                                className={`font-extrabold ${
-                                  isAdminEntry
-                                    ? 'text-emerald-400'
-                                    : 'text-sky-400'
-                                }`}
-                              >
-                                {isAdminEntry ? 'رد الإدارة' : entry.senderName}
-                              </span>
-                              <span className="text-[#94A3B8] font-mono-tabular">
-                                {new Date(entry.createdAt).toLocaleString(
-                                  'ar-EG'
-                                )}
-                              </span>
-                            </div>
-                            <p className="whitespace-pre-line leading-relaxed">
-                              {entry.text}
-                            </p>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-[#334155]">
-                      <input
-                        type="text"
-                        value={draftText}
-                        onChange={(e) =>
-                          setReplyDrafts((prev) => ({
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs pb-2 border-b border-[#334155]">
+                      <div
+                        onClick={() =>
+                          setCollapsedModalMessagesMap((prev) => ({
                             ...prev,
-                            [`modal_${msg.id}`]: e.target.value,
+                            [msg.id]: false,
                           }))
                         }
-                        placeholder={`اكتب رداً إلى ${msg.senderUsername}...`}
-                        className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3.5 py-2 text-xs sm:text-sm text-[#F8FAFC] outline-none"
-                      />
-                      <FluentButton
-                        type="button"
-                        variant="primary"
-                        size="sm"
-                        disabled={!draftText.trim()}
-                        onClick={() => {
-                          if (!draftText.trim()) return;
-                          onAdminReplyToMessage?.(msg.id, draftText.trim());
-                          setReplyDrafts((prev) => ({
-                            ...prev,
-                            [`modal_${msg.id}`]: '',
-                          }));
-                          showToast(
-                            `تم إرسال الرسالة إلى "${msg.senderUsername}" وظهرت في زر الجرس لديه!`
-                          );
-                        }}
+                        className="flex-1 flex items-center gap-2 cursor-pointer select-none"
                       >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>إرسال رسالة</span>
-                      </FluentButton>
+                        {isModalCollapsed ? (
+                          <ChevronDown className="w-4 h-4 text-sky-400 shrink-0" />
+                        ) : (
+                          <ChevronUp className="w-4 h-4 text-sky-400 shrink-0" />
+                        )}
+                        <span className="font-extrabold text-sky-400 text-sm">
+                          الحساب: {msg.senderUsername}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-bold">
+                          ({threadItems.length} رسائل)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#94A3B8] font-mono-tabular">
+                          {new Date(
+                            msg.updatedAt || msg.createdAt
+                          ).toLocaleString('ar-EG')}
+                        </span>
+                        {!isModalCollapsed ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCollapsedModalMessagesMap((prev) => ({
+                                ...prev,
+                                [msg.id]: true,
+                              }));
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>إغلاق</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCollapsedModalMessagesMap((prev) => ({
+                                ...prev,
+                                [msg.id]: false,
+                              }));
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-sky-600/25 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-400/50 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                            <span>عرض الرسائل</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {!isModalCollapsed && (
+                      <>
+                        <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                          {threadItems.map((entry) => {
+                            const isAdminEntry = entry.sender === 'admin';
+                            return (
+                              <div
+                                key={entry.id}
+                                className={`p-2.5 rounded-xl border text-xs space-y-1 ${
+                                  isAdminEntry
+                                    ? 'bg-emerald-950/35 border-emerald-400/50 text-emerald-100 mr-4'
+                                    : 'bg-[#112240] border-[#334155] text-[#F8FAFC] ml-4'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span
+                                    className={`font-extrabold ${
+                                      isAdminEntry
+                                        ? 'text-emerald-400'
+                                        : 'text-sky-400'
+                                    }`}
+                                  >
+                                    {isAdminEntry ? 'رد الإدارة' : entry.senderName}
+                                  </span>
+                                  <span className="text-[#94A3B8] font-mono-tabular">
+                                    {new Date(entry.createdAt).toLocaleString(
+                                      'ar-EG'
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="whitespace-pre-line leading-relaxed">
+                                  {entry.text}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-[#334155]">
+                          <input
+                            type="text"
+                            value={draftText}
+                            onChange={(e) =>
+                              setReplyDrafts((prev) => ({
+                                ...prev,
+                                [`modal_${msg.id}`]: e.target.value,
+                              }))
+                            }
+                            placeholder={`اكتب رداً إلى ${msg.senderUsername}...`}
+                            className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3.5 py-2 text-xs sm:text-sm text-[#F8FAFC] outline-none"
+                          />
+                          <FluentButton
+                            type="button"
+                            variant="primary"
+                            size="sm"
+                            disabled={!draftText.trim()}
+                            onClick={() => {
+                              if (!draftText.trim()) return;
+                              onAdminReplyToMessage?.(msg.id, draftText.trim());
+                              setReplyDrafts((prev) => ({
+                                ...prev,
+                                [`modal_${msg.id}`]: '',
+                              }));
+                              showToast(
+                                `تم إرسال الرسالة لحظياً إلى "${msg.senderUsername}" وظهرت في زر الجرس لديه!`
+                              );
+                            }}
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>إرسال رسالة</span>
+                          </FluentButton>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}

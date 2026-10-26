@@ -111,6 +111,7 @@ export default function App() {
     text: string;
     tick: number;
   } | null>(null);
+  const [loginWelcomeToast, setLoginWelcomeToast] = useState<string>('');
 
   useEffect(() => {
     try {
@@ -238,6 +239,24 @@ export default function App() {
     };
   }, []);
 
+  // If the current logged-in account was permanently deleted from the database, log out
+  useEffect(() => {
+    if (!currentUser) return;
+    const deletedSet = new Set(dbState.deletedRecordIds || []);
+    const uNameKey = `user:${currentUser.username.trim().toLowerCase()}`;
+    const accKey = currentUser.accountName
+      ? `acc:${currentUser.accountName.trim().toLowerCase()}`
+      : '';
+    if (
+      deletedSet.has(currentUser.id) ||
+      deletedSet.has(uNameKey) ||
+      (accKey && deletedSet.has(accKey))
+    ) {
+      setCurrentUser(null);
+      storageEngine.saveAuthenticatedUser(null, false);
+    }
+  }, [dbState.deletedRecordIds, currentUser]);
+
   const updateAndPersist = (
     updater: (prev: PlatformDatabaseState) => PlatformDatabaseState
   ) => {
@@ -263,33 +282,12 @@ export default function App() {
   const visitorId = getOrCreateVisitorId(currentUser);
 
   const triggerLoginExternalNotification = (loggedUser: UserAccount) => {
-    const normName = loggedUser.username.trim().toLowerCase();
-    const unreadPriv = (dbState.privateChatMessages || []).filter((m) => {
-      const rNorm = m.receiverUsername.trim().toLowerCase();
-      return (
-        (m.receiverId === loggedUser.id || rNorm === normName) &&
-        m.senderUsername.trim().toLowerCase() !== normName &&
-        !m.isRead
-      );
-    });
-    if (unreadPriv.length > 0) {
-      const latest = unreadPriv[unreadPriv.length - 1];
-      setExternalLoginNotification({
-        senderUsername: latest.senderUsername,
-        partnerId: latest.senderId,
-        partnerUsername: latest.senderUsername,
-        text: latest.text,
-        tick: Date.now(),
-      });
-    } else {
-      setExternalLoginNotification({
-        senderUsername: loggedUser.username,
-        partnerId: loggedUser.id,
-        partnerUsername: loggedUser.username,
-        text: `مرحباً بك يا ${loggedUser.username}، تم تسجيل الدخول وتفعيل المحادثات المباشرة.`,
-        tick: Date.now(),
-      });
-    }
+    // Show ONLY the welcome notification with the account holder's name, and do NOT show the chat notification on login
+    setExternalLoginNotification(null);
+    setLoginWelcomeToast(`مرحباً بك ${loggedUser.username}`);
+    setTimeout(() => {
+      setLoginWelcomeToast('');
+    }, 5000);
   };
 
   // --- Authentication Handlers (with Instant Browser Cache & Instant Online Presence Broadcast on Login/Logout) ---
@@ -359,7 +357,7 @@ export default function App() {
     }
   };
 
-  // --- Footer Contact Message to Admin Handler (Merges into existing message if account sent before) ---
+  // --- Footer Contact Message to Admin Handler (Merges into existing message if account sent before, syncs in <15ms) ---
   const handleSendMessageToAdmin = (
     content: string,
     senderUsername: string,
@@ -370,7 +368,7 @@ export default function App() {
     const cleanSenderName = senderUsername.trim();
     const lowerSenderName = cleanSenderName.toLowerCase();
 
-    updateAndPersist((prev) => {
+    updateAndPersistChatFast((prev) => {
       const existingIdx = prev.messages.findIndex((m) => {
         if (
           effectiveSenderId &&
@@ -438,13 +436,13 @@ export default function App() {
     });
   };
 
-  // --- Admin Reply to User Message (Notifies User's Bell Icon) ---
+  // --- Admin Reply to User Message (Notifies User's Bell Icon Instantaneously) ---
   const handleAdminReplyToMessage = (messageId: string, replyText: string) => {
     const cleanReply = replyText.trim();
     if (!cleanReply) return;
     const nowIso = new Date().toISOString();
 
-    updateAndPersist((prev) => {
+    updateAndPersistChatFast((prev) => {
       const target = prev.messages.find((m) => m.id === messageId);
       const targetSenderKey = target
         ? target.senderUsername.trim().toLowerCase()
@@ -472,6 +470,7 @@ export default function App() {
                 ];
           return {
             ...m,
+            content: cleanReply,
             isRead: true,
             unreadForUserCount: (m.unreadForUserCount || 0) + 1,
             updatedAt: nowIso,
@@ -491,55 +490,73 @@ export default function App() {
     });
   };
 
-  // --- User Reply from Bell Popup Modal back to Admin ---
+  // --- Reply from Bell Popup Modal (Supports both Admin replying to User and User replying to Admin instantaneously) ---
   const handleUserReplyToAdminMessage = (
     messageId: string,
     replyText: string
   ) => {
     const cleanReply = replyText.trim();
     if (!cleanReply) return;
+
+    // If Admin is replying from the Bell Popup Modal, route to Admin Reply handler so the user receives it in their Bell icon immediately
+    if (currentUser?.role === 'admin') {
+      handleAdminReplyToMessage(messageId, cleanReply);
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     const senderLabel = currentUser?.username || 'زائر (غير مسجل)';
 
-    updateAndPersist((prev) => ({
-      ...prev,
-      messages: prev.messages.map((m) => {
-        if (m.id !== messageId) return m;
-        const prevThread =
-          m.thread && m.thread.length > 0
-            ? m.thread
-            : [
-                {
-                  id: m.id,
-                  sender: 'user' as const,
-                  senderName: m.senderUsername,
-                  text: m.content,
-                  createdAt: m.createdAt,
-                },
-              ];
-        return {
-          ...m,
-          content: cleanReply,
-          isRead: false,
-          unreadForUserCount: 0,
-          updatedAt: nowIso,
-          thread: [
-            ...prevThread,
-            {
-              id: `usr-rep-${Date.now()}`,
-              sender: 'user' as const,
-              senderName: senderLabel,
-              text: cleanReply,
-              createdAt: nowIso,
-            },
-          ],
-        };
-      }),
-    }));
+    updateAndPersistChatFast((prev) => {
+      const target = prev.messages.find((m) => m.id === messageId);
+      const targetSenderKey = target
+        ? target.senderUsername.trim().toLowerCase()
+        : '';
+
+      return {
+        ...prev,
+        messages: prev.messages.map((m) => {
+          const isMatch =
+            m.id === messageId ||
+            (targetSenderKey &&
+              m.senderUsername.trim().toLowerCase() === targetSenderKey);
+          if (!isMatch) return m;
+          const prevThread =
+            m.thread && m.thread.length > 0
+              ? m.thread
+              : [
+                  {
+                    id: m.id,
+                    sender: 'user' as const,
+                    senderName: m.senderUsername,
+                    text: m.content,
+                    createdAt: m.createdAt,
+                  },
+                ];
+          return {
+            ...m,
+            content: cleanReply,
+            isRead: false,
+            unreadForUserCount: 0,
+            updatedAt: nowIso,
+            thread: [
+              ...prevThread,
+              {
+                id: `usr-rep-${Date.now()}`,
+                sender: 'user' as const,
+                senderName: senderLabel,
+                text: cleanReply,
+                createdAt: nowIso,
+              },
+            ],
+          };
+        }),
+      };
+    });
   };
 
   const handleMarkUserMessagesRead = (messageId?: string) => {
-    updateAndPersist((prev) => ({
+    updateAndPersistChatFast((prev) => ({
       ...prev,
       messages: prev.messages.map((m) => {
         if (messageId && m.id !== messageId) return m;
@@ -549,7 +566,12 @@ export default function App() {
         const belongsToMe = currentUser
           ? m.senderId === currentUser.id ||
             m.senderUsername.trim().toLowerCase() ===
-              currentUser.username.trim().toLowerCase()
+              currentUser.username.trim().toLowerCase() ||
+            Boolean(
+              currentUser.accountName &&
+                m.senderUsername.trim().toLowerCase() ===
+                  currentUser.accountName.trim().toLowerCase()
+            )
           : m.senderId === visitorId;
         if (!belongsToMe) return m;
         return { ...m, unreadForUserCount: 0 };
@@ -595,6 +617,9 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       stores: prev.stores.filter((s) => s.id !== id),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), id])
+      ),
     }));
   };
 
@@ -727,6 +752,9 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       serviceNumbers: prev.serviceNumbers.filter((n) => n.id !== id),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), id])
+      ),
     }));
   };
 
@@ -751,6 +779,9 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       tawsilaRides: prev.tawsilaRides.filter((r) => r.id !== id),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), id])
+      ),
     }));
   };
 
@@ -806,6 +837,9 @@ export default function App() {
       return {
         ...prev,
         communityPosts: prev.communityPosts.filter((p) => p.id !== postId),
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), postId])
+        ),
       };
     });
   };
@@ -1806,23 +1840,46 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    updateAndPersist((prev) => ({
-      ...prev,
-      users: prev.users.filter(
+    updateAndPersist((prev) => {
+      const matchedUsers = prev.users.filter(
         (u) =>
-          u.id !== targetUserId &&
-          u.username.trim().toLowerCase() !==
+          u.id === targetUserId ||
+          u.username.trim().toLowerCase() ===
             targetUsername.trim().toLowerCase()
-      ),
-      chatPenalties: [...(prev.chatPenalties || []), permPenalty],
-      privateChatReports: (prev.privateChatReports || []).filter(
-        (r) =>
-          r.reportedUserId !== targetUserId &&
-          r.reportedUsername.trim().toLowerCase() !==
-            targetUsername.trim().toLowerCase()
-      ),
-      liveChatMessages: [...(prev.liveChatMessages || []).slice(-49), sysMsg],
-    }));
+      );
+      const delKeys: string[] = [
+        targetUserId,
+        `user:${targetUsername.trim().toLowerCase()}`,
+      ];
+      matchedUsers.forEach((mu) => {
+        delKeys.push(mu.id);
+        delKeys.push(`user:${mu.username.trim().toLowerCase()}`);
+        if (mu.accountName) {
+          delKeys.push(`acc:${mu.accountName.trim().toLowerCase()}`);
+        }
+      });
+
+      return {
+        ...prev,
+        users: prev.users.filter(
+          (u) =>
+            u.id !== targetUserId &&
+            u.username.trim().toLowerCase() !==
+              targetUsername.trim().toLowerCase()
+        ),
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), ...delKeys.filter(Boolean)])
+        ),
+        chatPenalties: [...(prev.chatPenalties || []), permPenalty],
+        privateChatReports: (prev.privateChatReports || []).filter(
+          (r) =>
+            r.reportedUserId !== targetUserId &&
+            r.reportedUsername.trim().toLowerCase() !==
+              targetUsername.trim().toLowerCase()
+        ),
+        liveChatMessages: [...(prev.liveChatMessages || []).slice(-49), sysMsg],
+      };
+    });
   };
 
   // --- Utilities Submissions ("تقديمات المرافق") & Utility Posts Handlers ---
@@ -1841,6 +1898,7 @@ export default function App() {
         settings: {
           ...prev.settings,
           utilityTypes: [...currentTypes, clean],
+          updatedAt: Date.now(),
         },
       };
     });
@@ -1870,6 +1928,9 @@ export default function App() {
       ...prev,
       utilitySubmissions: (prev.utilitySubmissions || []).filter(
         (u) => u.id !== id
+      ),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), id])
       ),
     }));
   };
@@ -1928,6 +1989,9 @@ export default function App() {
       return {
         ...prev,
         utilityPosts: (prev.utilityPosts || []).filter((p) => p.id !== postId),
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), postId])
+        ),
       };
     });
   };
@@ -2294,6 +2358,9 @@ export default function App() {
       return {
         ...prev,
         buySellPosts: (prev.buySellPosts || []).filter((p) => p.id !== postId),
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), postId])
+        ),
       };
     });
   };
@@ -2609,7 +2676,10 @@ export default function App() {
   const handleUpdateSettings = (nextSettings: PlatformSettings) => {
     updateAndPersist((prev) => ({
       ...prev,
-      settings: nextSettings,
+      settings: {
+        ...nextSettings,
+        updatedAt: Date.now(),
+      },
     }));
   };
 
@@ -2629,10 +2699,23 @@ export default function App() {
   };
 
   const handleDeleteUserAccount = (id: string) => {
-    updateAndPersist((prev) => ({
-      ...prev,
-      users: prev.users.filter((u) => u.id !== id),
-    }));
+    updateAndPersist((prev) => {
+      const target = prev.users.find((u) => u.id === id);
+      const delKeys: string[] = [id];
+      if (target) {
+        delKeys.push(`user:${target.username.trim().toLowerCase()}`);
+        if (target.accountName) {
+          delKeys.push(`acc:${target.accountName.trim().toLowerCase()}`);
+        }
+      }
+      return {
+        ...prev,
+        users: prev.users.filter((u) => u.id !== id),
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), ...delKeys])
+        ),
+      };
+    });
     if (currentUser?.id === id) {
       setCurrentUser(null);
       storageEngine.saveAuthenticatedUser(null, false);
@@ -2647,6 +2730,7 @@ export default function App() {
         storeCategories: prev.settings.storeCategories.map((c) =>
           c === oldName ? newName : c
         ),
+        updatedAt: Date.now(),
       },
       stores: prev.stores.map((s) =>
         s.category === oldName ? { ...s, category: newName } : s
@@ -2672,6 +2756,9 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       topBanners: prev.topBanners.filter((b) => b.id !== id),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), id])
+      ),
     }));
   };
 
@@ -2702,6 +2789,9 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       squareAds: prev.squareAds.filter((ad) => ad.id !== id),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), id])
+      ),
     }));
   };
 
@@ -2725,6 +2815,9 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       messages: prev.messages.filter((m) => m.id !== id),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), id])
+      ),
     }));
   };
 
@@ -2823,6 +2916,23 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-[#0A192F] text-[#F8FAFC] flex flex-col">
+      {/* Login Welcome Notification Toast (مرحباً بك + اسم صاحب الحساب) */}
+      {loginWelcomeToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[120] px-5 py-3 rounded-2xl bg-[#112240] border-2 border-emerald-400 text-emerald-200 shadow-[0_12px_35px_rgba(16,185,129,0.35)] flex items-center gap-3 animate-bounce">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <span className="text-sm sm:text-base font-extrabold text-[#F8FAFC]">
+            {loginWelcomeToast}
+          </span>
+          <button
+            type="button"
+            onClick={() => setLoginWelcomeToast('')}
+            className="text-xs text-emerald-300 hover:text-white underline mr-2 cursor-pointer"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
+
       {/* Header + Marquee + Live Clock + Auth + Crown 👑 Ad Packages + Bell 🔔 */}
       <HeaderAndAdPackages
         settings={dbState.settings}
@@ -3053,6 +3163,14 @@ export default function App() {
                 squareAds: prev.squareAds.filter((a) => !sqSet.has(a.id)),
                 topBanners: prev.topBanners.filter((b) => !tbSet.has(b.id)),
                 stores: prev.stores.filter((s) => !stSet.has(s.id)),
+                deletedRecordIds: Array.from(
+                  new Set([
+                    ...(prev.deletedRecordIds || []),
+                    ...squareAdIds,
+                    ...topBannerIds,
+                    ...storeIds,
+                  ])
+                ),
               }));
             }}
             onEntryPopupClosed={() => {

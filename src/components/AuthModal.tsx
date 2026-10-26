@@ -21,6 +21,8 @@ interface AuthModalProps {
   onResetUserPassword: (userId: string, newPassword: string) => void;
 }
 
+const LOCKED_ACCOUNT_STORAGE_KEY = 'nakhil_1185_locked_account_v1';
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
@@ -31,6 +33,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 }) => {
   const [viewMode, setViewMode] = useState<'main' | 'forgot_password'>('main');
 
+  // Load saved fixed accountName if user already registered an account
+  const [lockedAccountName, setLockedAccountName] = useState<string>(() => {
+    try {
+      return localStorage.getItem(LOCKED_ACCOUNT_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+
   // Main Auth State
   const [accountName, setAccountName] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -40,6 +51,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     type: 'error' | 'success';
     message: string;
   } | null>(null);
+
+  // Verify if lockedAccountName still exists in database (if account was deleted from DB, unlock it)
+  const lockedUserInDb = React.useMemo(() => {
+    const cleanLocked = lockedAccountName.trim().toLowerCase();
+    if (!cleanLocked) return null;
+    return (
+      users.find(
+        (u) =>
+          (u.accountName && u.accountName.trim().toLowerCase() === cleanLocked) ||
+          u.username.trim().toLowerCase() === cleanLocked
+      ) || null
+    );
+  }, [lockedAccountName, users]);
+
+  const hasRegisteredLockedAccount = Boolean(lockedAccountName.trim() && lockedUserInDb);
+
+  React.useEffect(() => {
+    if (lockedAccountName && users.length > 0 && !lockedUserInDb) {
+      // Account was permanently deleted from database
+      try {
+        localStorage.removeItem(LOCKED_ACCOUNT_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+      setLockedAccountName('');
+      setAccountName('');
+    } else if (hasRegisteredLockedAccount && lockedUserInDb) {
+      const fixedAcc = lockedUserInDb.accountName || lockedUserInDb.username;
+      setAccountName(fixedAcc);
+      if (!displayName) {
+        setDisplayName(lockedUserInDb.username);
+      }
+    }
+  }, [lockedAccountName, lockedUserInDb, hasRegisteredLockedAccount, users.length, isOpen]);
 
   // Forgot Password State
   const [forgotUsername, setForgotUsername] = useState('');
@@ -62,26 +107,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // 1. Login Handler
   const handleLogin = () => {
     resetMessages();
-    const cleanAccount = accountName.trim();
-    if (!cleanAccount || !password) {
+    const effectiveAccount = (
+      hasRegisteredLockedAccount
+        ? lockedUserInDb?.accountName || lockedAccountName
+        : accountName
+    ).trim();
+    const cleanDisplay = displayName.trim();
+
+    if ((!effectiveAccount && !cleanDisplay) || !password) {
       setFeedback({
         type: 'error',
-        message: 'يرجى كتابة اسم الحساب والباسورد أولاً.',
+        message: hasRegisteredLockedAccount
+          ? 'يرجى كتابة الاسم الذي يظهر للمستخدمين والباسورد أولاً.'
+          : 'يرجى كتابة اسم الحساب والباسورد أولاً.',
       });
       return;
     }
 
-    const lowerAccount = cleanAccount.toLowerCase();
-    const foundUser = users.find(
+    const lowerAccount = effectiveAccount.toLowerCase();
+    const lowerDisplay = cleanDisplay.toLowerCase();
+
+    // Allow matching by fixed accountName or by displayName (or admin)
+    let foundUser = users.find(
       (u) =>
-        (u.accountName && u.accountName.trim().toLowerCase() === lowerAccount) ||
-        u.username.trim().toLowerCase() === lowerAccount
+        (lowerDisplay &&
+          (u.username.trim().toLowerCase() === lowerDisplay ||
+            (u.accountName && u.accountName.trim().toLowerCase() === lowerDisplay))) ||
+        (lowerAccount &&
+          ((u.accountName && u.accountName.trim().toLowerCase() === lowerAccount) ||
+            u.username.trim().toLowerCase() === lowerAccount))
     );
 
     if (!foundUser || foundUser.password !== password) {
       setFeedback({
         type: 'error',
-        message: 'اسم الحساب أو الباسورد غير صحيح، يرجى التأكد والمحاولة مجدداً.',
+        message: 'البيانات أو الباسورد غير صحيح، يرجى التأكد والمحاولة مجدداً.',
       });
       return;
     }
@@ -94,18 +154,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    onAuthenticate(foundUser, rememberMe);
-    setAccountName('');
-    setDisplayName('');
+    // Lock accountName on device if not admin
+    const fixedAccName = foundUser.accountName || foundUser.username;
+    if (fixedAccName.toLowerCase() !== 'admin') {
+      try {
+        localStorage.setItem(LOCKED_ACCOUNT_STORAGE_KEY, fixedAccName);
+      } catch {
+        // ignore
+      }
+      setLockedAccountName(fixedAccName);
+    }
+
+    onAuthenticate(foundUser, true);
     setPassword('');
     onClose();
   };
 
   // 2. Register New Account Handler
-  const isAdminAccountInput = accountName.trim().toLowerCase() === 'admin';
+  const effectiveAccountForAdminCheck = hasRegisteredLockedAccount
+    ? lockedUserInDb?.accountName || lockedAccountName
+    : accountName;
+  const isAdminAccountInput =
+    effectiveAccountForAdminCheck.trim().toLowerCase() === 'admin' ||
+    displayName.trim().toLowerCase() === 'admin';
 
   const handleRegister = () => {
     resetMessages();
+    if (hasRegisteredLockedAccount) {
+      setFeedback({
+        type: 'error',
+        message:
+          'تم تسجيل حساب بالفعل واسم الحساب ثابت ولا يمكن تغييره. يرجى الضغط على "تسجيل الدخول".',
+      });
+      return;
+    }
+
     const cleanAccount = accountName.trim();
     const lowerAccount = cleanAccount.toLowerCase();
     const cleanDisplay =
@@ -158,9 +241,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       createdAt: new Date().toISOString(),
     };
 
-    onRegisterNewUser(createdUser, rememberMe);
-    setAccountName('');
-    setDisplayName('');
+    // Persist fixed accountName so it stays constant and cannot be changed
+    if (lowerAccount !== 'admin') {
+      try {
+        localStorage.setItem(LOCKED_ACCOUNT_STORAGE_KEY, cleanAccount);
+      } catch {
+        // ignore
+      }
+      setLockedAccountName(cleanAccount);
+    }
+
+    onRegisterNewUser(createdUser, true);
+    setAccountName(cleanAccount);
+    setDisplayName(createdUser.username);
     setPassword('');
     onClose();
   };
@@ -199,6 +292,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setTimeout(() => {
       setViewMode('main');
       setAccountName(matchedForgotUser.accountName || matchedForgotUser.username);
+      setDisplayName(matchedForgotUser.username);
       setPassword(newPassword);
       setForgotUsername('');
       setNewPassword('');
@@ -221,7 +315,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
       subtitle={
         viewMode === 'main'
-          ? 'أدخل اسم الحساب والباسورد للدخول، أو أضف الاسم الذي يظهر للمستخدمين عند إنشاء حساب جديد'
+          ? hasRegisteredLockedAccount
+            ? 'اسم الحساب ثابت، أدخل الاسم الذي يظهر للمستخدمين والباسورد لتسجيل الدخول'
+            : 'أدخل اسم الحساب والباسورد للدخول، أو أضف الاسم الذي يظهر للمستخدمين عند إنشاء حساب جديد'
           : 'اكتب اسم الحساب لتفعيل خانة الباسورد وكتابة الباسورد الجديد'
       }
       maxWidth="md"
@@ -245,31 +341,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       {viewMode === 'main' ? (
         <div className="space-y-4">
-          {/* 1. Account Name Input (اسم الحساب) */}
+          {/* 1. Account Name (اسم الحساب): Fixed & Read-Only after account registration */}
           <div>
-            <label className="block text-xs font-bold text-[#94A3B8] mb-1.5">
-              اسم الحساب
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-[#94A3B8]">
+                اسم الحساب
+              </label>
+              {hasRegisteredLockedAccount && (
+                <span className="text-[11px] font-bold text-amber-300 bg-amber-500/15 border border-amber-400/30 px-2 py-0.5 rounded-md">
+                  ثابت لا يمكن تغييره
+                </span>
+              )}
+            </div>
             <div className="relative">
               <User className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                value={accountName}
+                value={
+                  hasRegisteredLockedAccount
+                    ? lockedUserInDb?.accountName || lockedAccountName
+                    : accountName
+                }
+                readOnly={hasRegisteredLockedAccount}
+                disabled={hasRegisteredLockedAccount}
                 onChange={(e) => {
+                  if (hasRegisteredLockedAccount) return;
                   setAccountName(e.target.value);
                   resetMessages();
                 }}
                 placeholder="اكتب اسم الحساب الخاص بتسجيل الدخول..."
-                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
+                className={`w-full rounded-xl border pr-10 pl-4 py-2.5 outline-none ${
+                  hasRegisteredLockedAccount
+                    ? 'bg-[#0A192F]/60 border-amber-500/40 text-amber-200 font-bold cursor-not-allowed select-none'
+                    : 'bg-[#0A192F] border-[#334155] focus:border-sky-400 text-[#F8FAFC]'
+                }`}
               />
             </div>
           </div>
 
-          {/* 2. Public Display Name Input (الاسم الذي يظهر للمستخدمين - يظهر فقط للمستخدمين الآخرين وليس لـ admin) */}
-          {!isAdminAccountInput && (
+          {/* 2. Public Display Name Input (الاسم الذي يظهر للمستخدمين) */}
+          {(!isAdminAccountInput || hasRegisteredLockedAccount) && (
             <div>
               <label className="block text-xs font-bold text-emerald-300 mb-1.5">
-                الاسم الذي يظهر للمستخدمين (عند إنشاء حساب جديد)
+                {hasRegisteredLockedAccount
+                  ? 'الاسم الذي يظهر للمستخدمين'
+                  : 'الاسم الذي يظهر للمستخدمين (عند إنشاء حساب جديد)'}
               </label>
               <div className="relative">
                 <UserPlus className="w-4 h-4 text-emerald-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -325,7 +441,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="button"
               onClick={() => {
                 setViewMode('forgot_password');
-                setForgotUsername(accountName);
+                setForgotUsername(
+                  hasRegisteredLockedAccount
+                    ? lockedUserInDb?.accountName || lockedAccountName
+                    : accountName
+                );
                 setNewPassword('');
                 resetMessages();
               }}
@@ -336,7 +456,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
 
           {/* Action Buttons: Login & Register New Account */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-[#334155]">
+          <div
+            className={`grid grid-cols-1 ${
+              hasRegisteredLockedAccount ? '' : 'sm:grid-cols-2'
+            } gap-3 pt-3 border-t border-[#334155]`}
+          >
             <FluentButton
               type="button"
               variant="primary"
@@ -348,16 +472,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <span>تسجيل الدخول</span>
             </FluentButton>
 
-            <FluentButton
-              type="button"
-              variant="emerald"
-              size="lg"
-              onClick={handleRegister}
-              className="w-full"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>تسجيل حساب جديد</span>
-            </FluentButton>
+            {!hasRegisteredLockedAccount && (
+              <FluentButton
+                type="button"
+                variant="emerald"
+                size="lg"
+                onClick={handleRegister}
+                className="w-full"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>تسجيل حساب جديد</span>
+              </FluentButton>
+            )}
           </div>
         </div>
       ) : (

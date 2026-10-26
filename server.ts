@@ -9,6 +9,7 @@ const STATE_FILE_PATH = path.resolve(process.cwd(), '.realtime-portal-state.json
 
 interface PresenceSession {
   sessionId: string;
+  visitorId: string;
   userId: string | null;
   username: string | null;
   isRegistered: boolean;
@@ -28,7 +29,7 @@ try {
     const raw = fs.readFileSync(STATE_FILE_PATH, 'utf-8');
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
-      authoritativeState = parsed;
+    authoritativeState = parsed;
       latestChatPatch = {
         users: parsed.users || [],
         liveChatMessages: parsed.liveChatMessages || [],
@@ -41,11 +42,101 @@ try {
         messages: parsed.messages || [],
         buySellPosts: parsed.buySellPosts || [],
         communityPosts: parsed.communityPosts || [],
+        settings: parsed.settings || {},
+        deletedRecordIds: parsed.deletedRecordIds || [],
       };
     }
   }
 } catch {
   authoritativeState = null;
+}
+
+function mergeArrayByIdServer(
+  prevList: unknown,
+  nextList: unknown,
+  deletedSet: Set<string>
+): Array<Record<string, unknown>> {
+  const prev = Array.isArray(prevList) ? (prevList as Array<Record<string, unknown>>) : [];
+  const next = Array.isArray(nextList) ? (nextList as Array<Record<string, unknown>>) : [];
+  const map = new Map<string, Record<string, unknown>>();
+  for (const item of prev) {
+    if (item && typeof item.id === 'string' && !deletedSet.has(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+  for (const item of next) {
+    if (item && typeof item.id === 'string' && !deletedSet.has(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+  const result: Array<Record<string, unknown>> = [];
+  const added = new Set<string>();
+  for (const item of next) {
+    if (item && typeof item.id === 'string' && map.has(item.id) && !added.has(item.id)) {
+      result.push(map.get(item.id)!);
+      added.add(item.id);
+    }
+  }
+  for (const item of prev) {
+    if (item && typeof item.id === 'string' && map.has(item.id) && !added.has(item.id)) {
+      result.push(map.get(item.id)!);
+      added.add(item.id);
+    }
+  }
+  return result;
+}
+
+function mergeUsersServer(
+  prevUsers: unknown,
+  nextUsers: unknown,
+  deletedSet: Set<string>
+): Array<Record<string, unknown>> {
+  const prev = Array.isArray(prevUsers) ? (prevUsers as Array<Record<string, unknown>>) : [];
+  const next = Array.isArray(nextUsers) ? (nextUsers as Array<Record<string, unknown>>) : [];
+  const isDeleted = (u: Record<string, unknown>) => {
+    const id = typeof u.id === 'string' ? u.id : '';
+    const uname = typeof u.username === 'string' ? u.username.trim().toLowerCase() : '';
+    const acc = typeof u.accountName === 'string' ? u.accountName.trim().toLowerCase() : '';
+    return (
+      (id && deletedSet.has(id)) ||
+      (uname && deletedSet.has(`user:${uname}`)) ||
+      (acc && deletedSet.has(`acc:${acc}`))
+    );
+  };
+  const map = new Map<string, Record<string, unknown>>();
+  for (const u of prev) {
+    if (u && !isDeleted(u)) {
+      const k = String(u.accountName || u.username || u.id || '').toLowerCase();
+      if (k) map.set(k, u);
+    }
+  }
+  for (const u of next) {
+    if (u && !isDeleted(u)) {
+      const k = String(u.accountName || u.username || u.id || '').toLowerCase();
+      if (k) map.set(k, u);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function mergeSettingsServer(
+  prevSettings: Record<string, unknown> | undefined,
+  nextSettings: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  if (!prevSettings) return nextSettings || {};
+  if (!nextSettings) return prevSettings;
+  const prevTs = typeof prevSettings.updatedAt === 'number' ? prevSettings.updatedAt : 0;
+  const nextTs = typeof nextSettings.updatedAt === 'number' ? nextSettings.updatedAt : 0;
+  if (prevTs > nextTs) {
+    return {
+      ...nextSettings,
+      ...prevSettings,
+    };
+  }
+  return {
+    ...prevSettings,
+    ...nextSettings,
+  };
 }
 
 let diskSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -62,41 +153,44 @@ function saveStateToDisk(state: Record<string, unknown>) {
   }, 400);
 }
 
+// Strictly real-time online stats based ONLY on live active heartbeats (8s TTL)
+const LIVE_PRESENCE_TTL_MS = 8000;
+
 function computeOnlineStats() {
   const now = Date.now();
-  // Use 120s TTL so background tabs (throttled to 60s by browsers) stay online until closed
   for (const [key, sess] of presenceMap.entries()) {
-    if (now - sess.lastActiveAt > 120000) {
+    if (now - sess.lastActiveAt > LIVE_PRESENCE_TTL_MS) {
       presenceMap.delete(key);
     }
   }
+
   const registeredMap = new Map<string, string>();
-  let guestsCount = 0;
+  const registeredVisitorIds = new Set<string>();
+  const guestVisitorIds = new Set<string>();
 
   for (const sess of presenceMap.values()) {
     if (sess.isRegistered && (sess.username || sess.userId)) {
       const displayUsername = (sess.username || 'مستخدم مسجل').trim();
       const mapKey = displayUsername.toLowerCase() || sess.userId || sess.sessionId;
       registeredMap.set(mapKey, displayUsername);
-    } else {
-      guestsCount += 1;
+      if (sess.visitorId) {
+        registeredVisitorIds.add(sess.visitorId);
+      }
     }
   }
 
-  // Also include users explicitly marked isOnline in authoritativeState.users
-  if (authoritativeState && Array.isArray(authoritativeState.users)) {
-    for (const u of authoritativeState.users as Array<Record<string, unknown>>) {
-      if (u && u.isOnline === true && !u.isBanned && typeof u.username === 'string') {
-        const cleanName = u.username.trim();
-        if (cleanName) {
-          registeredMap.set(cleanName.toLowerCase(), cleanName);
-        }
+  for (const sess of presenceMap.values()) {
+    if (!sess.isRegistered) {
+      const vKey = sess.visitorId || sess.sessionId;
+      if (!registeredVisitorIds.has(vKey)) {
+        guestVisitorIds.add(vKey);
       }
     }
   }
 
   const registeredCount = registeredMap.size;
-  const totalOnline = Math.max(1, registeredCount + guestsCount);
+  const guestsCount = guestVisitorIds.size;
+  const totalOnline = registeredCount + guestsCount;
   return {
     totalOnline,
     registeredCount,
@@ -183,9 +277,77 @@ async function startServer() {
       return;
     }
 
+    const prevDeleted = Array.isArray(authoritativeState?.deletedRecordIds)
+      ? (authoritativeState!.deletedRecordIds as string[])
+      : [];
+    const nextDeleted = Array.isArray(state.deletedRecordIds)
+      ? (state.deletedRecordIds as string[])
+      : [];
+    const deletedSet = new Set<string>([...prevDeleted, ...nextDeleted]);
+    const deletedRecordIds = Array.from(deletedSet);
+
+    const mergedState: Record<string, unknown> = authoritativeState
+      ? {
+          ...authoritativeState,
+          ...state,
+          deletedRecordIds,
+          users: mergeUsersServer(authoritativeState.users, state.users, deletedSet),
+          stores: mergeArrayByIdServer(authoritativeState.stores, state.stores, deletedSet),
+          serviceNumbers: mergeArrayByIdServer(
+            authoritativeState.serviceNumbers,
+            state.serviceNumbers,
+            deletedSet
+          ),
+          tawsilaListings: mergeArrayByIdServer(
+            authoritativeState.tawsilaListings,
+            state.tawsilaListings,
+            deletedSet
+          ),
+          communityPosts: mergeArrayByIdServer(
+            authoritativeState.communityPosts,
+            state.communityPosts,
+            deletedSet
+          ),
+          utilitySubmissions: mergeArrayByIdServer(
+            authoritativeState.utilitySubmissions,
+            state.utilitySubmissions,
+            deletedSet
+          ),
+          utilityPosts: mergeArrayByIdServer(
+            authoritativeState.utilityPosts,
+            state.utilityPosts,
+            deletedSet
+          ),
+          buySellPosts: mergeArrayByIdServer(
+            authoritativeState.buySellPosts,
+            state.buySellPosts,
+            deletedSet
+          ),
+          topBanners: mergeArrayByIdServer(
+            authoritativeState.topBanners,
+            state.topBanners,
+            deletedSet
+          ),
+          squareAds: mergeArrayByIdServer(
+            authoritativeState.squareAds,
+            state.squareAds,
+            deletedSet
+          ),
+          messages: mergeArrayByIdServer(
+            authoritativeState.messages,
+            state.messages,
+            deletedSet
+          ),
+          settings: mergeSettingsServer(
+            authoritativeState.settings as Record<string, unknown> | undefined,
+            state.settings as Record<string, unknown> | undefined
+          ),
+        }
+      : { ...state, deletedRecordIds };
+
     const storeInteractionsMap: Record<string, unknown> = {};
-    if (Array.isArray(state.stores)) {
-      for (const st of state.stores as Array<Record<string, unknown>>) {
+    if (Array.isArray(mergedState.stores)) {
+      for (const st of mergedState.stores as Array<Record<string, unknown>>) {
         if (st && typeof st.id === 'string') {
           storeInteractionsMap[st.id] = {
             likes: Array.isArray(st.likes) ? st.likes : [],
@@ -198,22 +360,24 @@ async function startServer() {
       }
     }
 
-    authoritativeState = state;
+    authoritativeState = mergedState;
     stateVersion = Date.now();
     chatVersion = stateVersion;
     lastChatSenderTabId = senderTabId || null;
     latestChatPatch = {
-      users: state.users || [],
-      liveChatMessages: state.liveChatMessages || [],
-      privateChatMessages: state.privateChatMessages || [],
-      privateChatStatuses: state.privateChatStatuses || {},
-      chatTypingMap: state.chatTypingMap || {},
-      chatPenalties: state.chatPenalties || [],
-      userBlockedMap: state.userBlockedMap || {},
-      privateChatReports: state.privateChatReports || [],
-      messages: state.messages || [],
-      buySellPosts: state.buySellPosts || [],
-      communityPosts: state.communityPosts || [],
+      users: mergedState.users || [],
+      liveChatMessages: mergedState.liveChatMessages || [],
+      privateChatMessages: mergedState.privateChatMessages || [],
+      privateChatStatuses: mergedState.privateChatStatuses || {},
+      chatTypingMap: mergedState.chatTypingMap || {},
+      chatPenalties: mergedState.chatPenalties || [],
+      userBlockedMap: mergedState.userBlockedMap || {},
+      privateChatReports: mergedState.privateChatReports || [],
+      messages: mergedState.messages || [],
+      buySellPosts: mergedState.buySellPosts || [],
+      communityPosts: mergedState.communityPosts || [],
+      settings: mergedState.settings || {},
+      deletedRecordIds,
       storeInteractionsMap,
     };
 
@@ -223,7 +387,7 @@ async function startServer() {
       senderTabId: senderTabId || null,
     });
 
-    saveStateToDisk(state);
+    saveStateToDisk(mergedState);
     res.json({ ok: true, version: stateVersion });
   });
 
@@ -252,12 +416,22 @@ async function startServer() {
       return;
     }
 
+    const prevDeleted = Array.isArray(authoritativeState?.deletedRecordIds)
+      ? (authoritativeState!.deletedRecordIds as string[])
+      : [];
+    const nextDeleted = Array.isArray(chatPatch.deletedRecordIds)
+      ? (chatPatch.deletedRecordIds as string[])
+      : [];
+    const deletedSet = new Set<string>([...prevDeleted, ...nextDeleted]);
+    const deletedRecordIds = Array.from(deletedSet);
+
     chatVersion = Date.now();
     stateVersion = chatVersion;
     lastChatSenderTabId = senderTabId || null;
     latestChatPatch = {
       ...(latestChatPatch || {}),
       ...chatPatch,
+      deletedRecordIds,
     };
 
     // Broadcast to SSE clients FIRST before any disk work for 0ms latency
@@ -272,7 +446,7 @@ async function startServer() {
       const prevSettings =
         (authoritativeState.settings as Record<string, unknown>) || {};
       const patchSettings =
-        (chatPatch.settings as Record<string, unknown>) || {};
+        (chatPatch.settings as Record<string, unknown>) || undefined;
       let mergedStores = authoritativeState.stores;
       if (
         Array.isArray(authoritativeState.stores) &&
@@ -283,8 +457,9 @@ async function startServer() {
           string,
           Record<string, unknown>
         >;
-        mergedStores = (authoritativeState.stores as Array<Record<string, unknown>>).map(
-          (st) => {
+        mergedStores = (authoritativeState.stores as Array<Record<string, unknown>>)
+          .filter((st) => !(st && typeof st.id === 'string' && deletedSet.has(st.id)))
+          .map((st) => {
             const id = typeof st.id === 'string' ? st.id : '';
             const delta = id ? map[id] : undefined;
             if (!delta) return st;
@@ -300,17 +475,17 @@ async function startServer() {
                 typeof delta.viewsCount === 'number' ? delta.viewsCount : st.viewsCount,
               comments: Array.isArray(delta.comments) ? delta.comments : st.comments,
             };
-          }
-        );
+          });
       }
       const nextState: Record<string, unknown> = {
         ...authoritativeState,
         ...chatPatch,
+        deletedRecordIds,
+        users: chatPatch.users
+          ? mergeUsersServer(authoritativeState.users, chatPatch.users, deletedSet)
+          : authoritativeState.users,
         stores: mergedStores,
-        settings: {
-          ...prevSettings,
-          ...patchSettings,
-        },
+        settings: mergeSettingsServer(prevSettings, patchSettings),
       };
       authoritativeState = nextState;
       saveStateToDisk(nextState);
@@ -321,13 +496,16 @@ async function startServer() {
 
   // 5. Real-time multi-device online presence heartbeat
   app.post('/api/realtime/presence', (req, res) => {
-    const { sessionId, userId, username, isRegistered, remove } = req.body || {};
+    const { sessionId, visitorId, userId, username, isRegistered, remove } =
+      req.body || {};
     if (sessionId && typeof sessionId === 'string') {
       if (remove) {
         presenceMap.delete(sessionId);
       } else {
         presenceMap.set(sessionId, {
           sessionId,
+          visitorId:
+            typeof visitorId === 'string' && visitorId ? visitorId : sessionId,
           userId: userId || null,
           username: username || null,
           isRegistered: Boolean(isRegistered),
@@ -339,6 +517,17 @@ async function startServer() {
     broadcastSseEvent('presence_update', stats);
     res.json(stats);
   });
+
+  // Periodic 2-second cleanup to broadcast instant presence drop when a session times out
+  let lastBroadcastPresenceKey = '';
+  setInterval(() => {
+    const stats = computeOnlineStats();
+    const key = `${stats.totalOnline}:${stats.registeredCount}:${stats.guestsCount}:${stats.registeredUsernames.join(',')}`;
+    if (key !== lastBroadcastPresenceKey) {
+      lastBroadcastPresenceKey = key;
+      broadcastSseEvent('presence_update', stats);
+    }
+  }, 2000);
 
   // Mount Vite in development or static dist in production
   if (process.env.NODE_ENV !== 'production') {

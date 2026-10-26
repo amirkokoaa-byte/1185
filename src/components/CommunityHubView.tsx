@@ -828,7 +828,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   // Compute all conversations involving the current user for "سجل المحادثات"
   const myNormName = visitorName.trim().toLowerCase();
 
-  // Detect new incoming private messages in real-time to show the 2-second notification and record in history
+  // Reset seen message IDs when user identity changes on login so old history doesn't trigger chat notification on login
+  const lastSeenUserKeyRef = useRef<string>(myNormName);
+  useEffect(() => {
+    if (lastSeenUserKeyRef.current !== myNormName) {
+      lastSeenUserKeyRef.current = myNormName;
+      seenPrivateMsgIdsRef.current = new Set(
+        (privateChatMessages || []).map((m) => m.id)
+      );
+    }
+  }, [myNormName, privateChatMessages]);
+
+  // Detect new incoming private messages in real-time when someone sends a message to show the chat notification and record in history
   useEffect(() => {
     const list = privateChatMessages || [];
     if (seenPrivateMsgIdsRef.current === null) {

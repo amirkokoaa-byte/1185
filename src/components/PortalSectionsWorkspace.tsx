@@ -391,7 +391,103 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onToggleHideBuySellComment,
 }) => {
   // Settings is strictly for Admin only (Moderators can review posts & edit other sections EXCEPT Settings)
-  const isStrictAdmin = currentUser?.role === 'admin';
+  const isStrictAdmin =
+    currentUser?.role === 'admin' ||
+    currentUser?.username?.trim().toLowerCase() === 'admin' ||
+    currentUser?.accountName?.trim().toLowerCase() === 'admin';
+
+  // If the current section is disabled in Maintenance settings, show "جاري التحديث ...." + maintenance image to all users EXCEPT admin
+  const isSectionDisabledInMaintenance =
+    activeSection !== 'settings' &&
+    Boolean(state.settings.disabledSections?.[activeSection]);
+
+  if (isSectionDisabledInMaintenance && !isStrictAdmin) {
+    return (
+      <FluentCard className="p-8 sm:p-12 text-center space-y-6 border-2 border-amber-500/40 bg-[#112240]/95 shadow-2xl max-w-2xl mx-auto my-6">
+        <div className="mx-auto w-full max-w-xs sm:max-w-sm rounded-2xl overflow-hidden border border-amber-400/30 bg-[#0A192F] p-4 shadow-inner">
+          <svg
+            viewBox="0 0 400 260"
+            className="w-full h-auto mx-auto"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <defs>
+              <linearGradient id="maintBg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#0F172A" />
+                <stop offset="100%" stopColor="#1E293B" />
+              </linearGradient>
+              <linearGradient id="amberGear" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#F59E0B" />
+                <stop offset="100%" stopColor="#D97706" />
+              </linearGradient>
+              <linearGradient id="skyGear" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#38BDF8" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </linearGradient>
+            </defs>
+            <rect width="400" height="260" rx="18" fill="url(#maintBg)" />
+            <circle cx="200" cy="115" r="76" fill="#F59E0B" fillOpacity="0.08" />
+            {/* Main Gear */}
+            <g transform="translate(175, 110)">
+              <circle cx="0" cy="0" r="38" fill="url(#amberGear)" />
+              <circle cx="0" cy="0" r="16" fill="#0F172A" />
+              <rect x="-6" y="-48" width="12" height="14" rx="3" fill="#F59E0B" />
+              <rect x="-6" y="34" width="12" height="14" rx="3" fill="#F59E0B" />
+              <rect x="-48" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
+              <rect x="34" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
+              <g transform="rotate(45)">
+                <rect x="-6" y="-48" width="12" height="14" rx="3" fill="#F59E0B" />
+                <rect x="-6" y="34" width="12" height="14" rx="3" fill="#F59E0B" />
+                <rect x="-48" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
+                <rect x="34" y="-6" width="14" height="12" rx="3" fill="#F59E0B" />
+              </g>
+            </g>
+            {/* Secondary Gear */}
+            <g transform="translate(242, 78)">
+              <circle cx="0" cy="0" r="24" fill="url(#skyGear)" />
+              <circle cx="0" cy="0" r="10" fill="#0F172A" />
+              <rect x="-4" y="-31" width="8" height="10" rx="2" fill="#38BDF8" />
+              <rect x="-4" y="21" width="8" height="10" rx="2" fill="#38BDF8" />
+              <rect x="-31" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
+              <rect x="21" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
+              <g transform="rotate(45)">
+                <rect x="-4" y="-31" width="8" height="10" rx="2" fill="#38BDF8" />
+                <rect x="-4" y="21" width="8" height="10" rx="2" fill="#38BDF8" />
+                <rect x="-31" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
+                <rect x="21" y="-4" width="10" height="8" rx="2" fill="#38BDF8" />
+              </g>
+            </g>
+            {/* Wrench / Maintenance Barrier */}
+            <rect x="70" y="192" width="260" height="22" rx="6" fill="#F59E0B" />
+            <path d="M90 192 L110 192 L95 214 L75 214 Z" fill="#0F172A" />
+            <path d="M140 192 L160 192 L145 214 L125 214 Z" fill="#0F172A" />
+            <path d="M190 192 L210 192 L195 214 L175 214 Z" fill="#0F172A" />
+            <path d="M240 192 L260 192 L245 214 L225 214 Z" fill="#0F172A" />
+            <path d="M290 192 L310 192 L295 214 L275 214 Z" fill="#0F172A" />
+            <text
+              x="200"
+              y="242"
+              textAnchor="middle"
+              fill="#F8FAFC"
+              fontFamily="Cairo, sans-serif"
+              fontWeight="800"
+              fontSize="16"
+            >
+              صيانة وتحديث القسم
+            </text>
+          </svg>
+        </div>
+
+        <div className="space-y-2">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-amber-300 tracking-wide">
+            جاري التحديث ....
+          </h2>
+          <p className="text-xs sm:text-sm font-bold text-[#94A3B8]">
+            هذا القسم يخضع حالياً للصيانة والتحديث، وسيعود للعمل قريباً.
+          </p>
+        </div>
+      </FluentCard>
+    );
+  }
 
   // ================= 1. DIRECTORY (أضف محل / الدليل) =================
   if (activeSection === 'directory') {

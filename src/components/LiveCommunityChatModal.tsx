@@ -798,7 +798,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     const uNorm = (username || '').trim().toLowerCase();
     if (uNorm === myUsernameNorm && Boolean(currentUser)) return true;
 
-    // 1. Check live server/broadcast presence list (updated every 220ms)
+    // 1. Check live server/broadcast presence list (updated in real time)
     if (onlineStats && Array.isArray(onlineStats.registeredUsernames)) {
       if (
         onlineStats.registeredUsernames.some(
@@ -809,34 +809,13 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
       }
     }
 
-    // 2. Check active typing within last 30 seconds
+    // 2. Check active typing within last 8 seconds
     const typingEntry = chatTypingMap[uNorm];
-    if (typingEntry && nowMs - typingEntry.updatedAt < 30000) {
+    if (typingEntry && nowMs - typingEntry.updatedAt < 8000) {
       return true;
     }
 
-    // 3. Check registered user account isOnline flag
-    const foundUser = users.find(
-      (u) =>
-        (userId && u.id === userId) ||
-        u.username.trim().toLowerCase() === uNorm
-    );
-    if (foundUser && typeof foundUser.isOnline === 'boolean') {
-      return foundUser.isOnline;
-    }
-
-    // 4. Check recent message activity within last 3 minutes
-    const recentPublic = messages.some(
-      (m) =>
-        m.authorUsername.trim().toLowerCase() === uNorm &&
-        nowMs - new Date(m.createdAt).getTime() < 3 * 60 * 1000
-    );
-    const recentPrivate = privateChatMessages.some(
-      (pm) =>
-        pm.senderUsername.trim().toLowerCase() === uNorm &&
-        nowMs - new Date(pm.createdAt).getTime() < 3 * 60 * 1000
-    );
-    return recentPublic || recentPrivate;
+    return false;
   };
 
   // Check if the other person in private chat is currently typing to me

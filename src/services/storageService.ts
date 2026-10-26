@@ -342,34 +342,180 @@ function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPos
   }));
 }
 
+function isUserDeleted(u: UserAccount, deletedSet: Set<string>): boolean {
+  if (!u) return true;
+  if (u.id && deletedSet.has(u.id)) return true;
+  if (u.username && deletedSet.has(`acct:${u.username.trim().toLowerCase()}`)) {
+    return true;
+  }
+  if (
+    u.accountName &&
+    deletedSet.has(`acct:${u.accountName.trim().toLowerCase()}`)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function mergeUsersLists(
   baseUsers: UserAccount[],
-  incomingUsers?: UserAccount[]
+  incomingUsers?: UserAccount[],
+  deletedIds?: string[]
 ): UserAccount[] {
+  const deletedSet = new Set(deletedIds || []);
+  const filteredBase = (baseUsers || []).filter(
+    (u) => u && u.username && !isUserDeleted(u, deletedSet)
+  );
   if (!Array.isArray(incomingUsers) || incomingUsers.length === 0) {
-    return baseUsers && baseUsers.length > 0 ? baseUsers : INITIAL_USERS;
+    return filteredBase.length > 0 ? filteredBase : INITIAL_USERS;
   }
-  // If incomingUsers has more than just default admin, or if baseUsers only had default admin, merge by username/id
   const byKey = new Map<string, UserAccount>();
-  (baseUsers || []).forEach((u) => {
-    if (u && u.username) {
-      byKey.set(u.username.trim().toLowerCase(), u);
-    }
+  filteredBase.forEach((u) => {
+    const k = (u.accountName || u.username).trim().toLowerCase();
+    byKey.set(k, u);
   });
   incomingUsers.forEach((u) => {
-    if (u && u.username) {
-      const k = u.username.trim().toLowerCase();
-      const prev = byKey.get(k);
-      byKey.set(k, {
-        ...(prev || {}),
-        ...u,
-        isOnline:
-          typeof u.isOnline === 'boolean' ? u.isOnline : prev?.isOnline,
-      });
-    }
+    if (!u || !u.username || isUserDeleted(u, deletedSet)) return;
+    const k = (u.accountName || u.username).trim().toLowerCase();
+    const prev =
+      byKey.get(k) ||
+      Array.from(byKey.values()).find(
+        (x) =>
+          x.id === u.id ||
+          x.username.trim().toLowerCase() === u.username.trim().toLowerCase()
+      );
+    const mapKey = prev
+      ? (prev.accountName || prev.username).trim().toLowerCase()
+      : k;
+    byKey.set(mapKey, {
+      ...(prev || {}),
+      ...u,
+      isOnline:
+        typeof u.isOnline === 'boolean' ? u.isOnline : prev?.isOnline,
+    });
   });
-  const merged = Array.from(byKey.values());
+  const merged = Array.from(byKey.values()).filter(
+    (u) => !isUserDeleted(u, deletedSet)
+  );
   return merged.length > 0 ? merged : INITIAL_USERS;
+}
+
+function mergeCollectionById<T extends { id: string }>(
+  baseList: T[] | undefined,
+  incomingList: T[] | undefined,
+  deletedIds?: string[]
+): T[] {
+  const deletedSet = new Set(deletedIds || []);
+  const safeBase = Array.isArray(baseList)
+    ? baseList.filter((item) => item && item.id && !deletedSet.has(item.id))
+    : [];
+  if (!Array.isArray(incomingList)) {
+    return safeBase;
+  }
+  const safeIncoming = incomingList.filter(
+    (item) => item && item.id && !deletedSet.has(item.id)
+  );
+  if (safeIncoming.length === 0 && safeBase.length > 0) {
+    return safeBase;
+  }
+  const incomingMap = new Map<string, T>();
+  safeIncoming.forEach((item) => incomingMap.set(item.id, item));
+
+  const result: T[] = [];
+  const seenIds = new Set<string>();
+
+  // Keep incoming order for items present in incoming, merged with base fields
+  for (const inc of safeIncoming) {
+    const existing = safeBase.find((b) => b.id === inc.id);
+    result.push(existing ? { ...existing, ...inc } : inc);
+    seenIds.add(inc.id);
+  }
+
+  // Preserve any local items in baseList that were not in incomingList and not manually deleted
+  for (const loc of safeBase) {
+    if (!seenIds.has(loc.id) && !deletedSet.has(loc.id)) {
+      result.unshift(loc);
+      seenIds.add(loc.id);
+    }
+  }
+
+  return result;
+}
+
+function mergePlatformSettings(
+  baseSettings: PlatformSettings,
+  incomingSettings?: Partial<PlatformSettings>
+): PlatformSettings {
+  if (!incomingSettings || typeof incomingSettings !== 'object') {
+    return baseSettings;
+  }
+  const baseUpdatedAt = typeof baseSettings.updatedAt === 'number' ? baseSettings.updatedAt : 0;
+  const incomingUpdatedAt =
+    typeof incomingSettings.updatedAt === 'number' ? incomingSettings.updatedAt : 0;
+
+  // Never let an older or un-timestamped remote settings snapshot overwrite newer local settings!
+  const preferIncoming = incomingUpdatedAt >= baseUpdatedAt && incomingUpdatedAt > 0;
+  const primary = preferIncoming ? { ...baseSettings, ...incomingSettings } : { ...incomingSettings, ...baseSettings };
+
+  return {
+    ...INITIAL_SETTINGS,
+    ...primary,
+    siteName:
+      (preferIncoming ? incomingSettings.siteName : baseSettings.siteName) ||
+      baseSettings.siteName ||
+      INITIAL_SETTINGS.siteName,
+    adminWhatsapp:
+      (preferIncoming ? incomingSettings.adminWhatsapp : baseSettings.adminWhatsapp) ||
+      baseSettings.adminWhatsapp ||
+      INITIAL_SETTINGS.adminWhatsapp,
+    facebookPageUrl:
+      (preferIncoming ? incomingSettings.facebookPageUrl : baseSettings.facebookPageUrl) ||
+      baseSettings.facebookPageUrl ||
+      INITIAL_SETTINGS.facebookPageUrl,
+    marqueeText:
+      (preferIncoming ? incomingSettings.marqueeText : baseSettings.marqueeText) ||
+      baseSettings.marqueeText ||
+      INITIAL_SETTINGS.marqueeText,
+    storeCategories:
+      preferIncoming &&
+      Array.isArray(incomingSettings.storeCategories) &&
+      incomingSettings.storeCategories.length > 0
+        ? incomingSettings.storeCategories
+        : Array.isArray(baseSettings.storeCategories) &&
+          baseSettings.storeCategories.length > 0
+        ? baseSettings.storeCategories
+        : DEFAULT_STORE_CATEGORIES,
+    utilityTypes:
+      preferIncoming &&
+      Array.isArray(incomingSettings.utilityTypes) &&
+      incomingSettings.utilityTypes.length > 0
+        ? incomingSettings.utilityTypes
+        : Array.isArray(baseSettings.utilityTypes) &&
+          baseSettings.utilityTypes.length > 0
+        ? baseSettings.utilityTypes
+        : DEFAULT_UTILITY_TYPES,
+    disabledSections: preferIncoming
+      ? incomingSettings.disabledSections ?? baseSettings.disabledSections ?? {}
+      : baseSettings.disabledSections ?? incomingSettings.disabledSections ?? {},
+    liveChatCooldownSeconds: preferIncoming
+      ? typeof incomingSettings.liveChatCooldownSeconds === 'number'
+        ? incomingSettings.liveChatCooldownSeconds
+        : baseSettings.liveChatCooldownSeconds ?? 5
+      : baseSettings.liveChatCooldownSeconds ?? 5,
+    liveChatAutoClearMinutes: preferIncoming
+      ? typeof incomingSettings.liveChatAutoClearMinutes === 'number'
+        ? incomingSettings.liveChatAutoClearMinutes
+        : baseSettings.liveChatAutoClearMinutes ?? 60
+      : baseSettings.liveChatAutoClearMinutes ?? 60,
+    liveChatLastClearedAt:
+      (preferIncoming
+        ? incomingSettings.liveChatLastClearedAt
+        : baseSettings.liveChatLastClearedAt) ||
+      baseSettings.liveChatLastClearedAt ||
+      incomingSettings.liveChatLastClearedAt,
+    updatedAt: Math.max(baseUpdatedAt, incomingUpdatedAt),
+    firebase: baseSettings.firebase || HIDDEN_DEFAULT_FIREBASE_CONFIG,
+  };
 }
 
 function normalizeLiveChatList(rawList?: LiveChatMessageItem[]): LiveChatMessageItem[] {
@@ -579,6 +725,17 @@ class HybridStorageEngine {
           parsedSettings.utilityTypes.length > 0
             ? parsedSettings.utilityTypes
             : DEFAULT_UTILITY_TYPES,
+        disabledSections:
+          parsedSettings.disabledSections &&
+          typeof parsedSettings.disabledSections === 'object'
+            ? parsedSettings.disabledSections
+            : {},
+        updatedAt:
+          typeof parsedSettings.updatedAt === 'number'
+            ? parsedSettings.updatedAt
+            : savedSettingsRaw
+            ? 1
+            : 0,
         requireDriverCriminalRecordApproval:
           parsedSettings.requireDriverCriminalRecordApproval ?? false,
         liveChatCooldownSeconds:
@@ -596,8 +753,17 @@ class HybridStorageEngine {
 
       if (savedStateRaw) {
         const parsed = JSON.parse(savedStateRaw);
+        const deletedRecordIds: string[] = Array.isArray(parsed.deletedRecordIds)
+          ? parsed.deletedRecordIds
+          : [];
         const hydrated: PlatformDatabaseState = {
-          users: Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : INITIAL_USERS,
+          users: mergeUsersLists(
+            Array.isArray(parsed.users) && parsed.users.length > 0
+              ? parsed.users
+              : INITIAL_USERS,
+            undefined,
+            deletedRecordIds
+          ),
           topBanners: Array.isArray(parsed.topBanners) ? parsed.topBanners : INITIAL_TOP_BANNERS,
           squareAds: Array.isArray(parsed.squareAds) ? parsed.squareAds : INITIAL_SQUARE_ADS,
           popupAd: parsed.popupAd || INITIAL_POPUP_AD,
@@ -643,6 +809,7 @@ class HybridStorageEngine {
           privateChatReports: Array.isArray(parsed.privateChatReports)
             ? parsed.privateChatReports
             : [],
+          deletedRecordIds,
           settings,
         };
         this.latestState = hydrated;
@@ -669,6 +836,7 @@ class HybridStorageEngine {
         privateChatStatuses: {},
         userBlockedMap: {},
         privateChatReports: [],
+        deletedRecordIds: [],
         settings,
       };
       this.latestState = initialState;
@@ -694,6 +862,7 @@ class HybridStorageEngine {
         privateChatStatuses: {},
         userBlockedMap: {},
         privateChatReports: [],
+        deletedRecordIds: [],
         settings: INITIAL_SETTINGS,
       };
       this.latestState = fallback;
@@ -728,6 +897,7 @@ class HybridStorageEngine {
           chatTypingMap: state.chatTypingMap || {},
           userBlockedMap: state.userBlockedMap || {},
           privateChatReports: state.privateChatReports || [],
+          deletedRecordIds: state.deletedRecordIds || [],
         })
       );
     } catch (e) {
@@ -737,29 +907,45 @@ class HybridStorageEngine {
 
   public loadAuthenticatedUser(users: UserAccount[]): UserAccount | null {
     try {
+      const state = this.latestState;
+      const deletedSet = new Set(state?.deletedRecordIds || []);
+
       const rememberedId = localStorage.getItem(AUTH_PERSIST_KEY);
-      if (rememberedId) {
+      if (rememberedId && !deletedSet.has(rememberedId)) {
         const found = users.find((u) => u.id === rememberedId);
-        if (found && !found.isBanned) return found;
+        if (found && !found.isBanned && !isUserDeleted(found, deletedSet)) {
+          return found;
+        }
       }
       const sessionId = sessionStorage.getItem(AUTH_SESSION_KEY);
-      if (sessionId) {
+      if (sessionId && !deletedSet.has(sessionId)) {
         const found = users.find((u) => u.id === sessionId);
-        if (found && !found.isBanned) return found;
+        if (found && !found.isBanned && !isUserDeleted(found, deletedSet)) {
+          return found;
+        }
       }
       const cachedUserRaw =
-        sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`) ||
-        localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`);
+        localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`) ||
+        sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`);
       if (cachedUserRaw) {
         const parsedUser = JSON.parse(cachedUserRaw) as UserAccount;
-        if (parsedUser && parsedUser.id && parsedUser.username && !parsedUser.isBanned) {
+        if (
+          parsedUser &&
+          parsedUser.id &&
+          parsedUser.username &&
+          !parsedUser.isBanned &&
+          !isUserDeleted(parsedUser, deletedSet)
+        ) {
           const matchedInList = users.find(
             (u) =>
               u.id === parsedUser.id ||
               u.username.trim().toLowerCase() === parsedUser.username.trim().toLowerCase()
           );
           if (matchedInList) {
-            return matchedInList.isBanned ? null : matchedInList;
+            if (matchedInList.isBanned || isUserDeleted(matchedInList, deletedSet)) {
+              return null;
+            }
+            return matchedInList;
           }
           return parsedUser;
         }
@@ -772,7 +958,7 @@ class HybridStorageEngine {
 
   public saveAuthenticatedUser(
     user: UserAccount | null,
-    rememberMe: boolean,
+    _rememberMe: boolean,
     currentState?: PlatformDatabaseState
   ) {
     try {
@@ -786,17 +972,11 @@ class HybridStorageEngine {
       if (currentState) {
         fastBrowserCache.setMemoryAndDiskCache(currentState, user.id);
       }
-      if (rememberMe) {
-        localStorage.setItem(AUTH_PERSIST_KEY, user.id);
-        localStorage.setItem(`${AUTH_PERSIST_KEY}_obj`, JSON.stringify(user));
-        sessionStorage.removeItem(AUTH_SESSION_KEY);
-        sessionStorage.removeItem(`${AUTH_SESSION_KEY}_obj`);
-      } else {
-        localStorage.removeItem(AUTH_PERSIST_KEY);
-        localStorage.removeItem(`${AUTH_PERSIST_KEY}_obj`);
-        sessionStorage.setItem(AUTH_SESSION_KEY, user.id);
-        sessionStorage.setItem(`${AUTH_SESSION_KEY}_obj`, JSON.stringify(user));
-      }
+      // Always persist login permanently in localStorage + sessionStorage until manual logout only
+      localStorage.setItem(AUTH_PERSIST_KEY, user.id);
+      localStorage.setItem(`${AUTH_PERSIST_KEY}_obj`, JSON.stringify(user));
+      sessionStorage.setItem(AUTH_SESSION_KEY, user.id);
+      sessionStorage.setItem(`${AUTH_SESSION_KEY}_obj`, JSON.stringify(user));
     } catch {
       // ignore
     }
@@ -849,41 +1029,103 @@ class HybridStorageEngine {
   private applyIncomingRemoteState(remoteData: Record<string, unknown>) {
     const base = this.latestState || this.loadLocalState();
     const remoteSettings = (remoteData.settings as Partial<PlatformSettings>) || {};
-    const mergedState: PlatformDatabaseState = {
-      users: Array.isArray(remoteData.users) && remoteData.users.length > 0
-        ? mergeUsersLists(base.users, remoteData.users as UserAccount[])
-        : base.users,
-      topBanners: Array.isArray(remoteData.topBanners)
+    const remoteDeleted = Array.isArray(remoteData.deletedRecordIds)
+      ? (remoteData.deletedRecordIds as string[])
+      : [];
+    const mergedDeletedIds = Array.from(
+      new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
+    );
+
+    const mergedStoresRaw = mergeCollectionById(
+      base.stores,
+      Array.isArray(remoteData.stores)
+        ? (remoteData.stores as StoreListingItem[])
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedServicesRaw = mergeCollectionById(
+      base.serviceNumbers,
+      Array.isArray(remoteData.serviceNumbers)
+        ? (remoteData.serviceNumbers as ServicePhoneEntry[])
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedTawsilaRaw = mergeCollectionById(
+      base.tawsilaRides,
+      Array.isArray(remoteData.tawsilaRides)
+        ? (remoteData.tawsilaRides as TawsilaRideItem[])
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedCommunityRaw = mergeCollectionById(
+      base.communityPosts,
+      Array.isArray(remoteData.communityPosts)
+        ? (remoteData.communityPosts as CommunityPostItem[])
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedUtilitySubRaw = mergeCollectionById(
+      base.utilitySubmissions || [],
+      Array.isArray(remoteData.utilitySubmissions)
+        ? (remoteData.utilitySubmissions as UtilitySubmissionItem[])
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedUtilityPostsRaw = mergeCollectionById(
+      base.utilityPosts || [],
+      Array.isArray(remoteData.utilityPosts)
+        ? (remoteData.utilityPosts as CommunityPostItem[])
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedBuySellRaw = mergeCollectionById(
+      base.buySellPosts || [],
+      Array.isArray(remoteData.buySellPosts)
+        ? (remoteData.buySellPosts as CommunityPostItem[])
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedTopBanners = mergeCollectionById(
+      base.topBanners,
+      Array.isArray(remoteData.topBanners)
         ? (remoteData.topBanners as TopBannerAd[])
-        : base.topBanners,
-      squareAds: Array.isArray(remoteData.squareAds)
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedSquareAds = mergeCollectionById(
+      base.squareAds,
+      Array.isArray(remoteData.squareAds)
         ? (remoteData.squareAds as SquareMovingAd[])
-        : base.squareAds,
-      popupAd: (remoteData.popupAd as PopupAdConfig) || base.popupAd,
-      messages: Array.isArray(remoteData.messages)
+        : undefined,
+      mergedDeletedIds
+    );
+    const mergedMessages = mergeCollectionById(
+      base.messages,
+      Array.isArray(remoteData.messages)
         ? (remoteData.messages as AdminMessage[])
-        : base.messages,
-      stores: Array.isArray(remoteData.stores)
-        ? normalizeStoresList(remoteData.stores as StoreListingItem[])
-        : base.stores,
-      serviceNumbers: Array.isArray(remoteData.serviceNumbers)
-        ? normalizeServiceNumbersList(remoteData.serviceNumbers as ServicePhoneEntry[])
-        : base.serviceNumbers,
-      tawsilaRides: Array.isArray(remoteData.tawsilaRides)
-        ? normalizeTawsilaList(remoteData.tawsilaRides as TawsilaRideItem[])
-        : base.tawsilaRides,
-      communityPosts: Array.isArray(remoteData.communityPosts)
-        ? normalizeCommunityPostsList(remoteData.communityPosts as CommunityPostItem[])
-        : base.communityPosts,
-      utilitySubmissions: Array.isArray(remoteData.utilitySubmissions)
-        ? normalizeUtilitySubmissionsList(remoteData.utilitySubmissions as UtilitySubmissionItem[])
-        : base.utilitySubmissions || [],
-      utilityPosts: Array.isArray(remoteData.utilityPosts)
-        ? normalizeCommunityPostsList(remoteData.utilityPosts as CommunityPostItem[])
-        : base.utilityPosts || [],
-      buySellPosts: Array.isArray(remoteData.buySellPosts)
-        ? normalizeCommunityPostsList(remoteData.buySellPosts as CommunityPostItem[])
-        : base.buySellPosts || [],
+        : undefined,
+      mergedDeletedIds
+    );
+
+    const mergedState: PlatformDatabaseState = {
+      users: mergeUsersLists(
+        base.users,
+        Array.isArray(remoteData.users)
+          ? (remoteData.users as UserAccount[])
+          : undefined,
+        mergedDeletedIds
+      ),
+      topBanners: mergedTopBanners,
+      squareAds: mergedSquareAds,
+      popupAd: (remoteData.popupAd as PopupAdConfig) || base.popupAd,
+      messages: mergedMessages,
+      stores: normalizeStoresList(mergedStoresRaw),
+      serviceNumbers: normalizeServiceNumbersList(mergedServicesRaw),
+      tawsilaRides: normalizeTawsilaList(mergedTawsilaRaw),
+      communityPosts: normalizeCommunityPostsList(mergedCommunityRaw),
+      utilitySubmissions: normalizeUtilitySubmissionsList(mergedUtilitySubRaw),
+      utilityPosts: normalizeCommunityPostsList(mergedUtilityPostsRaw),
+      buySellPosts: normalizeCommunityPostsList(mergedBuySellRaw),
       liveChatMessages: Array.isArray(remoteData.liveChatMessages)
         ? normalizeLiveChatList(remoteData.liveChatMessages as LiveChatMessageItem[])
         : base.liveChatMessages || [],
@@ -891,11 +1133,18 @@ class HybridStorageEngine {
         ? (remoteData.chatPenalties as PlatformDatabaseState['chatPenalties'])
         : base.chatPenalties || [],
       privateChatMessages: Array.isArray(remoteData.privateChatMessages)
-        ? (remoteData.privateChatMessages as PlatformDatabaseState['privateChatMessages'])
+        ? mergeCollectionById(
+            base.privateChatMessages || [],
+            remoteData.privateChatMessages as PlatformDatabaseState['privateChatMessages'],
+            mergedDeletedIds
+          )
         : base.privateChatMessages || [],
       privateChatStatuses:
         remoteData.privateChatStatuses && typeof remoteData.privateChatStatuses === 'object'
-          ? (remoteData.privateChatStatuses as PlatformDatabaseState['privateChatStatuses'])
+          ? {
+              ...(base.privateChatStatuses || {}),
+              ...(remoteData.privateChatStatuses as PlatformDatabaseState['privateChatStatuses']),
+            }
           : base.privateChatStatuses || {},
       chatTypingMap:
         remoteData.chatTypingMap && typeof remoteData.chatTypingMap === 'object'
@@ -903,36 +1152,20 @@ class HybridStorageEngine {
           : base.chatTypingMap || {},
       userBlockedMap:
         remoteData.userBlockedMap && typeof remoteData.userBlockedMap === 'object'
-          ? (remoteData.userBlockedMap as PlatformDatabaseState['userBlockedMap'])
+          ? {
+              ...(base.userBlockedMap || {}),
+              ...(remoteData.userBlockedMap as PlatformDatabaseState['userBlockedMap']),
+            }
           : base.userBlockedMap || {},
       privateChatReports: Array.isArray(remoteData.privateChatReports)
-        ? (remoteData.privateChatReports as PlatformDatabaseState['privateChatReports'])
+        ? mergeCollectionById(
+            base.privateChatReports || [],
+            remoteData.privateChatReports as PlatformDatabaseState['privateChatReports'],
+            mergedDeletedIds
+          )
         : base.privateChatReports || [],
-      settings: {
-        ...base.settings,
-        ...remoteSettings,
-        storeCategories:
-          Array.isArray(remoteSettings.storeCategories) &&
-          remoteSettings.storeCategories.length > 0
-            ? remoteSettings.storeCategories
-            : base.settings.storeCategories,
-        utilityTypes:
-          Array.isArray(remoteSettings.utilityTypes) &&
-          remoteSettings.utilityTypes.length > 0
-            ? remoteSettings.utilityTypes
-            : base.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
-        liveChatCooldownSeconds:
-          typeof remoteSettings.liveChatCooldownSeconds === 'number'
-            ? remoteSettings.liveChatCooldownSeconds
-            : base.settings.liveChatCooldownSeconds ?? 5,
-        liveChatAutoClearMinutes:
-          typeof remoteSettings.liveChatAutoClearMinutes === 'number'
-            ? remoteSettings.liveChatAutoClearMinutes
-            : base.settings.liveChatAutoClearMinutes ?? 60,
-        liveChatLastClearedAt:
-          remoteSettings.liveChatLastClearedAt || base.settings.liveChatLastClearedAt,
-        firebase: base.settings.firebase,
-      },
+      deletedRecordIds: mergedDeletedIds,
+      settings: mergePlatformSettings(base.settings, remoteSettings),
     };
     this.saveLocalState(mergedState);
     this.notifyData(mergedState);
@@ -941,7 +1174,16 @@ class HybridStorageEngine {
   private applyIncomingFastChatPatch(chatPatch: Record<string, unknown>) {
     const base = this.latestState || this.loadLocalState();
     const patchSettings = (chatPatch.settings as Partial<PlatformSettings>) || {};
-    let mergedStores = base.stores;
+    const patchDeleted = Array.isArray(chatPatch.deletedRecordIds)
+      ? (chatPatch.deletedRecordIds as string[])
+      : [];
+    const mergedDeletedIds = Array.from(
+      new Set([...(base.deletedRecordIds || []), ...patchDeleted])
+    );
+
+    let mergedStores = base.stores.filter(
+      (st) => !mergedDeletedIds.includes(st.id)
+    );
     if (
       chatPatch.storeInteractionsMap &&
       typeof chatPatch.storeInteractionsMap === 'object'
@@ -956,7 +1198,7 @@ class HybridStorageEngine {
           comments?: StoreListingItem['comments'];
         }
       >;
-      mergedStores = base.stores.map((st) => {
+      mergedStores = mergedStores.map((st) => {
         const delta = interactionsMap[st.id];
         if (!delta) return st;
         return {
@@ -975,9 +1217,13 @@ class HybridStorageEngine {
     }
     const mergedState: PlatformDatabaseState = {
       ...base,
-      users: Array.isArray(chatPatch.users) && chatPatch.users.length > 0
-        ? mergeUsersLists(base.users, chatPatch.users as UserAccount[])
-        : base.users,
+      users: mergeUsersLists(
+        base.users,
+        Array.isArray(chatPatch.users)
+          ? (chatPatch.users as UserAccount[])
+          : undefined,
+        mergedDeletedIds
+      ),
       stores: mergedStores,
       liveChatMessages: Array.isArray(chatPatch.liveChatMessages)
         ? normalizeLiveChatList(chatPatch.liveChatMessages as LiveChatMessageItem[])
@@ -986,11 +1232,18 @@ class HybridStorageEngine {
         ? (chatPatch.chatPenalties as PlatformDatabaseState['chatPenalties'])
         : base.chatPenalties || [],
       privateChatMessages: Array.isArray(chatPatch.privateChatMessages)
-        ? (chatPatch.privateChatMessages as PlatformDatabaseState['privateChatMessages'])
+        ? mergeCollectionById(
+            base.privateChatMessages || [],
+            chatPatch.privateChatMessages as PlatformDatabaseState['privateChatMessages'],
+            mergedDeletedIds
+          )
         : base.privateChatMessages || [],
       privateChatStatuses:
         chatPatch.privateChatStatuses && typeof chatPatch.privateChatStatuses === 'object'
-          ? (chatPatch.privateChatStatuses as PlatformDatabaseState['privateChatStatuses'])
+          ? {
+              ...(base.privateChatStatuses || {}),
+              ...(chatPatch.privateChatStatuses as PlatformDatabaseState['privateChatStatuses']),
+            }
           : base.privateChatStatuses || {},
       chatTypingMap:
         chatPatch.chatTypingMap && typeof chatPatch.chatTypingMap === 'object'
@@ -998,57 +1251,68 @@ class HybridStorageEngine {
           : base.chatTypingMap || {},
       userBlockedMap:
         chatPatch.userBlockedMap && typeof chatPatch.userBlockedMap === 'object'
-          ? (chatPatch.userBlockedMap as PlatformDatabaseState['userBlockedMap'])
+          ? {
+              ...(base.userBlockedMap || {}),
+              ...(chatPatch.userBlockedMap as PlatformDatabaseState['userBlockedMap']),
+            }
           : base.userBlockedMap || {},
       privateChatReports: Array.isArray(chatPatch.privateChatReports)
-        ? (chatPatch.privateChatReports as PlatformDatabaseState['privateChatReports'])
+        ? mergeCollectionById(
+            base.privateChatReports || [],
+            chatPatch.privateChatReports as PlatformDatabaseState['privateChatReports'],
+            mergedDeletedIds
+          )
         : base.privateChatReports || [],
       messages: Array.isArray(chatPatch.messages)
-        ? (chatPatch.messages as PlatformDatabaseState['messages'])
+        ? mergeCollectionById(
+            base.messages || [],
+            chatPatch.messages as PlatformDatabaseState['messages'],
+            mergedDeletedIds
+          )
         : base.messages || [],
       utilitySubmissions: Array.isArray(chatPatch.utilitySubmissions)
-        ? normalizeUtilitySubmissionsList(chatPatch.utilitySubmissions as UtilitySubmissionItem[])
+        ? normalizeUtilitySubmissionsList(
+            mergeCollectionById(
+              base.utilitySubmissions || [],
+              chatPatch.utilitySubmissions as UtilitySubmissionItem[],
+              mergedDeletedIds
+            )
+          )
         : base.utilitySubmissions || [],
       utilityPosts: Array.isArray(chatPatch.utilityPosts)
-        ? normalizeCommunityPostsList(chatPatch.utilityPosts as CommunityPostItem[])
+        ? normalizeCommunityPostsList(
+            mergeCollectionById(
+              base.utilityPosts || [],
+              chatPatch.utilityPosts as CommunityPostItem[],
+              mergedDeletedIds
+            )
+          )
         : base.utilityPosts || [],
       buySellPosts: Array.isArray(chatPatch.buySellPosts)
-        ? normalizeCommunityPostsList(chatPatch.buySellPosts as CommunityPostItem[])
+        ? normalizeCommunityPostsList(
+            mergeCollectionById(
+              base.buySellPosts || [],
+              chatPatch.buySellPosts as CommunityPostItem[],
+              mergedDeletedIds
+            )
+          )
         : base.buySellPosts || [],
       communityPosts: Array.isArray(chatPatch.communityPosts)
-        ? normalizeCommunityPostsList(chatPatch.communityPosts as CommunityPostItem[])
+        ? normalizeCommunityPostsList(
+            mergeCollectionById(
+              base.communityPosts || [],
+              chatPatch.communityPosts as CommunityPostItem[],
+              mergedDeletedIds
+            )
+          )
         : base.communityPosts,
-      settings: {
-        ...base.settings,
-        ...patchSettings,
-        liveChatCooldownSeconds:
-          typeof patchSettings.liveChatCooldownSeconds === 'number'
-            ? patchSettings.liveChatCooldownSeconds
-            : typeof chatPatch.liveChatCooldownSeconds === 'number'
-            ? (chatPatch.liveChatCooldownSeconds as number)
-            : base.settings.liveChatCooldownSeconds ?? 5,
-        liveChatAutoClearMinutes:
-          typeof patchSettings.liveChatAutoClearMinutes === 'number'
-            ? patchSettings.liveChatAutoClearMinutes
-            : typeof chatPatch.liveChatAutoClearMinutes === 'number'
-            ? (chatPatch.liveChatAutoClearMinutes as number)
-            : base.settings.liveChatAutoClearMinutes ?? 60,
-        liveChatLastClearedAt:
-          patchSettings.liveChatLastClearedAt ||
-          (chatPatch.liveChatLastClearedAt as string) ||
-          base.settings.liveChatLastClearedAt,
-        utilityTypes:
-          Array.isArray(patchSettings.utilityTypes) &&
-          patchSettings.utilityTypes.length > 0
-            ? patchSettings.utilityTypes
-            : Array.isArray(chatPatch.utilityTypes)
-            ? (chatPatch.utilityTypes as string[])
-            : base.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
-      },
+      deletedRecordIds: mergedDeletedIds,
+      settings: mergePlatformSettings(base.settings, patchSettings),
     };
     this.notifyData(mergedState);
     this.scheduleDeferredLocalSave(mergedState);
   }
+
 
   private scheduleDeferredLocalSave(state: PlatformDatabaseState, activeUserId?: string) {
     this.latestState = state;
@@ -1347,6 +1611,7 @@ class HybridStorageEngine {
       chatTypingMap: nextState.chatTypingMap || {},
       userBlockedMap: nextState.userBlockedMap || {},
       privateChatReports: nextState.privateChatReports || [],
+      messages: nextState.messages || [],
       utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),
       utilityPosts: nextState.utilityPosts || [],
       buySellPosts: nextState.buySellPosts || [],
@@ -1356,6 +1621,7 @@ class HybridStorageEngine {
       liveChatLastClearedAt: nextState.settings.liveChatLastClearedAt,
       utilityTypes: nextState.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
       settings: nextState.settings,
+      deletedRecordIds: nextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: new Date().toISOString(),
     });
@@ -1457,6 +1723,8 @@ class HybridStorageEngine {
       liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,
       liveChatAutoClearMinutes: nextState.settings.liveChatAutoClearMinutes ?? 60,
       liveChatLastClearedAt: nextState.settings.liveChatLastClearedAt,
+      settings: nextState.settings,
+      deletedRecordIds: nextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: new Date().toISOString(),
     });
@@ -1523,6 +1791,7 @@ export interface RealOnlinePresenceStats {
 
 interface StoredPresenceSession {
   sessionId: string;
+  visitorId: string;
   userId: string | null;
   username: string | null;
   isRegistered: boolean;
@@ -1531,7 +1800,8 @@ interface StoredPresenceSession {
 
 const TAB_SESSION_STORAGE_KEY = 'nakhil_1185_real_tab_session_id';
 const GUEST_VISITOR_STORAGE_KEY = 'nakhil_1185_unique_visitor_id_v1';
-const REAL_PRESENCE_MAP_KEY = 'nakhil_1185_real_presence_v3';
+const REAL_PRESENCE_MAP_KEY = 'nakhil_1185_real_presence_v4';
+const LIVE_PRESENCE_TTL_MS = 8000;
 
 function getOrCreateTabSessionId(): string {
   try {
@@ -1546,20 +1816,24 @@ function getOrCreateTabSessionId(): string {
   }
 }
 
+function getOrCreateBrowserDeviceId(): string {
+  try {
+    let devId = localStorage.getItem(GUEST_VISITOR_STORAGE_KEY);
+    if (!devId) {
+      devId = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem(GUEST_VISITOR_STORAGE_KEY, devId);
+    }
+    return devId;
+  } catch {
+    return `guest_${getOrCreateTabSessionId()}`;
+  }
+}
+
 export function getOrCreateVisitorId(currentUser: UserAccount | null): string {
   if (currentUser && currentUser.id) {
     return currentUser.id;
   }
-  try {
-    let guestId = localStorage.getItem(GUEST_VISITOR_STORAGE_KEY);
-    if (!guestId) {
-      guestId = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      localStorage.setItem(GUEST_VISITOR_STORAGE_KEY, guestId);
-    }
-    return guestId;
-  } catch {
-    return `guest_${getOrCreateTabSessionId()}`;
-  }
+  return getOrCreateBrowserDeviceId();
 }
 
 let presenceChannel: BroadcastChannel | null = null;
@@ -1581,6 +1855,7 @@ try {
     presenceChannel.addEventListener('message', (ev) => {
       if (ev.data && ev.data.stats && typeof ev.data.stats.totalOnline === 'number') {
         latestServerOnlineStats = ev.data.stats;
+        latestServerOnlineStatsAt = Date.now();
       }
       notifyAllPresenceListeners();
     });
@@ -1597,6 +1872,7 @@ export function subscribePresenceBroadcast(onUpdate: () => void): () => void {
 }
 
 let latestServerOnlineStats: RealOnlinePresenceStats | null = null;
+let latestServerOnlineStatsAt = 0;
 
 function updateLatestServerOnlineStats(nextStats: RealOnlinePresenceStats) {
   const prev = latestServerOnlineStats;
@@ -1609,6 +1885,7 @@ function updateLatestServerOnlineStats(nextStats: RealOnlinePresenceStats) {
       (nextStats.registeredUsernames || []).join('|');
 
   latestServerOnlineStats = nextStats;
+  latestServerOnlineStatsAt = Date.now();
   if (hasChanged) {
     try {
       presenceChannel?.postMessage({ type: 'presence_changed', stats: nextStats });
@@ -1622,11 +1899,20 @@ function updateLatestServerOnlineStats(nextStats: RealOnlinePresenceStats) {
 export function removeCurrentTabPresence(): void {
   try {
     const tabId = getOrCreateTabSessionId();
+    const payload = JSON.stringify({ sessionId: tabId, remove: true });
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      try {
+        const blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon('/api/realtime/presence', blob);
+      } catch {
+        // ignore
+      }
+    }
     if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
       fetch('/api/realtime/presence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: tabId, remove: true }),
+        body: payload,
         keepalive: true,
       }).catch(() => {});
     }
@@ -1646,7 +1932,7 @@ export function removeCurrentTabPresence(): void {
 
 /**
  * 100% Real Live Online Presence Tracker ("عدد المتصلين الآن: المتصلين المسجلين وعدد الزائرين")
- * Tracks actual open browser sessions across all devices via server + local fallback.
+ * Strictly tracks ONLY live open browser heartbeats (8s TTL) with zero fake or stale static user flags.
  */
 export function syncRealOnlinePresence(
   currentUser: UserAccount | null,
@@ -1655,6 +1941,7 @@ export function syncRealOnlinePresence(
   try {
     const now = Date.now();
     const tabId = getOrCreateTabSessionId();
+    const deviceVisitorId = getOrCreateBrowserDeviceId();
     const isRegistered = Boolean(currentUser && currentUser.id);
 
     if (!skipNetworkPost && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
@@ -1663,6 +1950,7 @@ export function syncRealOnlinePresence(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: tabId,
+          visitorId: deviceVisitorId,
           userId: currentUser?.id || null,
           username: currentUser?.username || null,
           isRegistered,
@@ -1683,15 +1971,16 @@ export function syncRealOnlinePresence(
     const prevEntry = map[tabId];
     map[tabId] = {
       sessionId: tabId,
+      visitorId: deviceVisitorId,
       userId: currentUser?.id || null,
       username: currentUser?.username || null,
       isRegistered,
       lastActiveAt: now,
     };
 
-    // Prune stale sessions (> 120 seconds without heartbeat so background tabs aren't dropped)
+    // Prune stale sessions (> 8 seconds without heartbeat) for instant real-time accuracy
     Object.keys(map).forEach((k) => {
-      if (!map[k] || now - map[k].lastActiveAt > 120000) {
+      if (!map[k] || now - map[k].lastActiveAt > LIVE_PRESENCE_TTL_MS) {
         delete map[k];
       }
     });
@@ -1707,47 +1996,63 @@ export function syncRealOnlinePresence(
       notifyAllPresenceListeners();
     }
 
+    // If authoritative server presence stats are fresh (within last 8s), use them directly
+    if (
+      latestServerOnlineStats &&
+      now - latestServerOnlineStatsAt <= LIVE_PRESENCE_TTL_MS
+    ) {
+      const serverRegMap = new Map<string, string>();
+      (latestServerOnlineStats.registeredUsernames || []).forEach((uname) => {
+        if (uname && uname.trim()) {
+          serverRegMap.set(uname.trim().toLowerCase(), uname.trim());
+        }
+      });
+      if (isRegistered && currentUser?.username) {
+        serverRegMap.set(
+          currentUser.username.trim().toLowerCase(),
+          currentUser.username.trim()
+        );
+      }
+      const regCount = serverRegMap.size;
+      const gCount =
+        regCount === 0 && latestServerOnlineStats.guestsCount === 0
+          ? 1
+          : latestServerOnlineStats.guestsCount;
+      return {
+        totalOnline: Math.max(1, regCount + gCount),
+        registeredCount: regCount,
+        guestsCount: gCount,
+        registeredUsernames: Array.from(serverRegMap.values()),
+      };
+    }
+
+    // Local real-time calculation (deduplicated by username for registered, and visitorId for guests)
     const activeSessions = Object.values(map);
     const registeredMap = new Map<string, string>();
-    let guestsCount = 0;
-
-    if (currentUser && currentUser.id && currentUser.username) {
-      registeredMap.set(currentUser.username.toLowerCase(), currentUser.username);
-    }
+    const registeredVisitorIds = new Set<string>();
+    const guestVisitorIds = new Set<string>();
 
     activeSessions.forEach((sess) => {
       if (sess.isRegistered && sess.username) {
-        registeredMap.set(sess.username.toLowerCase(), sess.username);
-      } else if (!sess.isRegistered) {
-        guestsCount += 1;
-      }
-    });
-
-    const dbOnlineNames = storageEngine.getLatestOnlineUsernames();
-    dbOnlineNames.forEach((uname) => {
-      if (uname && !registeredMap.has(uname.toLowerCase())) {
-        registeredMap.set(uname.toLowerCase(), uname);
-      }
-    });
-
-    if (latestServerOnlineStats && Array.isArray(latestServerOnlineStats.registeredUsernames)) {
-      latestServerOnlineStats.registeredUsernames.forEach((uname) => {
-        if (uname && !registeredMap.has(uname.toLowerCase())) {
-          registeredMap.set(uname.toLowerCase(), uname);
+        registeredMap.set(sess.username.trim().toLowerCase(), sess.username.trim());
+        if (sess.visitorId) {
+          registeredVisitorIds.add(sess.visitorId);
         }
-      });
-    }
+      }
+    });
+
+    activeSessions.forEach((sess) => {
+      if (!sess.isRegistered) {
+        const vKey = sess.visitorId || sess.sessionId;
+        if (!registeredVisitorIds.has(vKey)) {
+          guestVisitorIds.add(vKey);
+        }
+      }
+    });
 
     const mergedRegCount = registeredMap.size;
-    const mergedGuestsCount = Math.max(
-      guestsCount,
-      latestServerOnlineStats?.guestsCount || 0
-    );
-    const mergedTotal = Math.max(
-      1,
-      mergedRegCount + mergedGuestsCount,
-      latestServerOnlineStats?.totalOnline || 0
-    );
+    const mergedGuestsCount = guestVisitorIds.size;
+    const mergedTotal = Math.max(1, mergedRegCount + mergedGuestsCount);
 
     return {
       totalOnline: mergedTotal,

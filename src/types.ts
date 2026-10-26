@@ -341,6 +341,8 @@ export interface PlatformSettings {
   googleMapsApiKey?: string;
   storeCategories: string[]; // Dynamic store categories updatable in real-time from Settings
   utilityTypes?: string[]; // قائمة المرافق في قسم تقديمات المرافق (تقديم المياه، تقديم الكهرباء، تقديم الغاز...)
+  disabledSections?: Partial<Record<MainSectionId, boolean>>; // حالة الصيانة (تعطيل / تفعيل أقسام القائمة الجانبية)
+  updatedAt?: number; // طابع زمني لحفظ الإعدادات نهائياً وعدم رجوعها لما سبق عند الريفريش
   requireDriverCriminalRecordApproval?: boolean; // اشتراط موافقة الإدارة على صورة الفيش قبل التفعيل أم فتح الخدمة مع مهلة 3 أيام
   liveChatCooldownSeconds?: number; // المدة بين كل رسالة في الشات العام (ثواني)
   liveChatAutoClearMinutes?: number; // مدة المسح التلقائي للشات العام (بالدقائق)
@@ -368,5 +370,7 @@ export interface PlatformDatabaseState {
   chatTypingMap?: Record<string, ChatTypingEntry>;
   userBlockedMap?: Record<string, string[]>;
   privateChatReports?: PrivateChatReportItem[];
+  deletedRecordIds?: string[];
   settings: PlatformSettings;
 }
+

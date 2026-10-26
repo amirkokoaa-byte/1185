@@ -555,7 +555,8 @@ export async function parseStoresFromExcelFile(
   file: File,
   ownerUsername: string,
   ownerId: string,
-  availableCategories: string[]
+  availableCategories: string[],
+  forcedCategory?: string
 ): Promise<StoreListingItem[]> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -568,14 +569,21 @@ export async function parseStoresFromExcelFile(
     defval: '',
   });
 
-  return extractStoresFrom2DMatrix(matrix, ownerUsername, ownerId, availableCategories);
+  return extractStoresFrom2DMatrix(
+    matrix,
+    ownerUsername,
+    ownerId,
+    availableCategories,
+    forcedCategory
+  );
 }
 
 export async function parseStoresFromPDFFile(
   file: File,
   ownerUsername: string,
   ownerId: string,
-  availableCategories: string[]
+  availableCategories: string[],
+  forcedCategory?: string
 ): Promise<StoreListingItem[]> {
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
@@ -611,7 +619,8 @@ export async function parseStoresFromPDFFile(
     matrix,
     ownerUsername,
     ownerId,
-    availableCategories
+    availableCategories,
+    forcedCategory
   );
 
   if (parsed.length > 0) return parsed;
@@ -620,6 +629,7 @@ export async function parseStoresFromPDFFile(
   const cleanFileName = file.name.replace(/\.pdf$/i, '').trim();
   if (cleanFileName) {
     const matchedCat =
+      forcedCategory ||
       availableCategories.find((c) => cleanFileName.includes(c)) ||
       availableCategories[0] ||
       'سوبر ماركت';
@@ -658,7 +668,8 @@ function extractStoresFrom2DMatrix(
   matrix: unknown[][],
   ownerUsername: string,
   ownerId: string,
-  availableCategories: string[]
+  availableCategories: string[],
+  forcedCategory?: string
 ): StoreListingItem[] {
   const cleanMatrix: string[][] = matrix
     .map((row) => (Array.isArray(row) ? row.map((c) => String(c ?? '').trim()) : []))
@@ -750,6 +761,7 @@ function extractStoresFrom2DMatrix(
       } else if (!phone && /[0-9]{7,15}/.test(cell.replace(/[\s-]/g, ''))) {
         phone = cell;
       } else if (
+        !forcedCategory &&
         !category &&
         (availableCategories.includes(cell) || DEFAULT_STORE_CATEGORIES.includes(cell))
       ) {
@@ -762,8 +774,10 @@ function extractStoresFrom2DMatrix(
     });
 
     if (name) {
-      const finalCat =
-        category || availableCategories[0] || DEFAULT_STORE_CATEGORIES[0] || 'سوبر ماركت';
+      // Strictly enforce forcedCategory when provided so data is ONLY entered in the chosen category
+      const finalCat = forcedCategory
+        ? forcedCategory
+        : category || availableCategories[0] || DEFAULT_STORE_CATEGORIES[0] || 'سوبر ماركت';
       results.push({
         id: `st-imp-${Date.now()}-${idx}`,
         ownerId,
@@ -773,7 +787,7 @@ function extractStoresFrom2DMatrix(
         locationUrl: locationUrl || 'https://maps.google.com',
         phone: phone || '01000000000',
         whatsapp: (phone || '01000000000').replace(/[^0-9]/g, ''),
-        details: details || `محل ${name} بقسم ${finalCat}`,
+        details: details || `${name} - ${finalCat}`,
         menuImages: [createSquareAdSvg(name, finalCat, '#38BDF8')],
         likes: [],
         dislikes: [],

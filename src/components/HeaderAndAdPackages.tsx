@@ -58,24 +58,155 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
   const [isBellOpen, setIsBellOpen] = useState(false);
   const [activePopupMessageId, setActivePopupMessageId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
+  const [replySentFeedback, setReplySentFeedback] = useState('');
+  const [instantBellAlert, setInstantBellAlert] = useState<{
+    msgId: string;
+    senderLabel: string;
+    text: string;
+  } | null>(null);
+  const seenThreadEntryIdsRef = React.useRef<Set<string> | null>(null);
 
-  // Filter messages relevant to current user (or guest visitor)
-  const myMessages = messages.filter((m) => {
-    if (currentUser) {
-      if (currentUser.role === 'admin') {
-        return true;
-      }
-      return (
-        m.senderId === currentUser.id ||
-        m.senderUsername.trim().toLowerCase() ===
-          currentUser.username.trim().toLowerCase() ||
-        (currentUser.accountName &&
+  // Filter and unify messages relevant to current user (each account separate from the other)
+  const myMessages = React.useMemo(() => {
+    const filtered = messages.filter((m) => {
+      if (currentUser) {
+        if (currentUser.role === 'admin') {
+          return true;
+        }
+        return (
+          m.senderId === currentUser.id ||
           m.senderUsername.trim().toLowerCase() ===
-            currentUser.accountName.trim().toLowerCase())
-      );
+            currentUser.username.trim().toLowerCase() ||
+          (currentUser.accountName &&
+            m.senderUsername.trim().toLowerCase() ===
+              currentUser.accountName.trim().toLowerCase())
+        );
+      }
+      return Boolean(visitorId && m.senderId === visitorId);
+    });
+
+    const byAccount = new Map<string, AdminMessage>();
+    const chronological = [...filtered].sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+
+    for (const msg of chronological) {
+      const key = `acct:${msg.senderUsername.trim().toLowerCase()}`;
+      const entries =
+        msg.thread && msg.thread.length > 0
+          ? msg.thread
+          : [
+              {
+                id: msg.id,
+                sender: 'user' as const,
+                senderName: msg.senderUsername,
+                text: msg.content,
+                createdAt: msg.createdAt,
+              },
+            ];
+      const existing = byAccount.get(key);
+      if (!existing) {
+        byAccount.set(key, {
+          ...msg,
+          thread: [...entries],
+        });
+      } else {
+        const mergedThread = [...(existing.thread || [])];
+        for (const e of entries) {
+          if (!mergedThread.some((x) => x.id === e.id)) {
+            mergedThread.push(e);
+          }
+        }
+        byAccount.set(key, {
+          ...existing,
+          content: msg.content,
+          isRead: existing.isRead && msg.isRead,
+          unreadForUserCount:
+            (existing.unreadForUserCount || 0) + (msg.unreadForUserCount || 0),
+          updatedAt: msg.updatedAt || msg.createdAt,
+          thread: mergedThread,
+        });
+      }
     }
-    return Boolean(visitorId && m.senderId === visitorId);
-  });
+
+    return Array.from(byAccount.values()).sort(
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt).getTime() -
+        new Date(a.updatedAt || a.createdAt).getTime()
+    );
+  }, [messages, currentUser, visitorId]);
+
+  // Detect any new reply or message in real time and show an instant Bell notification
+  useEffect(() => {
+    const allEntries: Array<{
+      entryId: string;
+      msgId: string;
+      sender: 'user' | 'admin';
+      senderName: string;
+      text: string;
+    }> = [];
+
+    myMessages.forEach((m) => {
+      const th =
+        m.thread && m.thread.length > 0
+          ? m.thread
+          : [
+              {
+                id: m.id,
+                sender: 'user' as const,
+                senderName: m.senderUsername,
+                text: m.content,
+                createdAt: m.createdAt,
+              },
+            ];
+      th.forEach((e) => {
+        allEntries.push({
+          entryId: e.id,
+          msgId: m.id,
+          sender: e.sender,
+          senderName: e.senderName,
+          text: e.text,
+        });
+      });
+    });
+
+    if (seenThreadEntryIdsRef.current === null) {
+      seenThreadEntryIdsRef.current = new Set(allEntries.map((x) => x.entryId));
+      return;
+    }
+
+    const seen = seenThreadEntryIdsRef.current;
+    let latestIncoming: (typeof allEntries)[number] | null = null;
+
+    for (const item of allEntries) {
+      if (!seen.has(item.entryId)) {
+        seen.add(item.entryId);
+        const isForMe =
+          currentUser?.role === 'admin'
+            ? item.sender === 'user'
+            : item.sender === 'admin';
+        if (isForMe) {
+          latestIncoming = item;
+        }
+      }
+    }
+
+    if (latestIncoming) {
+      setInstantBellAlert({
+        msgId: latestIncoming.msgId,
+        senderLabel:
+          latestIncoming.sender === 'admin'
+            ? 'قام المسؤول بإرسال رد في الجرس'
+            : `قام ${latestIncoming.senderName} بإرسال رد في الجرس`,
+        text: latestIncoming.text,
+      });
+      const timer = setTimeout(() => {
+        setInstantBellAlert(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [myMessages, currentUser?.role]);
 
   // Calculate unread messages count for the red badge on the Bell icon
   const unreadBellCount = myMessages.reduce((sum, m) => {
@@ -91,14 +222,19 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
   const handleOpenPopupMessage = (msg: AdminMessage) => {
     setActivePopupMessageId(msg.id);
     setIsBellOpen(false);
+    setInstantBellAlert(null);
+    setReplySentFeedback('');
     onMarkUserMessagesRead?.(msg.id);
   };
 
   const handleSendReply = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activePopupMessage || !replyText.trim()) return;
-    onReplyToAdminMessage?.(activePopupMessage.id, replyText.trim());
+    const clean = replyText.trim();
+    onReplyToAdminMessage?.(activePopupMessage.id, clean);
     setReplyText('');
+    setReplySentFeedback('تم إرسال ردك لحظياً ووصل في زر الجرس!');
+    setTimeout(() => setReplySentFeedback(''), 3500);
   };
 
   // Ad Packages Duration States
@@ -242,6 +378,7 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
               onClick={() => {
                 const nextOpen = !isBellOpen;
                 setIsBellOpen(nextOpen);
+                setInstantBellAlert(null);
                 if (nextOpen && unreadBellCount > 0) {
                   onMarkUserMessagesRead?.();
                 }
@@ -276,6 +413,48 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
         </div>
       </header>
 
+      {/* Instant Floating Bell Reply Notification Banner (تصل الرسالة لحظياً للمستخدم في زر الجرس أني بعت رد مع وجود زر فتح الرسالة في شاشة منبثقة والرد) */}
+      {instantBellAlert && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 w-[94vw] max-w-lg p-3.5 rounded-2xl bg-[#112240] border-2 border-rose-500 shadow-[0_12px_40px_rgba(225,29,72,0.45)] space-y-2.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-extrabold text-rose-300">
+              <Bell className="w-4 h-4 text-rose-400 animate-bounce shrink-0" />
+              <span>{instantBellAlert.senderLabel}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setInstantBellAlert(null)}
+              className="text-xs font-bold text-[#94A3B8] hover:text-white cursor-pointer"
+            >
+              إغلاق
+            </button>
+          </div>
+          <div className="p-2.5 rounded-xl bg-[#0A192F] border border-[#334155] text-xs sm:text-sm text-[#F8FAFC] line-clamp-2">
+            {instantBellAlert.text}
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <FluentButton
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                const target = myMessages.find(
+                  (m) => m.id === instantBellAlert.msgId
+                );
+                if (target) {
+                  handleOpenPopupMessage(target);
+                } else {
+                  setIsBellOpen(true);
+                  setInstantBellAlert(null);
+                }
+              }}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>فتح الرسالة في شاشة منبثقة والرد</span>
+            </FluentButton>
+          </div>
+        </div>
+      )}
+
       {/* Bell Messages Reader Modal / Dropdown Panel */}
       {isBellOpen && (
         <FluentModal
@@ -306,17 +485,27 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                         },
                       ];
                 const lastEntry = threadItems[threadItems.length - 1];
+                const hasReply = threadItems.length > 1 || lastEntry.sender === 'admin';
                 return (
                   <div
                     key={msg.id}
                     className="p-3.5 rounded-xl bg-[#0A192F] border border-sky-400/40 space-y-2.5"
                   >
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="font-extrabold text-sky-400">
-                        {lastEntry.sender === 'admin'
-                          ? 'رد من إدارة الموقع'
-                          : `مراسلة: ${msg.senderUsername}`}
-                      </span>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-extrabold text-sky-400">
+                          {lastEntry.sender === 'admin'
+                            ? 'رد من إدارة الموقع'
+                            : `مراسلة: ${msg.senderUsername}`}
+                        </span>
+                        {hasReply && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-extrabold">
+                            {lastEntry.sender === 'admin'
+                              ? 'تم إرسال رد من الإدارة'
+                              : `تم إرسال رد (${lastEntry.senderName})`}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[11px] text-[#94A3B8] font-mono-tabular">
                         {new Date(
                           msg.updatedAt || lastEntry.createdAt || msg.createdAt
@@ -359,6 +548,25 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
           maxWidth="lg"
         >
           <div className="space-y-4">
+            {replySentFeedback && (
+              <div className="p-2.5 rounded-xl bg-emerald-950/70 border border-emerald-400/60 text-emerald-200 text-xs font-extrabold flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{replySentFeedback}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActivePopupMessageId(null);
+                    setIsBellOpen(true);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-extrabold cursor-pointer shrink-0"
+                >
+                  عرض في الجرس
+                </button>
+              </div>
+            )}
+
             <div className="max-h-80 overflow-y-auto space-y-2.5 p-3 rounded-xl bg-[#0A192F] border border-[#334155]">
               {(activePopupMessage.thread && activePopupMessage.thread.length > 0
                 ? activePopupMessage.thread

@@ -250,20 +250,35 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   };
 
   // Excel & PDF Store Import Handlers
-  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleExcelImport = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    targetCategoryOnly?: string
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const forcedCat =
+      targetCategoryOnly ||
+      (selectedCategory !== 'all' ? selectedCategory : undefined);
     try {
       const imported = await parseStoresFromExcelFile(
         file,
         currentUser?.username || 'admin',
         currentUser?.id || 'usr-admin-1',
-        settings.storeCategories
+        settings.storeCategories,
+        forcedCat
       );
       if (imported.length > 0) {
         onImportStoresBatch(imported);
-        setImportNotice(`تم استيراد وتسجيل ${imported.length} عنصر من ملف الإكسيل بنجاح!`);
+        setImportNotice(
+          forcedCat
+            ? `تم إدخال ${imported.length} عنصر من ملف الإكسيل في قسم (${forcedCat}) فقط بنجاح!`
+            : `تم استيراد وتسجيل ${imported.length} عنصر من ملف الإكسيل بنجاح!`
+        );
         setTimeout(() => setImportNotice(''), 4500);
+        if (targetCategoryOnly) {
+          setIsAddModalOpen(false);
+          setSelectedCategory(targetCategoryOnly);
+        }
       }
     } catch {
       setImportNotice('تعذر قراءة ملف الإكسيل، تأكد من صحة الملف.');
@@ -274,12 +289,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const handlePDFImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const forcedCat = selectedCategory !== 'all' ? selectedCategory : undefined;
     try {
       const imported = await parseStoresFromPDFFile(
         file,
         currentUser?.username || 'admin',
         currentUser?.id || 'usr-admin-1',
-        settings.storeCategories
+        settings.storeCategories,
+        forcedCat
       );
       if (imported.length > 0) {
         onImportStoresBatch(imported);
@@ -943,22 +960,55 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         theme="light"
       >
         <form onSubmit={handleCreateStoreSubmit} className="space-y-4 text-black">
-          {/* Dynamic Category Dropdown */}
-          <div>
-            <label className="block text-xs font-extrabold text-black mb-1.5">
-              اختر القسم *
-            </label>
-            <select
-              value={storeCategory}
-              onChange={(e) => setStoreCategory(e.target.value)}
-              className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-extrabold outline-none"
-            >
-              {settings.storeCategories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
+          {/* Dynamic Category Dropdown + Excel Button for Selected Category Only */}
+          <div className="p-3.5 rounded-xl bg-emerald-50/70 border-2 border-emerald-300 space-y-3">
+            <div>
+              <label className="block text-xs font-extrabold text-black mb-1.5">
+                اختر القسم *
+              </label>
+              <select
+                value={storeCategory}
+                onChange={(e) => setStoreCategory(e.target.value)}
+                className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-extrabold outline-none"
+              >
+                {settings.storeCategories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <p className="text-[11px] font-extrabold text-emerald-950">
+                زر تصدير إكسيل للقسم المختار ({storeCategory}) فقط دون توزيع البيانات في أي قسم آخر:
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="fluent-reveal inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold cursor-pointer shadow-sm">
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>تصدير إكسيل (إدخال في قسم {storeCategory} فقط)</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={(e) => handleExcelImport(e, storeCategory)}
+                    className="hidden"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportStoresToExcel(
+                      stores.filter((s) => s.category === storeCategory)
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-400 text-xs font-extrabold cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>تحميل إكسيل ({storeCategory})</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Store Name & Phone */}

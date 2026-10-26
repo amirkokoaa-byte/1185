@@ -41,6 +41,7 @@ import {
   Download,
   RotateCcw,
   HardDrive,
+  Smartphone,
 } from 'lucide-react';
 import {
   AdminMessage,
@@ -78,7 +79,8 @@ export type AdminSettingsSubSectionId =
   | 'storage'
   | 'online_users'
   | 'maintenance'
-  | 'data_backup';
+  | 'data_backup'
+  | 'app_download';
 
 interface AdminSettingsHubViewProps {
   state: PlatformDatabaseState;
@@ -807,7 +809,108 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       subtitle: 'استيراد وتصدير واسترجاع كافة بيانات الموقع',
       icon: HardDrive,
     },
+    {
+      id: 'app_download',
+      number: 11,
+      label: 'التطبيق',
+      subtitle: 'أضف رابط، ارفع التطبيق، أو لينك التطبيق',
+      icon: Smartphone,
+    },
   ];
+
+  // State for Section 11: التطبيق (App Download / Upload / External Link)
+  const [selectedAppOption, setSelectedAppOption] = useState<
+    'add_link' | 'upload_app' | 'app_link' | null
+  >(state.settings.appDownloadActiveOption || null);
+  const [appAddLinkInput, setAppAddLinkInput] = useState<string>(
+    state.settings.appAddLinkUrl || ''
+  );
+  const [appUploadedUrl, setAppUploadedUrl] = useState<string>(
+    state.settings.appUploadedFileUrl || ''
+  );
+  const [appUploadedName, setAppUploadedName] = useState<string>(
+    state.settings.appUploadedFileName || ''
+  );
+  const [appExternalLinkInput, setAppExternalLinkInput] = useState<string>(
+    state.settings.appExternalLinkUrl || ''
+  );
+  const [isUploadingAppFile, setIsUploadingAppFile] = useState(false);
+
+  React.useEffect(() => {
+    setSelectedAppOption(state.settings.appDownloadActiveOption || null);
+    setAppAddLinkInput(state.settings.appAddLinkUrl || '');
+    setAppUploadedUrl(state.settings.appUploadedFileUrl || '');
+    setAppUploadedName(state.settings.appUploadedFileName || '');
+    setAppExternalLinkInput(state.settings.appExternalLinkUrl || '');
+  }, [
+    state.settings.appDownloadActiveOption,
+    state.settings.appAddLinkUrl,
+    state.settings.appUploadedFileUrl,
+    state.settings.appUploadedFileName,
+    state.settings.appExternalLinkUrl,
+  ]);
+
+  const handleSelectAppOption = (option: 'add_link' | 'upload_app' | 'app_link') => {
+    setSelectedAppOption(option);
+    onUpdateSettings({
+      ...state.settings,
+      appDownloadActiveOption: option,
+      appAddLinkUrl: appAddLinkInput.trim(),
+      appUploadedFileUrl: appUploadedUrl,
+      appUploadedFileName: appUploadedName,
+      appExternalLinkUrl: appExternalLinkInput.trim(),
+      updatedAt: Date.now(),
+    });
+  };
+
+  const handleSaveAppDownloadSettings = (
+    optionToActivate?: 'add_link' | 'upload_app' | 'app_link'
+  ) => {
+    const activeOpt = optionToActivate || selectedAppOption || 'add_link';
+    setSelectedAppOption(activeOpt);
+    onUpdateSettings({
+      ...state.settings,
+      appDownloadActiveOption: activeOpt,
+      appAddLinkUrl: appAddLinkInput.trim(),
+      appUploadedFileUrl: appUploadedUrl,
+      appUploadedFileName: appUploadedName,
+      appExternalLinkUrl: appExternalLinkInput.trim(),
+      updatedAt: Date.now(),
+    });
+    showToast(
+      'تم حفظ إعدادات التطبيق وتفعيل زر التحميل داخل نافذة "تثبيت التطبيق" بنجاح!'
+    );
+  };
+
+  const handleAppFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingAppFile(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setAppUploadedUrl(result);
+      setAppUploadedName(file.name);
+      setSelectedAppOption('upload_app');
+      onUpdateSettings({
+        ...state.settings,
+        appDownloadActiveOption: 'upload_app',
+        appAddLinkUrl: appAddLinkInput.trim(),
+        appUploadedFileUrl: result,
+        appUploadedFileName: file.name,
+        appExternalLinkUrl: appExternalLinkInput.trim(),
+        updatedAt: Date.now(),
+      });
+      setIsUploadingAppFile(false);
+      showToast(`تم رفع ملف التطبيق "${file.name}" وتفعيله للتحميل المباشر بنجاح!`);
+    };
+    reader.onerror = () => {
+      setIsUploadingAppFile(false);
+      showToast('تعذر قراءة ملف التطبيق المرفوع، يرجى المحاولة مرة أخرى.');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   // State for Section 10: البيانات (Data Backup, Restore & All-Time Recovery)
   const [isDataActionBusy, setIsDataActionBusy] = useState(false);
@@ -3141,6 +3244,228 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                   </div>
                 </div>
               </div>
+            </FluentCard>
+          )}
+
+          {/* ====================================================================
+              11. التطبيق (App Download / Upload / External Link)
+             ==================================================================== */}
+          {activeSubTab === 'app_download' && (
+            <FluentCard className="space-y-5">
+              <div className="pb-3 border-b border-[#334155]">
+                <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                  <Smartphone className="w-5 h-5 text-sky-400" />
+                  <span>11. التطبيق — إعداد تحميل التطبيق المباشر أو الرابط الخارجي</span>
+                </h3>
+                <p className="text-xs text-[#94A3B8] mt-1">
+                  اختر أي جزء من الأزرار الثلاثة بالأسفل (أضف رابط، ارفع التطبيق، أو لينك التطبيق) ليظهر تلقائياً زر التحميل أسفل مربع خطوات التثبيت المباشر من المتصفح داخل زر &quot;تثبيت التطبيق&quot;.
+                </p>
+              </div>
+
+              {/* Three Selection Buttons: زر أضف رابط | زر ارفع التطبيق | زر لينك التطبيق */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* 1. زر أضف رابط */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectAppOption('add_link')}
+                  className={`fluent-reveal p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2.5 text-center cursor-pointer ${
+                    selectedAppOption === 'add_link'
+                      ? 'bg-sky-600/25 border-sky-400 text-[#F8FAFC] shadow-[0_0_20px_-4px_rgba(56,189,248,0.5)]'
+                      : 'bg-[#0A192F] border-[#334155] text-[#94A3B8] hover:text-[#F8FAFC] hover:border-sky-500/50'
+                  }`}
+                >
+                  <div
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center border ${
+                      selectedAppOption === 'add_link'
+                        ? 'bg-sky-500 text-[#0A192F] border-sky-300'
+                        : 'bg-[#112240] text-sky-400 border-[#334155]'
+                    }`}
+                  >
+                    <LinkIcon className="w-5 h-5" />
+                  </div>
+                  <div className="text-sm sm:text-base font-extrabold">أضف رابط</div>
+                  <span className="text-[11px] text-[#94A3B8]">
+                    إضافة رابط تحميل مباشر للتطبيق
+                  </span>
+                  {selectedAppOption === 'add_link' && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-extrabold">
+                      محدد ومفعل حالياً
+                    </span>
+                  )}
+                </button>
+
+                {/* 2. زر ارفع التطبيق */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectAppOption('upload_app')}
+                  className={`fluent-reveal p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2.5 text-center cursor-pointer ${
+                    selectedAppOption === 'upload_app'
+                      ? 'bg-emerald-600/25 border-emerald-400 text-[#F8FAFC] shadow-[0_0_20px_-4px_rgba(16,185,129,0.5)]'
+                      : 'bg-[#0A192F] border-[#334155] text-[#94A3B8] hover:text-[#F8FAFC] hover:border-emerald-500/50'
+                  }`}
+                >
+                  <div
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center border ${
+                      selectedAppOption === 'upload_app'
+                        ? 'bg-emerald-500 text-[#0A192F] border-emerald-300'
+                        : 'bg-[#112240] text-emerald-400 border-[#334155]'
+                    }`}
+                  >
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div className="text-sm sm:text-base font-extrabold">ارفع التطبيق</div>
+                  <span className="text-[11px] text-[#94A3B8]">
+                    رفع ملف التطبيق (.apk أو غيره) للتحميل المباشر
+                  </span>
+                  {selectedAppOption === 'upload_app' && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-extrabold">
+                      محدد ومفعل حالياً
+                    </span>
+                  )}
+                </button>
+
+                {/* 3. زر لينك التطبيق */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectAppOption('app_link')}
+                  className={`fluent-reveal p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2.5 text-center cursor-pointer ${
+                    selectedAppOption === 'app_link'
+                      ? 'bg-amber-500/25 border-amber-400 text-[#F8FAFC] shadow-[0_0_20px_-4px_rgba(245,158,11,0.5)]'
+                      : 'bg-[#0A192F] border-[#334155] text-[#94A3B8] hover:text-[#F8FAFC] hover:border-amber-500/50'
+                  }`}
+                >
+                  <div
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center border ${
+                      selectedAppOption === 'app_link'
+                        ? 'bg-amber-500 text-[#0A192F] border-amber-300'
+                        : 'bg-[#112240] text-amber-400 border-[#334155]'
+                    }`}
+                  >
+                    <ExternalLink className="w-5 h-5" />
+                  </div>
+                  <div className="text-sm sm:text-base font-extrabold">لينك التطبيق</div>
+                  <span className="text-[11px] text-[#94A3B8]">
+                    التوجه إلى لينك التحميل في موقع خارجي
+                  </span>
+                  {selectedAppOption === 'app_link' && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-extrabold">
+                      محدد ومفعل حالياً
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Configuration Box for Option 1: أضف رابط */}
+              {selectedAppOption === 'add_link' && (
+                <div className="p-4 rounded-2xl bg-[#0A192F] border border-sky-500/40 space-y-3">
+                  <label className="block text-xs sm:text-sm font-extrabold text-sky-300">
+                    أضف رابط التحميل المباشر للتطبيق:
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <input
+                      type="url"
+                      value={appAddLinkInput}
+                      onChange={(e) => setAppAddLinkInput(e.target.value)}
+                      placeholder="https://example.com/app-download.apk"
+                      className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-xs sm:text-sm text-[#F8FAFC] font-mono-tabular outline-none"
+                    />
+                    <FluentButton
+                      type="button"
+                      variant="primary"
+                      onClick={() => handleSaveAppDownloadSettings('add_link')}
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>حفظ وتفعيل الرابط</span>
+                    </FluentButton>
+                  </div>
+                </div>
+              )}
+
+              {/* Configuration Box for Option 2: ارفع التطبيق */}
+              {selectedAppOption === 'upload_app' && (
+                <div className="p-4 rounded-2xl bg-[#0A192F] border border-emerald-500/40 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs sm:text-sm font-extrabold text-emerald-300">
+                        ارفع ملف التطبيق من جهازك (.apk أو ملف التثبيت):
+                      </div>
+                      <p className="text-[11px] text-[#94A3B8] mt-0.5">
+                        عند ضغط المستخدم على زر التحميل داخل &quot;تثبيت التطبيق&quot; سيتم تحميل الملف المرفوع مباشرة على جهازه.
+                      </p>
+                    </div>
+
+                    <label className="fluent-reveal px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all shrink-0">
+                      <Upload className="w-4 h-4" />
+                      <span>
+                        {isUploadingAppFile ? 'جاري رفع التطبيق...' : 'اختر ملف التطبيق لرفعه'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".apk,.ipa,.zip,.exe,.msi,application/vnd.android.package-archive,*/*"
+                        disabled={isUploadingAppFile}
+                        onChange={handleAppFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {appUploadedName && (
+                    <div className="p-3 rounded-xl bg-[#112240] border border-emerald-500/30 flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 text-emerald-300 font-bold truncate">
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span className="truncate">الملف المرفوع حالياً: {appUploadedName}</span>
+                      </div>
+                      <FluentButton
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleSaveAppDownloadSettings('upload_app')}
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>تأكيد التفعيل</span>
+                      </FluentButton>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Configuration Box for Option 3: لينك التطبيق */}
+              {selectedAppOption === 'app_link' && (
+                <div className="p-4 rounded-2xl bg-[#0A192F] border border-amber-500/40 space-y-3">
+                  <label className="block text-xs sm:text-sm font-extrabold text-amber-300">
+                    لينك التطبيق (للتوجه إلى صفحة التحميل في موقع خارجي أو متجر التطبيقات):
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <input
+                      type="url"
+                      value={appExternalLinkInput}
+                      onChange={(e) => setAppExternalLinkInput(e.target.value)}
+                      placeholder="https://..."
+                      className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-amber-400 px-3.5 py-2.5 text-xs sm:text-sm text-[#F8FAFC] font-mono-tabular outline-none"
+                    />
+                    <FluentButton
+                      type="button"
+                      variant="primary"
+                      onClick={() => handleSaveAppDownloadSettings('app_link')}
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>حفظ وتفعيل لينك التطبيق</span>
+                    </FluentButton>
+                  </div>
+                </div>
+              )}
+
+              {/* Status indicator of how it appears in زر تثبيت التطبيق */}
+              {selectedAppOption && (
+                <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 text-emerald-300 font-bold">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>
+                      الخيار المحدد حالياً ({selectedAppOption === 'add_link' ? 'أضف رابط' : selectedAppOption === 'upload_app' ? 'ارفع التطبيق' : 'لينك التطبيق'}) يظهر الآن كزر أسفل مربع خطوات التثبيت المباشر من المتصفح داخل زر &quot;تثبيت التطبيق&quot;.
+                    </span>
+                  </div>
+                </div>
+              )}
             </FluentCard>
           )}
         </div>

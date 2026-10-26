@@ -370,7 +370,7 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
               </span>
             </button>
 
-            <PWAInstallButton />
+            <PWAInstallButton settings={settings} />
 
             {/* Bell Icon (أيقونة الجرس بجانب تثبيت التطبيق والإعلانات) */}
             <button

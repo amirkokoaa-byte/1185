@@ -349,6 +349,11 @@ export interface PlatformSettings {
   liveChatCooldownSeconds?: number; // المدة بين كل رسالة في الشات العام (ثواني)
   liveChatAutoClearMinutes?: number; // مدة المسح التلقائي للشات العام (بالدقائق)
   liveChatLastClearedAt?: string; // وقت آخر مسح للشات العام
+  appDownloadActiveOption?: 'add_link' | 'upload_app' | 'app_link' | null; // الخيار المحدد في قسم التطبيق بالإعدادات
+  appAddLinkUrl?: string; // رابط التحميل المباشر (زر أضف رابط)
+  appUploadedFileUrl?: string; // ملف التطبيق المرفوع (زر ارفع التطبيق)
+  appUploadedFileName?: string; // اسم ملف التطبيق المرفوع
+  appExternalLinkUrl?: string; // لينك التطبيق في موقع خارجي (زر لينك التطبيق)
   firebase: FirebaseConfigSettings;
 }
 

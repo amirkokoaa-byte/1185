@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Download, Smartphone, WifiOff } from 'lucide-react';
+import { Download, ExternalLink, Smartphone, WifiOff } from 'lucide-react';
+import { PlatformSettings } from '../types';
 import { FluentButton, FluentModal } from './FluentUI';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -61,11 +62,103 @@ export function usePWAInstall() {
   };
 }
 
-export const PWAInstallButton: React.FC = () => {
+interface PWAInstallButtonProps {
+  settings?: PlatformSettings;
+}
+
+export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ settings }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showGuideModal, setShowGuideModal] = useState(false);
 
-  if (isInstalled) {
+  const activeOption = settings?.appDownloadActiveOption || null;
+  const hasAnySelectedOption =
+    activeOption === 'add_link' ||
+    activeOption === 'upload_app' ||
+    activeOption === 'app_link';
+
+  const normalizeExternalUrl = (rawUrl?: string) => {
+    const trimmed = (rawUrl || '').trim();
+    if (!trimmed) return '';
+    if (
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('data:') ||
+      trimmed.startsWith('blob:') ||
+      trimmed.startsWith('/')
+    ) {
+      return trimmed;
+    }
+    return `https://${trimmed}`;
+  };
+
+  const handleDirectDownloadOrNavigate = () => {
+    if (activeOption === 'upload_app') {
+      const fileUrl = settings?.appUploadedFileUrl || '';
+      if (fileUrl) {
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = settings?.appUploadedFileName || 'application.apk';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+    }
+
+    if (activeOption === 'add_link') {
+      const targetUrl = normalizeExternalUrl(settings?.appAddLinkUrl);
+      if (targetUrl) {
+        const link = document.createElement('a');
+        link.href = targetUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.setAttribute('download', '');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+    }
+
+    if (activeOption === 'app_link') {
+      const targetUrl = normalizeExternalUrl(settings?.appExternalLinkUrl);
+      if (targetUrl) {
+        const link = document.createElement('a');
+        link.href = targetUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+    }
+
+    // Fallback if another field has a URL/file configured
+    if (settings?.appUploadedFileUrl) {
+      const link = document.createElement('a');
+      link.href = settings.appUploadedFileUrl;
+      link.download = settings.appUploadedFileName || 'application.apk';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+    const fallbackUrl = normalizeExternalUrl(
+      settings?.appAddLinkUrl || settings?.appExternalLinkUrl
+    );
+    if (fallbackUrl) {
+      const link = document.createElement('a');
+      link.href = fallbackUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  if (isInstalled && !hasAnySelectedOption) {
     return null;
   }
 
@@ -75,7 +168,9 @@ export const PWAInstallButton: React.FC = () => {
         variant="secondary"
         size="sm"
         onClick={async () => {
-          if (isInstallable) {
+          if (hasAnySelectedOption) {
+            setShowGuideModal(true);
+          } else if (isInstallable) {
             await install();
           } else {
             setShowGuideModal(true);
@@ -118,6 +213,42 @@ export const PWAInstallButton: React.FC = () => {
               </ol>
             </div>
           </div>
+
+          {hasAnySelectedOption && (
+            <button
+              type="button"
+              onClick={handleDirectDownloadOrNavigate}
+              className="fluent-reveal w-full p-4 rounded-xl bg-gradient-to-r from-sky-600/30 via-emerald-600/25 to-sky-600/30 hover:from-sky-500/40 hover:to-emerald-500/40 border-2 border-sky-400/70 flex items-center justify-between gap-3 text-right cursor-pointer shadow-lg transition-all"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-sky-500 text-[#0A192F] flex items-center justify-center shrink-0 shadow-md">
+                  {activeOption === 'app_link' ? (
+                    <ExternalLink className="w-5 h-5" />
+                  ) : (
+                    <Download className="w-5 h-5" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-extrabold text-sm sm:text-base text-[#F8FAFC]">
+                    {activeOption === 'app_link'
+                      ? 'اضغط هنا للتوجه إلى لينك تحميل التطبيق'
+                      : 'اضغط هنا لتحميل التطبيق مباشر'}
+                  </div>
+                  <div className="text-xs text-sky-300 truncate">
+                    {activeOption === 'upload_app' && settings?.appUploadedFileName
+                      ? `تحميل مباشر: ${settings.appUploadedFileName}`
+                      : activeOption === 'app_link'
+                      ? 'الانتقال مباشرة إلى صفحة التحميل في الموقع الخارجي'
+                      : 'تنزيل وتثبيت التطبيق مباشرة على جهازك'}
+                  </div>
+                </div>
+              </div>
+              <span className="px-3 py-1.5 rounded-lg bg-sky-500 text-[#0A192F] text-xs font-extrabold shrink-0">
+                تحميل التطبيق
+              </span>
+            </button>
+          )}
+
           <div className="flex justify-end">
             <FluentButton variant="primary" onClick={() => setShowGuideModal(false)}>
               حسناً، فهمت

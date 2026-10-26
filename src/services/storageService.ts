@@ -515,6 +515,37 @@ function mergePlatformSettings(
         : baseSettings.liveChatLastClearedAt) ||
       baseSettings.liveChatLastClearedAt ||
       incomingSettings.liveChatLastClearedAt,
+    appDownloadActiveOption: preferIncoming
+      ? incomingSettings.appDownloadActiveOption !== undefined
+        ? incomingSettings.appDownloadActiveOption
+        : baseSettings.appDownloadActiveOption ?? null
+      : baseSettings.appDownloadActiveOption !== undefined
+      ? baseSettings.appDownloadActiveOption
+      : incomingSettings.appDownloadActiveOption ?? null,
+    appAddLinkUrl: preferIncoming
+      ? incomingSettings.appAddLinkUrl !== undefined
+        ? incomingSettings.appAddLinkUrl
+        : baseSettings.appAddLinkUrl ?? ''
+      : baseSettings.appAddLinkUrl !== undefined
+      ? baseSettings.appAddLinkUrl
+      : incomingSettings.appAddLinkUrl ?? '',
+    appUploadedFileUrl: preferIncoming
+      ? incomingSettings.appUploadedFileUrl || baseSettings.appUploadedFileUrl || ''
+      : baseSettings.appUploadedFileUrl || incomingSettings.appUploadedFileUrl || '',
+    appUploadedFileName: preferIncoming
+      ? incomingSettings.appUploadedFileName !== undefined
+        ? incomingSettings.appUploadedFileName
+        : baseSettings.appUploadedFileName ?? ''
+      : baseSettings.appUploadedFileName !== undefined
+      ? baseSettings.appUploadedFileName
+      : incomingSettings.appUploadedFileName ?? '',
+    appExternalLinkUrl: preferIncoming
+      ? incomingSettings.appExternalLinkUrl !== undefined
+        ? incomingSettings.appExternalLinkUrl
+        : baseSettings.appExternalLinkUrl ?? ''
+      : baseSettings.appExternalLinkUrl !== undefined
+      ? baseSettings.appExternalLinkUrl
+      : incomingSettings.appExternalLinkUrl ?? '',
     updatedAt: Math.max(baseUpdatedAt, incomingUpdatedAt),
     firebase: baseSettings.firebase || HIDDEN_DEFAULT_FIREBASE_CONFIG,
   };
@@ -1095,6 +1126,22 @@ class HybridStorageEngine {
     fastBrowserCache.setMemoryAndDiskCache(state, activeUserId);
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(state.settings));
+    } catch {
+      try {
+        const lightSettings = {
+          ...state.settings,
+          appUploadedFileUrl:
+            state.settings.appUploadedFileUrl &&
+            state.settings.appUploadedFileUrl.length > 500000
+              ? ''
+              : state.settings.appUploadedFileUrl,
+        };
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(lightSettings));
+      } catch (err) {
+        console.error('LocalStorage settings save error:', err);
+      }
+    }
+    try {
       localStorage.setItem(
         DB_STORAGE_KEY,
         JSON.stringify({

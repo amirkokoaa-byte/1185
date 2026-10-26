@@ -4,12 +4,109 @@
     <meta charset="UTF-8" />
     <script>
       (function () {
+        // 1. Safe In-Memory Storage Fallback for Android APK WebViews where domStorageEnabled is false or restricted
+        function createMemoryStorage() {
+          var store = {};
+          return {
+            getItem: function (k) {
+              return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null;
+            },
+            setItem: function (k, v) {
+              store[k] = String(v);
+            },
+            removeItem: function (k) {
+              delete store[k];
+            },
+            clear: function () {
+              store = {};
+            },
+            key: function (i) {
+              var keys = Object.keys(store);
+              return keys[i] || null;
+            },
+            get length() {
+              return Object.keys(store).length;
+            }
+          };
+        }
+        try {
+          var testKey = '__apk_storage_test__';
+          if (!window.localStorage) {
+            Object.defineProperty(window, 'localStorage', { value: createMemoryStorage() });
+          } else {
+            window.localStorage.setItem(testKey, '1');
+            window.localStorage.removeItem(testKey);
+          }
+        } catch (e) {
+          try {
+            Object.defineProperty(window, 'localStorage', { value: createMemoryStorage() });
+          } catch (_) {}
+        }
+        try {
+          var testSessKey = '__apk_sess_test__';
+          if (!window.sessionStorage) {
+            Object.defineProperty(window, 'sessionStorage', { value: createMemoryStorage() });
+          } else {
+            window.sessionStorage.setItem(testSessKey, '1');
+            window.sessionStorage.removeItem(testSessKey);
+          }
+        } catch (e) {
+          try {
+            Object.defineProperty(window, 'sessionStorage', { value: createMemoryStorage() });
+          } catch (_) {}
+        }
+
+        // 2. Safe matchMedia & Notification shims for older Android WebView APK wrappers
+        if (typeof window.matchMedia !== 'function') {
+          window.matchMedia = function () {
+            return {
+              matches: false,
+              media: '',
+              onchange: null,
+              addListener: function () {},
+              removeListener: function () {},
+              addEventListener: function () {},
+              removeEventListener: function () {},
+              dispatchEvent: function () { return false; }
+            };
+          };
+        }
+
+        // 3. Self-heal corrupted or outdated Service Worker caches in APK WebView
+        try {
+          if ('serviceWorker' in navigator) {
+            var protocol = window.location && window.location.protocol;
+            if (protocol !== 'http:' && protocol !== 'https:') {
+              // Prevent ServiceWorker registration errors on file:// or custom APK schemes
+              navigator.serviceWorker.register = function () {
+                return Promise.resolve({});
+              };
+            } else {
+              var healedFlag = sessionStorage.getItem('__nakhil_apk_sw_checked_v2__');
+              if (!healedFlag) {
+                sessionStorage.setItem('__nakhil_apk_sw_checked_v2__', '1');
+                navigator.serviceWorker.getRegistrations().then(function (regs) {
+                  for (var i = 0; i < regs.length; i++) {
+                    regs[i].update().catch(function () {});
+                  }
+                }).catch(function () {});
+              }
+            }
+          }
+        } catch (_) {}
+
+        // 4. Suppress benign WebSocket / APK WebView resource warnings so WebView never triggers an error screen after splash logo
         window.addEventListener(
           'unhandledrejection',
           function (event) {
             var reason = event && event.reason;
             var msg = reason && (reason.message || String(reason));
-            if (typeof msg === 'string' && msg.indexOf('WebSocket closed without opened') !== -1) {
+            if (
+              typeof msg === 'string' &&
+              (msg.indexOf('WebSocket closed without opened') !== -1 ||
+                msg.indexOf('bad-precaching-response') !== -1 ||
+                msg.indexOf('ServiceWorker') !== -1)
+            ) {
               event.preventDefault();
               event.stopImmediatePropagation();
             }
@@ -20,51 +117,18 @@
           'error',
           function (event) {
             var msg = (event && event.message) || '';
-            if (typeof msg === 'string' && msg.indexOf('WebSocket closed without opened') !== -1) {
+            if (
+              typeof msg === 'string' &&
+              (msg.indexOf('WebSocket closed without opened') !== -1 ||
+                msg.indexOf('bad-precaching-response') !== -1 ||
+                msg.indexOf('ResizeObserver') !== -1)
+            ) {
               event.preventDefault();
               event.stopImmediatePropagation();
             }
           },
           true
         );
-        var NativeWebSocket = window.WebSocket;
-        if (NativeWebSocket) {
-          var WrappedWebSocket = function (url, protocols) {
-            var isViteHmr =
-              protocols === 'vite-hmr' ||
-              (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1);
-            var ws =
-              arguments.length > 1
-                ? new NativeWebSocket(url, protocols)
-                : new NativeWebSocket(url);
-            if (isViteHmr) {
-              var origAddEventListener = ws.addEventListener.bind(ws);
-              var opened = false;
-              origAddEventListener('open', function () {
-                opened = true;
-              });
-              ws.addEventListener = function (type, listener, options) {
-                if (type === 'close' && typeof listener === 'function') {
-                  var wrappedClose = function (ev) {
-                    if (!opened) {
-                      return;
-                    }
-                    return listener.call(this, ev);
-                  };
-                  return origAddEventListener(type, wrappedClose, options);
-                }
-                return origAddEventListener(type, listener, options);
-              };
-            }
-            return ws;
-          };
-          WrappedWebSocket.prototype = NativeWebSocket.prototype;
-          WrappedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
-          WrappedWebSocket.OPEN = NativeWebSocket.OPEN;
-          WrappedWebSocket.CLOSING = NativeWebSocket.CLOSING;
-          WrappedWebSocket.CLOSED = NativeWebSocket.CLOSED;
-          window.WebSocket = WrappedWebSocket;
-        }
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0" />
@@ -72,8 +136,10 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="موقع خدمات التخيل 1185" />
+    <meta name="apple-mobile-web-app-title" content="التخيل 1185" />
+    <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

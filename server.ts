@@ -6,6 +6,10 @@ import { createServer as createViteServer } from 'vite';
 
 const PORT = 3000;
 const STATE_FILE_PATH = path.resolve(process.cwd(), '.realtime-portal-state.json');
+const ARCHIVE_FILE_PATH = path.resolve(
+  process.cwd(),
+  '.realtime-portal-cumulative-archive.json'
+);
 
 interface PresenceSession {
   sessionId: string;
@@ -16,8 +20,9 @@ interface PresenceSession {
   lastActiveAt: number;
 }
 
-// Authoritative in-memory state + disk persistence for instant multi-user sync
+// Authoritative in-memory state + disk persistence + Permanent Cumulative Archive for instant multi-user sync & full historical recovery
 let authoritativeState: Record<string, unknown> | null = null;
+let cumulativeArchiveState: Record<string, unknown> | null = null;
 let latestChatPatch: Record<string, unknown> | null = null;
 let stateVersion = Date.now();
 let chatVersion = Date.now();
@@ -25,11 +30,26 @@ let lastChatSenderTabId: string | null = null;
 const presenceMap = new Map<string, PresenceSession>();
 
 try {
+  if (fs.existsSync(ARCHIVE_FILE_PATH)) {
+    const rawArchive = fs.readFileSync(ARCHIVE_FILE_PATH, 'utf-8');
+    const parsedArchive = JSON.parse(rawArchive);
+    if (parsedArchive && typeof parsedArchive === 'object') {
+      cumulativeArchiveState = parsedArchive;
+    }
+  }
+} catch {
+  cumulativeArchiveState = null;
+}
+
+try {
   if (fs.existsSync(STATE_FILE_PATH)) {
     const raw = fs.readFileSync(STATE_FILE_PATH, 'utf-8');
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
-    authoritativeState = parsed;
+      authoritativeState = parsed;
+      if (!cumulativeArchiveState) {
+        cumulativeArchiveState = { ...parsed, deletedRecordIds: [] };
+      }
       latestChatPatch = {
         users: parsed.users || [],
         liveChatMessages: parsed.liveChatMessages || [],
@@ -140,7 +160,88 @@ function mergeSettingsServer(
 }
 
 let diskSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let archiveSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function mergeIntoCumulativeArchive(incoming: Record<string, unknown>) {
+  const emptyDeleted = new Set<string>();
+  const base = cumulativeArchiveState || {};
+  cumulativeArchiveState = {
+    ...base,
+    ...incoming,
+    deletedRecordIds: [],
+    users: mergeUsersServer(base.users, incoming.users, emptyDeleted),
+    stores: mergeArrayByIdServer(base.stores, incoming.stores, emptyDeleted),
+    serviceNumbers: mergeArrayByIdServer(
+      base.serviceNumbers,
+      incoming.serviceNumbers,
+      emptyDeleted
+    ),
+    tawsilaRides: mergeArrayByIdServer(
+      base.tawsilaRides,
+      incoming.tawsilaRides,
+      emptyDeleted
+    ),
+    communityPosts: mergeArrayByIdServer(
+      base.communityPosts,
+      incoming.communityPosts,
+      emptyDeleted
+    ),
+    utilitySubmissions: mergeArrayByIdServer(
+      base.utilitySubmissions,
+      incoming.utilitySubmissions,
+      emptyDeleted
+    ),
+    utilityPosts: mergeArrayByIdServer(
+      base.utilityPosts,
+      incoming.utilityPosts,
+      emptyDeleted
+    ),
+    buySellPosts: mergeArrayByIdServer(
+      base.buySellPosts,
+      incoming.buySellPosts,
+      emptyDeleted
+    ),
+    topBanners: mergeArrayByIdServer(
+      base.topBanners,
+      incoming.topBanners,
+      emptyDeleted
+    ),
+    squareAds: mergeArrayByIdServer(
+      base.squareAds,
+      incoming.squareAds,
+      emptyDeleted
+    ),
+    messages: mergeArrayByIdServer(base.messages, incoming.messages, emptyDeleted),
+    privateChatMessages: mergeArrayByIdServer(
+      base.privateChatMessages,
+      incoming.privateChatMessages,
+      emptyDeleted
+    ),
+    liveChatMessages: mergeArrayByIdServer(
+      base.liveChatMessages,
+      incoming.liveChatMessages,
+      emptyDeleted
+    ),
+    settings: mergeSettingsServer(
+      base.settings as Record<string, unknown> | undefined,
+      incoming.settings as Record<string, unknown> | undefined
+    ),
+  };
+
+  if (archiveSaveTimer) {
+    clearTimeout(archiveSaveTimer);
+  }
+  archiveSaveTimer = setTimeout(() => {
+    if (cumulativeArchiveState) {
+      fs.promises
+        .writeFile(ARCHIVE_FILE_PATH, JSON.stringify(cumulativeArchiveState), 'utf-8')
+        .catch(() => {});
+    }
+  }, 450);
+}
+
 function saveStateToDisk(state: Record<string, unknown>) {
+  mergeIntoCumulativeArchive(state);
   if (diskSaveTimer) {
     clearTimeout(diskSaveTimer);
   }
@@ -269,6 +370,77 @@ async function startServer() {
     });
   });
 
+  // 2B. Get permanent cumulative archive state (all inputs since site creation up to today)
+  app.get('/api/realtime/archive', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      archive: cumulativeArchiveState || authoritativeState,
+      activeState: authoritativeState,
+    });
+  });
+
+  // 2C. Full authoritative state replacement on Import / Historical Restore
+  app.post('/api/realtime/restore-full', (req, res) => {
+    const { state, senderTabId } = req.body || {};
+    if (!state || typeof state !== 'object') {
+      res.status(400).json({ error: 'Invalid state payload' });
+      return;
+    }
+
+    const restoredState: Record<string, unknown> = {
+      ...state,
+      deletedRecordIds: Array.isArray(state.deletedRecordIds)
+        ? state.deletedRecordIds
+        : [],
+    };
+
+    authoritativeState = restoredState;
+    stateVersion = Date.now();
+    chatVersion = stateVersion;
+    lastChatSenderTabId = senderTabId || null;
+
+    const storeInteractionsMap: Record<string, unknown> = {};
+    if (Array.isArray(restoredState.stores)) {
+      for (const st of restoredState.stores as Array<Record<string, unknown>>) {
+        if (st && typeof st.id === 'string') {
+          storeInteractionsMap[st.id] = {
+            likes: Array.isArray(st.likes) ? st.likes : [],
+            dislikes: Array.isArray(st.dislikes) ? st.dislikes : [],
+            ratings: st.ratings && typeof st.ratings === 'object' ? st.ratings : {},
+            viewsCount: typeof st.viewsCount === 'number' ? st.viewsCount : 0,
+            comments: Array.isArray(st.comments) ? st.comments : [],
+          };
+        }
+      }
+    }
+
+    latestChatPatch = {
+      users: restoredState.users || [],
+      liveChatMessages: restoredState.liveChatMessages || [],
+      privateChatMessages: restoredState.privateChatMessages || [],
+      privateChatStatuses: restoredState.privateChatStatuses || {},
+      chatTypingMap: restoredState.chatTypingMap || {},
+      chatPenalties: restoredState.chatPenalties || [],
+      userBlockedMap: restoredState.userBlockedMap || {},
+      privateChatReports: restoredState.privateChatReports || [],
+      messages: restoredState.messages || [],
+      buySellPosts: restoredState.buySellPosts || [],
+      communityPosts: restoredState.communityPosts || [],
+      settings: restoredState.settings || {},
+      deletedRecordIds: restoredState.deletedRecordIds || [],
+      storeInteractionsMap,
+    };
+
+    broadcastSseEvent('state_update', {
+      version: stateVersion,
+      state: authoritativeState,
+      senderTabId: senderTabId || null,
+    });
+
+    saveStateToDisk(restoredState);
+    res.json({ ok: true, version: stateVersion });
+  });
+
   // 3. Publish state update & immediately broadcast to all connected clients
   app.post('/api/realtime/sync', (req, res) => {
     const { state, senderTabId } = req.body || {};
@@ -298,9 +470,9 @@ async function startServer() {
             state.serviceNumbers,
             deletedSet
           ),
-          tawsilaListings: mergeArrayByIdServer(
-            authoritativeState.tawsilaListings,
-            state.tawsilaListings,
+          tawsilaRides: mergeArrayByIdServer(
+            authoritativeState.tawsilaRides,
+            state.tawsilaRides,
             deletedSet
           ),
           communityPosts: mergeArrayByIdServer(
@@ -336,6 +508,11 @@ async function startServer() {
           messages: mergeArrayByIdServer(
             authoritativeState.messages,
             state.messages,
+            deletedSet
+          ),
+          privateChatMessages: mergeArrayByIdServer(
+            authoritativeState.privateChatMessages,
+            state.privateChatMessages,
             deletedSet
           ),
           settings: mergeSettingsServer(

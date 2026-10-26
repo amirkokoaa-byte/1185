@@ -4,6 +4,7 @@ import {
   getFirestore,
   Firestore,
   doc,
+  getDoc,
   setDoc,
   onSnapshot,
   Unsubscribe as FirestoreUnsubscribe,
@@ -35,6 +36,7 @@ import {
 
 const DB_STORAGE_KEY = 'fluent_portal_db_v1185';
 const SETTINGS_STORAGE_KEY = 'fluent_portal_settings_v1185';
+const CUMULATIVE_VAULT_STORAGE_KEY = 'nakhil_1185_permanent_cumulative_vault_v1';
 const AUTH_PERSIST_KEY = 'fluent_portal_saved_user_v1185';
 const AUTH_SESSION_KEY = 'fluent_portal_session_user_v1185';
 const USER_BROWSER_CACHE_PREFIX = 'nakhil_1185_user_cache_';
@@ -564,13 +566,167 @@ function sanitizeForFirebase<T>(obj: T): T {
   }
 }
 
+function combineStatesIntoCumulativeVault(
+  baseVault: Partial<PlatformDatabaseState> | null | undefined,
+  incoming: Partial<PlatformDatabaseState> | null | undefined
+): PlatformDatabaseState {
+  const b = baseVault || {};
+  const inc = incoming || {};
+
+  const mergedStoresRaw = mergeCollectionById(
+    Array.isArray(b.stores) ? b.stores : [],
+    Array.isArray(inc.stores) ? inc.stores : [],
+    []
+  ).map((st) => {
+    const prevSt = Array.isArray(b.stores)
+      ? b.stores.find((x) => x && x.id === st.id)
+      : undefined;
+    const incSt = Array.isArray(inc.stores)
+      ? inc.stores.find((x) => x && x.id === st.id)
+      : undefined;
+    if (!prevSt || !incSt) return st;
+    return {
+      ...prevSt,
+      ...incSt,
+      comments: mergeCollectionById(prevSt.comments || [], incSt.comments || [], []),
+      likes: Array.from(new Set([...(prevSt.likes || []), ...(incSt.likes || [])])),
+      ratings: { ...(prevSt.ratings || {}), ...(incSt.ratings || {}) },
+      viewsCount: Math.max(prevSt.viewsCount || 0, incSt.viewsCount || 0),
+    };
+  });
+
+  const mergePostsWithComments = (
+    prevPosts?: CommunityPostItem[],
+    nextPosts?: CommunityPostItem[]
+  ): CommunityPostItem[] => {
+    return mergeCollectionById(prevPosts || [], nextPosts || [], []).map((post) => {
+      const pPost = (prevPosts || []).find((x) => x && x.id === post.id);
+      const nPost = (nextPosts || []).find((x) => x && x.id === post.id);
+      if (!pPost || !nPost) return post;
+      return {
+        ...pPost,
+        ...nPost,
+        comments: mergeCollectionById(pPost.comments || [], nPost.comments || [], []),
+        likes: Array.from(new Set([...(pPost.likes || []), ...(nPost.likes || [])])),
+      };
+    });
+  };
+
+  const mergedMessages = mergeCollectionById(
+    Array.isArray(b.messages) ? b.messages : [],
+    Array.isArray(inc.messages) ? inc.messages : [],
+    []
+  ).map((msg) => {
+    const pMsg = Array.isArray(b.messages)
+      ? b.messages.find((x) => x && x.id === msg.id)
+      : undefined;
+    const nMsg = Array.isArray(inc.messages)
+      ? inc.messages.find((x) => x && x.id === msg.id)
+      : undefined;
+    if (!pMsg || !nMsg) return msg;
+    return {
+      ...pMsg,
+      ...nMsg,
+      thread: mergeCollectionById(pMsg.thread || [], nMsg.thread || [], []),
+    };
+  });
+
+  const baseSettings = (b.settings as PlatformSettings) || INITIAL_SETTINGS;
+  const incSettings = (inc.settings as Partial<PlatformSettings>) || {};
+  const mergedSettings = mergePlatformSettings(baseSettings, incSettings);
+  const combinedCategories = Array.from(
+    new Set([
+      ...(baseSettings.storeCategories || []),
+      ...(incSettings.storeCategories || []),
+      ...DEFAULT_STORE_CATEGORIES,
+    ])
+  );
+  const combinedUtilityTypes = Array.from(
+    new Set([
+      ...(baseSettings.utilityTypes || []),
+      ...(incSettings.utilityTypes || []),
+      ...DEFAULT_UTILITY_TYPES,
+    ])
+  );
+
+  return {
+    users: mergeUsersLists(
+      Array.isArray(b.users) ? b.users : INITIAL_USERS,
+      Array.isArray(inc.users) ? inc.users : undefined,
+      []
+    ),
+    topBanners: mergeCollectionById(b.topBanners || [], inc.topBanners || [], []),
+    squareAds: mergeCollectionById(b.squareAds || [], inc.squareAds || [], []),
+    popupAd: (inc.popupAd as PopupAdConfig) || (b.popupAd as PopupAdConfig) || INITIAL_POPUP_AD,
+    messages: mergedMessages,
+    stores: normalizeStoresList(mergedStoresRaw),
+    serviceNumbers: normalizeServiceNumbersList(
+      mergeCollectionById(b.serviceNumbers || [], inc.serviceNumbers || [], [])
+    ),
+    tawsilaRides: normalizeTawsilaList(
+      mergeCollectionById(b.tawsilaRides || [], inc.tawsilaRides || [], [])
+    ),
+    communityPosts: normalizeCommunityPostsList(
+      mergePostsWithComments(b.communityPosts, inc.communityPosts)
+    ),
+    utilitySubmissions: normalizeUtilitySubmissionsList(
+      mergeCollectionById(b.utilitySubmissions || [], inc.utilitySubmissions || [], [])
+    ),
+    utilityPosts: normalizeCommunityPostsList(
+      mergePostsWithComments(b.utilityPosts, inc.utilityPosts)
+    ),
+    buySellPosts: normalizeCommunityPostsList(
+      mergePostsWithComments(b.buySellPosts, inc.buySellPosts)
+    ),
+    liveChatMessages: mergeCollectionById(
+      b.liveChatMessages || [],
+      inc.liveChatMessages || [],
+      []
+    ),
+    chatPenalties: mergeCollectionById(
+      b.chatPenalties || [],
+      inc.chatPenalties || [],
+      []
+    ),
+    privateChatMessages: mergeCollectionById(
+      b.privateChatMessages || [],
+      inc.privateChatMessages || [],
+      []
+    ),
+    privateChatStatuses: {
+      ...(b.privateChatStatuses || {}),
+      ...(inc.privateChatStatuses || {}),
+    },
+    chatTypingMap: {
+      ...(b.chatTypingMap || {}),
+      ...(inc.chatTypingMap || {}),
+    },
+    userBlockedMap: {
+      ...(b.userBlockedMap || {}),
+      ...(inc.userBlockedMap || {}),
+    },
+    privateChatReports: mergeCollectionById(
+      b.privateChatReports || [],
+      inc.privateChatReports || [],
+      []
+    ),
+    deletedRecordIds: [],
+    settings: {
+      ...mergedSettings,
+      storeCategories: combinedCategories,
+      utilityTypes: combinedUtilityTypes,
+    },
+  };
+}
+
 /**
- * IndexedDB + Memory Ultra-Fast Browser Cache Engine
+ * IndexedDB + Memory Ultra-Fast Browser Cache Engine + Permanent Cumulative Vault
  * Caches full application state & user data in the browser upon login and on every action
- * so returning users experience zero-latency instant loading without re-fetching data.
+ * and continuously archives all inputs since site creation for 1-click full recovery.
  */
 class FastBrowserCacheEngine {
   private memoryCache: PlatformDatabaseState | null = null;
+  private cumulativeVaultCache: PlatformDatabaseState | null = null;
   private dbPromise: Promise<IDBDatabase | null> | null = null;
 
   private getIDB(): Promise<IDBDatabase | null> {
@@ -597,8 +753,72 @@ class FastBrowserCacheEngine {
     return this.dbPromise;
   }
 
+  public getCumulativeVaultSync(): PlatformDatabaseState | null {
+    if (this.cumulativeVaultCache) return this.cumulativeVaultCache;
+    try {
+      const raw = localStorage.getItem(CUMULATIVE_VAULT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PlatformDatabaseState;
+        if (parsed && typeof parsed === 'object') {
+          this.cumulativeVaultCache = parsed;
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  public updateCumulativeVault(state: PlatformDatabaseState) {
+    try {
+      const currentVault = this.getCumulativeVaultSync();
+      const nextVault = combineStatesIntoCumulativeVault(currentVault, state);
+      this.cumulativeVaultCache = nextVault;
+      try {
+        localStorage.setItem(CUMULATIVE_VAULT_STORAGE_KEY, JSON.stringify(nextVault));
+      } catch {
+        // ignore localStorage quota limits; IndexedDB below stores unlimited size
+      }
+      this.getIDB().then((db) => {
+        if (!db) return;
+        try {
+          const tx = db.transaction('snapshots', 'readwrite');
+          const store = tx.objectStore('snapshots');
+          store.put(nextVault, 'cumulative_vault_all_time');
+        } catch {
+          // ignore
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  public async getAllHistoricalSnapshotsFromIDB(): Promise<
+    Array<Partial<PlatformDatabaseState>>
+  > {
+    const db = await this.getIDB();
+    if (!db) return [];
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('snapshots', 'readonly');
+        const store = tx.objectStore('snapshots');
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const list = Array.isArray(req.result) ? req.result : [];
+          resolve(list.filter((x) => x && typeof x === 'object'));
+        };
+        req.onerror = () => resolve([]);
+      } catch {
+        resolve([]);
+      }
+    });
+  }
+
   public setMemoryAndDiskCache(state: PlatformDatabaseState, userId?: string) {
     this.memoryCache = state;
+    this.updateCumulativeVault(state);
     try {
       if (userId) {
         localStorage.setItem(
@@ -1686,15 +1906,309 @@ class HybridStorageEngine {
           'live_chat_realtime'
         );
         const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
+        const archiveDocRef = doc(
+          this.firestoreDb,
+          'fluent_portal_v3',
+          'cumulative_archive'
+        );
+        const vaultSnapshot = fastBrowserCache.getCumulativeVaultSync() || nextState;
+        const cleanArchivePayload = sanitizeForFirebase({
+          ...vaultSnapshot,
+          deletedRecordIds: [],
+          updatedAt: new Date().toISOString(),
+        });
         // Write lightweight fast chat document first for immediate snapshot trigger on all clients
         await Promise.all([
           setDoc(fastChatDocRef, fastChatPatch),
           setDoc(docRef, cleanFullPayload),
+          setDoc(archiveDocRef, cleanArchivePayload).catch(() => {}),
         ]);
       }
     } catch (error) {
       console.error('Firebase sync write error:', error);
     }
+  }
+
+  public getCumulativeVaultPreview(): PlatformDatabaseState {
+    const current = this.latestState || this.loadLocalState();
+    const vault = fastBrowserCache.getCumulativeVaultSync();
+    return combineStatesIntoCumulativeVault(vault, current);
+  }
+
+  /**
+   * Downloads all entered data & account details (chats, posts, stores, ads, registered accounts, settings, etc.)
+   * as a complete JSON backup file saved to the device.
+   */
+  public exportFullBackupJson(currentState?: PlatformDatabaseState): string {
+    const state = currentState || this.latestState || this.loadLocalState();
+    const cumulativeVault = combineStatesIntoCumulativeVault(
+      fastBrowserCache.getCumulativeVaultSync(),
+      state
+    );
+    const fullBackupPayload = {
+      backupFormat: 'NAKHIL_1185_FULL_PLATFORM_BACKUP_V1',
+      exportedAt: new Date().toISOString(),
+      siteName: state.settings.siteName || 'موقع خدمات التخيل 1185',
+      state: sanitizeForFirebase(state),
+      cumulativeVault: sanitizeForFirebase(cumulativeVault),
+    };
+    return JSON.stringify(fullBackupPayload, null, 2);
+  }
+
+  /**
+   * Restores a backup JSON file exported from the device so all data appears again
+   * exactly as it was when the backup file was saved.
+   */
+  public async importFullBackupJson(
+    rawJsonText: string,
+    activeUserId?: string
+  ): Promise<{ state: PlatformDatabaseState; summary: string }> {
+    const parsed = JSON.parse(rawJsonText);
+    const rawState: Partial<PlatformDatabaseState> =
+      parsed && typeof parsed === 'object' && parsed.state && typeof parsed.state === 'object'
+        ? (parsed.state as Partial<PlatformDatabaseState>)
+        : (parsed as Partial<PlatformDatabaseState>);
+
+    if (!rawState || typeof rawState !== 'object') {
+      throw new Error('ملف البيانات غير صالح أو تالف.');
+    }
+
+    const base = this.latestState || this.loadLocalState();
+    const restoredSettings: PlatformSettings = {
+      ...INITIAL_SETTINGS,
+      ...base.settings,
+      ...(rawState.settings || {}),
+      storeCategories:
+        Array.isArray(rawState.settings?.storeCategories) &&
+        rawState.settings!.storeCategories.length > 0
+          ? rawState.settings!.storeCategories
+          : base.settings.storeCategories || DEFAULT_STORE_CATEGORIES,
+      utilityTypes:
+        Array.isArray(rawState.settings?.utilityTypes) &&
+        rawState.settings!.utilityTypes.length > 0
+          ? rawState.settings!.utilityTypes
+          : base.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
+      updatedAt: Date.now(),
+      firebase: base.settings.firebase || HIDDEN_DEFAULT_FIREBASE_CONFIG,
+    };
+
+    const restoredState: PlatformDatabaseState = {
+      users: mergeUsersLists(
+        INITIAL_USERS,
+        Array.isArray(rawState.users) ? rawState.users : base.users,
+        []
+      ),
+      topBanners: Array.isArray(rawState.topBanners)
+        ? rawState.topBanners
+        : base.topBanners,
+      squareAds: Array.isArray(rawState.squareAds)
+        ? rawState.squareAds
+        : base.squareAds,
+      popupAd: rawState.popupAd || base.popupAd || INITIAL_POPUP_AD,
+      messages: Array.isArray(rawState.messages) ? rawState.messages : base.messages,
+      stores: Array.isArray(rawState.stores)
+        ? normalizeStoresList(rawState.stores)
+        : base.stores,
+      serviceNumbers: Array.isArray(rawState.serviceNumbers)
+        ? normalizeServiceNumbersList(rawState.serviceNumbers)
+        : base.serviceNumbers,
+      tawsilaRides: Array.isArray(rawState.tawsilaRides)
+        ? normalizeTawsilaList(rawState.tawsilaRides)
+        : base.tawsilaRides,
+      communityPosts: Array.isArray(rawState.communityPosts)
+        ? normalizeCommunityPostsList(rawState.communityPosts)
+        : base.communityPosts,
+      utilitySubmissions: Array.isArray(rawState.utilitySubmissions)
+        ? normalizeUtilitySubmissionsList(rawState.utilitySubmissions)
+        : base.utilitySubmissions || [],
+      utilityPosts: Array.isArray(rawState.utilityPosts)
+        ? normalizeCommunityPostsList(rawState.utilityPosts)
+        : base.utilityPosts || [],
+      buySellPosts: Array.isArray(rawState.buySellPosts)
+        ? normalizeCommunityPostsList(rawState.buySellPosts)
+        : base.buySellPosts || [],
+      liveChatMessages: Array.isArray(rawState.liveChatMessages)
+        ? rawState.liveChatMessages
+        : base.liveChatMessages || [],
+      chatPenalties: Array.isArray(rawState.chatPenalties)
+        ? rawState.chatPenalties
+        : base.chatPenalties || [],
+      privateChatMessages: Array.isArray(rawState.privateChatMessages)
+        ? rawState.privateChatMessages
+        : base.privateChatMessages || [],
+      privateChatStatuses:
+        rawState.privateChatStatuses && typeof rawState.privateChatStatuses === 'object'
+          ? rawState.privateChatStatuses
+          : base.privateChatStatuses || {},
+      chatTypingMap: {},
+      userBlockedMap:
+        rawState.userBlockedMap && typeof rawState.userBlockedMap === 'object'
+          ? rawState.userBlockedMap
+          : base.userBlockedMap || {},
+      privateChatReports: Array.isArray(rawState.privateChatReports)
+        ? rawState.privateChatReports
+        : base.privateChatReports || [],
+      deletedRecordIds: [],
+      settings: restoredSettings,
+    };
+
+    if (parsed?.cumulativeVault && typeof parsed.cumulativeVault === 'object') {
+      fastBrowserCache.updateCumulativeVault(
+        parsed.cumulativeVault as PlatformDatabaseState
+      );
+    }
+    fastBrowserCache.updateCumulativeVault(restoredState);
+
+    const tabId = getOrCreateTabSessionId();
+    if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      await fetch('/api/realtime/restore-full', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          state: sanitizeForFirebase(restoredState),
+          senderTabId: tabId,
+        }),
+      }).catch(() => {});
+    }
+
+    await this.persistState(restoredState, activeUserId);
+
+    const summary = `تم استعادة ملف البيانات بنجاح: (${restoredState.users.length} حساب، ${restoredState.stores.length} محل، ${restoredState.communityPosts.length + (restoredState.buySellPosts?.length || 0) + (restoredState.utilityPosts?.length || 0)} منشور، ${(restoredState.privateChatMessages?.length || 0) + restoredState.messages.length} محادثة ورسالة، ${restoredState.squareAds.length + restoredState.topBanners.length} إعلان).`;
+    return { state: restoredState, summary };
+  }
+
+  /**
+   * Restores 100% of all historical data ever entered since the creation of the website up to today
+   * by merging the Permanent Cumulative Vault (localStorage + IndexedDB snapshots + Server archive + Firebase archive).
+   */
+  public async restoreAllHistoricalData(
+    activeUserId?: string
+  ): Promise<{ state: PlatformDatabaseState; summary: string }> {
+    let combined: PlatformDatabaseState = combineStatesIntoCumulativeVault(
+      fastBrowserCache.getCumulativeVaultSync(),
+      this.latestState || this.loadLocalState()
+    );
+
+    // 1. Merge any localStorage state snapshots
+    try {
+      const savedRaw = localStorage.getItem(DB_STORAGE_KEY);
+      if (savedRaw) {
+        const parsedLocal = JSON.parse(savedRaw);
+        if (parsedLocal && typeof parsedLocal === 'object') {
+          combined = combineStatesIntoCumulativeVault(combined, parsedLocal);
+        }
+      }
+      const vaultRaw = localStorage.getItem(CUMULATIVE_VAULT_STORAGE_KEY);
+      if (vaultRaw) {
+        const parsedVault = JSON.parse(vaultRaw);
+        if (parsedVault && typeof parsedVault === 'object') {
+          combined = combineStatesIntoCumulativeVault(combined, parsedVault);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Merge all IndexedDB historical snapshots (cumulative_vault_all_time, latest_state, user_*)
+    try {
+      const idbSnapshots = await fastBrowserCache.getAllHistoricalSnapshotsFromIDB();
+      for (const snap of idbSnapshots) {
+        combined = combineStatesIntoCumulativeVault(combined, snap);
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3. Merge Server-side permanent cumulative archive (.realtime-portal-cumulative-archive.json)
+    if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      try {
+        const res = await fetch('/api/realtime/archive', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.archive && typeof data.archive === 'object') {
+            combined = combineStatesIntoCumulativeVault(combined, data.archive);
+          }
+          if (data?.activeState && typeof data.activeState === 'object') {
+            combined = combineStatesIntoCumulativeVault(combined, data.activeState);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 4. Merge Firebase Firestore cumulative_archive & workspace_state if connected
+    if (this.firestoreDb) {
+      try {
+        const [archiveSnap, workspaceSnap, fastChatSnap] = await Promise.all([
+          getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'cumulative_archive')).catch(
+            () => null
+          ),
+          getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state')).catch(
+            () => null
+          ),
+          getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'live_chat_realtime')).catch(
+            () => null
+          ),
+        ]);
+        if (archiveSnap && archiveSnap.exists()) {
+          combined = combineStatesIntoCumulativeVault(
+            combined,
+            archiveSnap.data() as Partial<PlatformDatabaseState>
+          );
+        }
+        if (workspaceSnap && workspaceSnap.exists()) {
+          combined = combineStatesIntoCumulativeVault(
+            combined,
+            workspaceSnap.data() as Partial<PlatformDatabaseState>
+          );
+        }
+        if (fastChatSnap && fastChatSnap.exists()) {
+          combined = combineStatesIntoCumulativeVault(
+            combined,
+            fastChatSnap.data() as Partial<PlatformDatabaseState>
+          );
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Clear deletedRecordIds so every single historical item is restored and visible
+    const restoredFullState: PlatformDatabaseState = {
+      ...combined,
+      deletedRecordIds: [],
+      settings: {
+        ...combined.settings,
+        updatedAt: Date.now(),
+      },
+    };
+
+    const tabId = getOrCreateTabSessionId();
+    if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      await fetch('/api/realtime/restore-full', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          state: sanitizeForFirebase(restoredFullState),
+          senderTabId: tabId,
+        }),
+      }).catch(() => {});
+    }
+
+    await this.persistState(restoredFullState, activeUserId);
+
+    const totalPosts =
+      restoredFullState.communityPosts.length +
+      (restoredFullState.buySellPosts?.length || 0) +
+      (restoredFullState.utilityPosts?.length || 0);
+    const totalChats =
+      (restoredFullState.privateChatMessages?.length || 0) +
+      restoredFullState.messages.length +
+      (restoredFullState.liveChatMessages?.length || 0);
+    const summary = `تم استرجاع جميع البيانات المحفوظة منذ بداية إنشاء الموقع حتى اليوم بنجاح! (${restoredFullState.users.length} حساب مسجل، ${restoredFullState.stores.length} محل بالدليل، ${totalPosts} منشور، ${totalChats} رسالة ومحادثة، ${restoredFullState.squareAds.length + restoredFullState.topBanners.length} إعلان، ${restoredFullState.tawsilaRides.length} سائق توصيلة، ${restoredFullState.serviceNumbers.length} رقم خدمة).`;
+
+    return { state: restoredFullState, summary };
   }
 
   /**

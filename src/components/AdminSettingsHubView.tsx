@@ -37,6 +37,9 @@ import {
   ChevronUp,
   X,
   Wrench,
+  Download,
+  RotateCcw,
+  HardDrive,
 } from 'lucide-react';
 import {
   AdminMessage,
@@ -56,6 +59,7 @@ import {
   createBannerSvg,
   createSquareAdSvg,
   RealOnlinePresenceStats,
+  storageEngine,
   uploadImageDynamic,
 } from '../services/storageService';
 import {
@@ -72,7 +76,8 @@ export type AdminSettingsSubSectionId =
   | 'new_category'
   | 'storage'
   | 'online_users'
-  | 'maintenance';
+  | 'maintenance'
+  | 'data_backup';
 
 interface AdminSettingsHubViewProps {
   state: PlatformDatabaseState;
@@ -791,7 +796,82 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         Object.values(state.settings.disabledSections || {}).filter(Boolean).length ||
         undefined,
     },
+    {
+      id: 'data_backup',
+      number: 10,
+      label: 'البيانات',
+      subtitle: 'استيراد وتصدير واسترجاع كافة بيانات الموقع',
+      icon: HardDrive,
+    },
   ];
+
+  // State for Section 10: البيانات (Data Backup, Restore & All-Time Recovery)
+  const [isDataActionBusy, setIsDataActionBusy] = useState(false);
+
+  const handleDownloadAllPlatformDataToDevice = () => {
+    try {
+      const jsonContent = storageEngine.exportFullBackupJson(state);
+      const blob = new Blob([jsonContent], {
+        type: 'application/json;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `nakhil-1185-full-data-${dateStr}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast(
+        'تم تنزيل وحفظ جميع البيانات المدخلة وتفاصيل الحسابات والمحادثات والمنشورات والمحلات والإعلانات على جهازك بنجاح!'
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'تعذر تنزيل ملف البيانات';
+      showToast(`خطأ: ${msg}`);
+    }
+  };
+
+  const handleUploadAndRestorePlatformDataFile = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsDataActionBusy(true);
+    try {
+      const text = await file.text();
+      const { summary } = await storageEngine.importFullBackupJson(
+        text,
+        currentUser?.id
+      );
+      showToast(summary);
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'تأكد من اختيار ملف البيانات الصحيح (.json)';
+      showToast(`تعذر استعادة ملف البيانات: ${msg}`);
+    } finally {
+      setIsDataActionBusy(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRestoreAllHistoricalDataSinceCreation = async () => {
+    setIsDataActionBusy(true);
+    try {
+      const { summary } = await storageEngine.restoreAllHistoricalData(
+        currentUser?.id
+      );
+      showToast(summary);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : 'حدث خطأ أثناء استرجاع البيانات';
+      showToast(`خطأ: ${msg}`);
+    } finally {
+      setIsDataActionBusy(false);
+    }
+  };
 
   // Unified messages grouped strictly by sender account so each account is completely separate from the other
   const unifiedMessages: AdminMessage[] = React.useMemo(() => {
@@ -2844,6 +2924,177 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     </div>
                   );
                 })}
+              </div>
+            </FluentCard>
+          )}
+
+          {/* ====================================================================
+              10. البيانات (Data - Full Backup Download, File Restore & All-Time Historical Recovery)
+             ==================================================================== */}
+          {activeSubTab === 'data_backup' && (
+            <FluentCard className="space-y-5">
+              <div className="pb-3 border-b border-[#334155]">
+                <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                  <HardDrive className="w-5 h-5 text-sky-400" />
+                  <span>
+                    10. البيانات — حفظ وتنزيل واسترجاع جميع بيانات الموقع والحسابات
+                  </span>
+                </h3>
+                <p className="text-xs text-[#94A3B8] mt-1">
+                  يتم حفظ جميع المدخلات تلقائياً وبشكل دائم منذ بداية إنشاء الموقع (الحسابات المسجلة، المحادثات، المنشورات، المحلات، الإعلانات، أرقام الخدمات، طلبات توصيلة، وتقديمات المرافق) لسهولة تنزيلها أو استرجاعها في أي وقت.
+                </p>
+              </div>
+
+              {/* Three Main Action Cards as Requested */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1. زر استيراد (تنزيل وحفظ جميع البيانات على الجهاز) */}
+                <div className="p-4 rounded-2xl bg-[#0A192F] border-2 border-sky-500/40 flex flex-col justify-between gap-4 shadow-lg">
+                  <div className="space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/50 text-sky-300 flex items-center justify-center">
+                      <Download className="w-5 h-5" />
+                    </div>
+                    <h4 className="text-sm sm:text-base font-extrabold text-[#F8FAFC]">
+                      استيراد (تنزيل جميع البيانات على الجهاز)
+                    </h4>
+                    <p className="text-xs text-[#94A3B8] leading-relaxed">
+                      تنزيل جميع البيانات المدخلة وجميع تفاصيل أي حساب سواء محادثات أو منشورات أو بيانات محلات أو إعلانات أو حسابات مسجلة (كل شيء) وحفظه في ملف على جهازك.
+                    </p>
+                  </div>
+
+                  <FluentButton
+                    type="button"
+                    variant="primary"
+                    className="w-full py-3 font-extrabold"
+                    disabled={isDataActionBusy}
+                    onClick={handleDownloadAllPlatformDataToDevice}
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>استيراد</span>
+                  </FluentButton>
+                </div>
+
+                {/* 2. زر تصدير (رفع ملف البيانات المحفوظ لظهور البيانات كما كانت) */}
+                <div className="p-4 rounded-2xl bg-[#0A192F] border-2 border-emerald-500/40 flex flex-col justify-between gap-4 shadow-lg">
+                  <div className="space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 flex items-center justify-center">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <h4 className="text-sm sm:text-base font-extrabold text-[#F8FAFC]">
+                      تصدير (رفع ملف البيانات لإظهارها كما كانت)
+                    </h4>
+                    <p className="text-xs text-[#94A3B8] leading-relaxed">
+                      اختيار ملف البيانات المحفوظ على جهازك لرفعه واستعادته للموقع وظهور جميع البيانات مرة أخرى كما كانت في آخر مرة تم حفظها.
+                    </p>
+                  </div>
+
+                  <label className="fluent-reveal w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all text-center">
+                    <Upload className="w-4 h-4 shrink-0" />
+                    <span>{isDataActionBusy ? 'جاري المعالجة...' : 'تصدير'}</span>
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      disabled={isDataActionBusy}
+                      onChange={handleUploadAndRestorePlatformDataFile}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {/* 3. زر استرجاع البيانات (استرجاع جميع المدخلات منذ بداية إنشاء الموقع حتى اليوم) */}
+                <div className="p-4 rounded-2xl bg-[#0A192F] border-2 border-amber-500/50 flex flex-col justify-between gap-4 shadow-lg">
+                  <div className="space-y-2">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/50 text-amber-300 flex items-center justify-center">
+                      <RotateCcw className="w-5 h-5" />
+                    </div>
+                    <h4 className="text-sm sm:text-base font-extrabold text-amber-300">
+                      استرجاع البيانات (منذ بداية إنشاء الموقع حتى اليوم)
+                    </h4>
+                    <p className="text-xs text-[#94A3B8] leading-relaxed">
+                      استرجاع جميع البيانات التي كانت قبل التحديث والمتواجدة جميعاً منذ بداية إنشاء الموقع حتى اليوم الذي يتم الاسترجاع به من الخزنة التراكمية الدائمة لجميع المدخلات.
+                    </p>
+                  </div>
+
+                  <FluentButton
+                    type="button"
+                    variant="secondary"
+                    className="w-full py-3 !bg-amber-500 hover:!bg-amber-400 !text-[#0A192F] !border-amber-300 font-extrabold shadow-md"
+                    disabled={isDataActionBusy}
+                    onClick={handleRestoreAllHistoricalDataSinceCreation}
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>
+                      {isDataActionBusy ? 'جاري استرجاع البيانات...' : 'استرجاع البيانات'}
+                    </span>
+                  </FluentButton>
+                </div>
+              </div>
+
+              {/* Live Summary of Saved Platform Data */}
+              <div className="p-4 rounded-2xl bg-[#0A192F]/90 border border-[#334155] space-y-3">
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#334155]">
+                  <span className="text-xs sm:text-sm font-extrabold text-sky-300 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>إحصائيات البيانات المحفوظة حالياً في قاعدة البيانات والخزنة الدائمة:</span>
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[11px] font-bold">
+                    الحفظ التلقائي الدائم نشط
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                  <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">الحسابات المسجلة:</span>
+                    <strong className="text-sky-300 font-mono-tabular font-extrabold">
+                      {state.users.length}
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">المحلات المسجلة:</span>
+                    <strong className="text-emerald-300 font-mono-tabular font-extrabold">
+                      {state.stores.length}
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">المنشورات (كافة الأقسام):</span>
+                    <strong className="text-amber-300 font-mono-tabular font-extrabold">
+                      {state.communityPosts.length +
+                        (state.buySellPosts?.length || 0) +
+                        (state.utilityPosts?.length || 0)}
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">المحادثات والرسائل:</span>
+                    <strong className="text-purple-300 font-mono-tabular font-extrabold">
+                      {(state.privateChatMessages?.length || 0) +
+                        state.messages.length +
+                        (state.liveChatMessages?.length || 0)}
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">الإعلانات المضافة:</span>
+                    <strong className="text-sky-300 font-mono-tabular font-extrabold">
+                      {state.squareAds.length + state.topBanners.length + 1}
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">سواقين توصيلة:</span>
+                    <strong className="text-emerald-300 font-mono-tabular font-extrabold">
+                      {state.tawsilaRides.length}
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">أرقام الخدمات:</span>
+                    <strong className="text-amber-300 font-mono-tabular font-extrabold">
+                      {state.serviceNumbers.length}
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#112240] border border-[#334155] flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">تقديمات المرافق:</span>
+                    <strong className="text-sky-300 font-mono-tabular font-extrabold">
+                      {state.utilitySubmissions?.length || 0}
+                    </strong>
+                  </div>
+                </div>
               </div>
             </FluentCard>
           )}

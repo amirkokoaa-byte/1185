@@ -2,6 +2,9 @@ import { initializeApp, FirebaseApp, getApps, deleteApp } from 'firebase/app';
 import { getAnalytics, isSupported as isAnalyticsSupported } from 'firebase/analytics';
 import {
   getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   Firestore,
   doc,
   getDoc,
@@ -40,6 +43,7 @@ const CUMULATIVE_VAULT_STORAGE_KEY = 'nakhil_1185_permanent_cumulative_vault_v1'
 const AUTH_PERSIST_KEY = 'fluent_portal_saved_user_v1185';
 const AUTH_SESSION_KEY = 'fluent_portal_session_user_v1185';
 const USER_BROWSER_CACHE_PREFIX = 'nakhil_1185_user_cache_';
+const OFFLINE_PENDING_SYNC_KEY = 'nakhil_1185_offline_pending_sync_v1';
 
 export const DEFAULT_STORE_CATEGORIES: string[] = [
   'سوبر ماركت',
@@ -882,6 +886,53 @@ class FastBrowserCacheEngine {
   public getMemoryCache(): PlatformDatabaseState | null {
     return this.memoryCache;
   }
+
+  public async getSnapshotByKeyFromIDB(
+    key: string
+  ): Promise<PlatformDatabaseState | null> {
+    const db = await this.getIDB();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('snapshots', 'readonly');
+        const store = tx.objectStore('snapshots');
+        const req = store.get(key);
+        req.onsuccess = () => {
+          const val = req.result;
+          resolve(val && typeof val === 'object' ? (val as PlatformDatabaseState) : null);
+        };
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  public savePendingOfflineState(state: PlatformDatabaseState) {
+    this.getIDB().then((db) => {
+      if (!db) return;
+      try {
+        const tx = db.transaction('snapshots', 'readwrite');
+        const store = tx.objectStore('snapshots');
+        store.put(state, 'pending_offline_state');
+      } catch {
+        // ignore
+      }
+    });
+  }
+
+  public clearPendingOfflineState() {
+    this.getIDB().then((db) => {
+      if (!db) return;
+      try {
+        const tx = db.transaction('snapshots', 'readwrite');
+        const store = tx.objectStore('snapshots');
+        store.delete('pending_offline_state');
+      } catch {
+        // ignore
+      }
+    });
+  }
 }
 
 const fastBrowserCache = new FastBrowserCacheEngine();
@@ -937,6 +988,114 @@ class HybridStorageEngine {
           this.notifyData(fresh);
         }
       });
+
+      // 3. Instant IndexedDB hydration on startup (< 5ms)
+      this.hydrateFromIndexedDBInstant();
+
+      // 4. Auto-Sync offline additions/edits/deletions with Firebase & Server as soon as internet reconnects
+      window.addEventListener('online', () => {
+        this.flushOfflinePendingSync();
+      });
+    }
+  }
+
+  private async hydrateFromIndexedDBInstant() {
+    try {
+      const pendingOffline = await fastBrowserCache.getSnapshotByKeyFromIDB(
+        'pending_offline_state'
+      );
+      const latestIdb = await fastBrowserCache.getSnapshotByKeyFromIDB('latest_state');
+      const idbCandidate = pendingOffline || latestIdb;
+      if (!idbCandidate) return;
+
+      const current = this.latestState || this.loadLocalState();
+      // Preserve any large uploaded app file or offline additions stored in IndexedDB
+      if (
+        idbCandidate.settings?.appUploadedFileUrl &&
+        !current.settings.appUploadedFileUrl
+      ) {
+        const enriched: PlatformDatabaseState = {
+          ...current,
+          settings: {
+            ...current.settings,
+            appUploadedFileUrl: idbCandidate.settings.appUploadedFileUrl,
+            appUploadedFileName:
+              current.settings.appUploadedFileName ||
+              idbCandidate.settings.appUploadedFileName,
+          },
+        };
+        this.latestState = enriched;
+        fastBrowserCache.setMemoryAndDiskCache(enriched);
+        this.notifyData(enriched);
+      } else if (
+        pendingOffline &&
+        (pendingOffline.settings?.updatedAt || 0) > (current.settings?.updatedAt || 0)
+      ) {
+        this.saveLocalState(pendingOffline);
+        this.notifyData(pendingOffline);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private markPendingOfflineSync(state: PlatformDatabaseState) {
+    try {
+      localStorage.setItem(OFFLINE_PENDING_SYNC_KEY, '1');
+      fastBrowserCache.savePendingOfflineState(state);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('nakhil-offline-sync', { detail: { status: 'queued' } })
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private clearPendingOfflineSyncFlag() {
+    try {
+      localStorage.removeItem(OFFLINE_PENDING_SYNC_KEY);
+      fastBrowserCache.clearPendingOfflineState();
+    } catch {
+      // ignore
+    }
+  }
+
+  public hasPendingOfflineChanges(): boolean {
+    try {
+      return localStorage.getItem(OFFLINE_PENDING_SYNC_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  public async flushOfflinePendingSync() {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (!this.hasPendingOfflineChanges()) return;
+
+    const pendingIdb = await fastBrowserCache.getSnapshotByKeyFromIDB(
+      'pending_offline_state'
+    );
+    const stateToSync = this.latestState || pendingIdb || this.loadLocalState();
+    if (!stateToSync) return;
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('nakhil-offline-sync', { detail: { status: 'syncing' } })
+      );
+    }
+
+    try {
+      await this.persistState(stateToSync);
+      this.clearPendingOfflineSyncFlag();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('nakhil-offline-sync', { detail: { status: 'synced' } })
+        );
+      }
+    } catch {
+      // keep queued for next online check
     }
   }
 
@@ -1783,7 +1942,15 @@ class HybridStorageEngine {
           }
         );
       } else {
-        this.firestoreDb = getFirestore(this.firebaseApp);
+        try {
+          this.firestoreDb = initializeFirestore(this.firebaseApp, {
+            localCache: persistentLocalCache({
+              tabManager: persistentMultipleTabManager(),
+            }),
+          });
+        } catch {
+          this.firestoreDb = getFirestore(this.firebaseApp);
+        }
         const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
         const fastChatDocRef = doc(
           this.firestoreDb,
@@ -1825,6 +1992,9 @@ class HybridStorageEngine {
               setDoc(docRef, cleanPayload).catch(() => {});
             }
             this.notifyStatus('firebase_connected', 'التسجيل السحابي نشط');
+            if (this.hasPendingOfflineChanges()) {
+              this.flushOfflinePendingSync();
+            }
           },
           (error) => {
             this.notifyStatus(
@@ -1909,6 +2079,12 @@ class HybridStorageEngine {
       // ignore
     }
 
+    // If currently offline, queue state in localStorage + IndexedDB for automatic sync when online
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      this.markPendingOfflineSync(nextState);
+      return;
+    }
+
     // 2. Broadcast via Express Real-Time SSE Server (< 15ms across all users/devices)
     if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
       fetch('/api/realtime/chat-fast', {
@@ -1927,7 +2103,9 @@ class HybridStorageEngine {
           state: sanitizeForFirebase(nextState),
           senderTabId: tabId,
         }),
-      }).catch(() => {});
+      }).catch(() => {
+        this.markPendingOfflineSync(nextState);
+      });
     }
 
     // 3. Sync with Firebase Firestore / Realtime DB (Sanitized with zero undefined values!)
@@ -1971,8 +2149,10 @@ class HybridStorageEngine {
           setDoc(archiveDocRef, cleanArchivePayload).catch(() => {}),
         ]);
       }
+      this.clearPendingOfflineSyncFlag();
     } catch (error) {
-      console.error('Firebase sync write error:', error);
+      this.markPendingOfflineSync(nextState);
+      console.error('Firebase sync write error (queued for auto-sync):', error);
     }
   }
 
@@ -2301,6 +2481,11 @@ class HybridStorageEngine {
       // ignore
     }
 
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      this.markPendingOfflineSync(nextState);
+      return;
+    }
+
     // 3. Instant Express Real-Time Server broadcast (< 15ms)
     if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
       fetch('/api/realtime/chat-fast', {
@@ -2317,7 +2502,9 @@ class HybridStorageEngine {
             this.lastChatVersion = d.version;
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          this.markPendingOfflineSync(nextState);
+        });
     }
 
     // 4. Write ONLY the tiny live_chat_realtime document to Firestore (skipping heavy workspace_state)
@@ -2336,7 +2523,7 @@ class HybridStorageEngine {
         await setDoc(fastChatDocRef, ultraLightChatPatch);
       }
     } catch {
-      // ignore transient firestore write error
+      this.markPendingOfflineSync(nextState);
     }
   }
 }

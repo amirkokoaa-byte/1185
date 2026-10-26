@@ -264,24 +264,55 @@ export const OfflineIndicator: React.FC = () => {
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+  const [syncNotice, setSyncNotice] = useState<string>('');
 
   useEffect(() => {
-    const onOnline = () => setIsOnline(true);
-    const onOffline = () => setIsOnline(false);
+    const onOnline = () => {
+      setIsOnline(true);
+      setSyncNotice('تمت عودة الإنترنت — جاري المزامنة التلقائية مع Firebase...');
+      setTimeout(() => setSyncNotice(''), 4000);
+    };
+    const onOffline = () => {
+      setIsOnline(false);
+      setSyncNotice('');
+    };
+    const onSyncEvent = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ status?: string }>).detail;
+      if (detail?.status === 'synced') {
+        setSyncNotice(
+          'تمت المزامنة التلقائية لجميع التعديلات والبيانات مع سحابة Firebase بنجاح!'
+        );
+        setTimeout(() => setSyncNotice(''), 4000);
+      }
+    };
+
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    window.addEventListener('nakhil-offline-sync', onSyncEvent);
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      window.removeEventListener('nakhil-offline-sync', onSyncEvent);
     };
   }, []);
 
-  if (isOnline) return null;
+  if (isOnline && !syncNotice) return null;
+
+  if (!isOnline) {
+    return (
+      <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-lg bg-amber-600/95 border border-amber-400 px-3.5 py-2 text-xs font-semibold text-white shadow-xl">
+        <WifiOff className="w-4 h-4 shrink-0" />
+        <span>
+          وضع التصفح بدون إنترنت — يتم الحفظ فوراً في المتصفح والمزامنة تلقائياً فور عودة الإنترنت
+        </span>
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-lg bg-amber-600/95 border border-amber-400 px-3.5 py-2 text-xs font-semibold text-white shadow-xl">
-      <WifiOff className="w-4 h-4" />
-      <span>وضع عدم الاتصال — يتم الحفظ تلقائياً في التخزين المحلي</span>
+    <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-lg bg-emerald-600/95 border border-emerald-400 px-3.5 py-2 text-xs font-semibold text-white shadow-xl">
+      <span className="h-2 w-2 rounded-full bg-white animate-pulse shrink-0" />
+      <span>{syncNotice}</span>
     </div>
   );
 };

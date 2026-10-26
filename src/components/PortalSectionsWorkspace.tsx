@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { Settings, ShieldAlert } from 'lucide-react';
 import {
   CommentEmojiReactionType,
   CommunityCommentItem,
@@ -413,6 +413,10 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   if (isSectionDisabledInMaintenance && !isStrictAdmin) {
     return (
       <FluentCard className="p-8 sm:p-12 text-center space-y-6 border-2 border-amber-500/40 bg-[#112240]/95 shadow-2xl max-w-2xl mx-auto my-6">
+        <div className="w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center mx-auto shadow-lg">
+          <Settings className="w-8 h-8 text-amber-400 animate-spin" />
+        </div>
+
         <div className="mx-auto w-full max-w-xs sm:max-w-sm rounded-2xl overflow-hidden border border-amber-400/30 bg-[#0A192F] p-4 shadow-inner">
           <svg
             viewBox="0 0 400 260"

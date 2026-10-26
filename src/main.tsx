@@ -1,7 +1,23 @@
 import React from 'react';
 import {createRoot} from 'react-dom/client';
+import {registerSW} from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
+
+// Register Service Worker immediately for full offline PWA browsing and instant cache
+try {
+  registerSW({
+    immediate: true,
+    onRegisteredSW() {
+      // Service worker active for offline PWA browsing
+    },
+    onOfflineReady() {
+      // App ready to work 100% offline
+    },
+  });
+} catch {
+  // ignore in restricted environments
+}
 
 class ApkResilientErrorBoundary extends React.Component<
   {children: React.ReactNode},

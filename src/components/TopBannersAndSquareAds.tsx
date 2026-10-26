@@ -45,9 +45,6 @@ interface TopBannersAndSquareAdsProps {
   ) => void;
 }
 
-const ROTATION_STORAGE_KEY = 'fluent_square_ads_rotation_10m_v1';
-const TEN_MINUTES_MS = 10 * 60 * 1000;
-
 export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   topBanners,
   squareAds,
@@ -68,9 +65,12 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
   const activeBanners = useMemo(
     () =>
-      topBanners.filter((b) => {
-        if (!b.active) return false;
-        if (b.expiresAt && new Date(b.expiresAt).getTime() < nowTick) return false;
+      (topBanners || []).filter((b) => {
+        if (!b || b.active === false) return false;
+        if (b.expiresAt) {
+          const expMs = new Date(b.expiresAt).getTime();
+          if (!Number.isNaN(expMs) && expMs <= nowTick) return false;
+        }
         return true;
       }),
     [topBanners, nowTick]
@@ -82,6 +82,10 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   const [selectedSquareAd, setSelectedSquareAd] = useState<SquareMovingAd | null>(null);
   const [selectedTopBanner, setSelectedTopBanner] = useState<TopBannerAd | null>(null);
   const [fullImagePreviewUrl, setFullImagePreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCurrentBannerIndex(0);
+  }, [activeBanners.length]);
 
   // Admin Bulk Selection & Delete Confirmation States
   const [isBulkSelectMode, setIsBulkSelectMode] = useState(false);
@@ -98,7 +102,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   // Entry Pop-up Ad state (opens automatically on entry if active and not expired)
   const [showEntryPopup, setShowEntryPopup] = useState<boolean>(() => {
     if (!popupAd || !popupAd.active) return false;
-    if (popupAd.expiresAt && new Date(popupAd.expiresAt).getTime() < Date.now()) {
+    if (popupAd.expiresAt && new Date(popupAd.expiresAt).getTime() <= Date.now()) {
       return false;
     }
     return true;
@@ -142,12 +146,15 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     setTimeout(() => setIsBannerPaused(false), 1200);
   };
 
-  // 2. Moving Square Ads Logic (10-minute store rotation + permanent First Package ads until expiration)
+  // 2. Moving Square Ads Logic: ONLY explicitly selected ads & stores selected for Package 1 (zero random stores)
   const displayedSquareAds = useMemo(() => {
-    const validAds = squareAds
+    const validAds = (squareAds || [])
       .filter((ad) => {
-        if (!ad.active) return false;
-        if (ad.expiresAt && new Date(ad.expiresAt).getTime() < nowTick) return false;
+        if (!ad || ad.active === false) return false;
+        if (ad.expiresAt) {
+          const expMs = new Date(ad.expiresAt).getTime();
+          if (!Number.isNaN(expMs) && expMs <= nowTick) return false;
+        }
         return true;
       })
       .map((ad) => ({
@@ -156,8 +163,9 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         imageUrl: normalizeWhiteAdSvg(ad.imageUrl, ad.title, ad.category),
       }));
 
-    const storeDerivedAds: SquareMovingAd[] = stores
-      .filter((s) => s.approved && !s.hiddenFromMarquee)
+    // Only include stores explicitly marked featuredInMarquee by Admin (never include random stores)
+    const explicitlySelectedStoreAds: SquareMovingAd[] = (stores || [])
+      .filter((s) => s && s.approved && s.featuredInMarquee && !s.hiddenFromMarquee)
       .map((s) => ({
         id: `store-sq-${s.id}`,
         storeId: s.id,
@@ -170,13 +178,13 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
           normalizeWhiteAdSvg(img, s.name, s.category)
         ),
         description: s.details,
-        isAdminPinned: Boolean(s.featuredInMarquee),
+        isAdminPinned: true,
         active: true,
         createdAt: s.createdAt,
       }));
 
     const combinedPool = [...validAds];
-    storeDerivedAds.forEach((sd) => {
+    explicitlySelectedStoreAds.forEach((sd) => {
       const alreadyInFirstPackage = combinedPool.some(
         (c) =>
           (c.storeId && sd.storeId && c.storeId === sd.storeId) ||
@@ -187,11 +195,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
       }
     });
 
-    const adminPinnedAds = combinedPool.filter((ad) => ad.isAdminPinned);
-    const unpinnedPool = combinedPool.filter((ad) => !ad.isAdminPinned);
-    const rotatedRandom = selectRandomPerCategoryEvery10Minutes(unpinnedPool, nowTick);
-
-    return [...adminPinnedAds, ...rotatedRandom];
+    return combinedPool;
   }, [squareAds, stores, nowTick]);
 
   const handleConfirmExecuteBulkDelete = () => {
@@ -216,7 +220,10 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     setIsBulkSelectMode(false);
   };
 
-  const currentBanner = activeBanners[currentBannerIndex] || activeBanners[0];
+  const currentBanner =
+    activeBanners.length > 0
+      ? activeBanners[currentBannerIndex % activeBanners.length] || activeBanners[0]
+      : undefined;
 
   const formatWhatsapp = (rawPhone: string) => {
     const digits = rawPhone.replace(/[^0-9]/g, '');
@@ -231,6 +238,8 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
       target === 'services_numbers' ||
       target === 'tawsila' ||
       target === 'community' ||
+      target === 'utilities' ||
+      target === 'buy_sell' ||
       target === 'settings'
     ) {
       onNavigateSection(target);
@@ -953,64 +962,3 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     </section>
   );
 };
-
-function selectRandomPerCategoryEvery10Minutes(
-  pool: SquareMovingAd[],
-  nowMs: number
-): SquareMovingAd[] {
-  if (pool.length === 0) return [];
-
-  const currentBucket = Math.floor(nowMs / TEN_MINUTES_MS);
-  let previousIds: string[] = [];
-
-  try {
-    const cachedRaw = localStorage.getItem(ROTATION_STORAGE_KEY);
-    if (cachedRaw) {
-      const parsed = JSON.parse(cachedRaw);
-      if (Array.isArray(parsed.ids)) {
-        previousIds = parsed.ids;
-      }
-      if (parsed.bucket === currentBucket && Array.isArray(parsed.ids)) {
-        const matched = parsed.ids
-          .map((id: string) => pool.find((item) => item.id === id))
-          .filter(Boolean) as SquareMovingAd[];
-        if (matched.length > 0) {
-          return matched;
-        }
-      }
-    }
-  } catch {
-    // ignore storage errors
-  }
-
-  const prevSet = new Set(previousIds);
-  const byCategory = new Map<string, SquareMovingAd[]>();
-  pool.forEach((ad) => {
-    const list = byCategory.get(ad.category) || [];
-    list.push(ad);
-    byCategory.set(ad.category, list);
-  });
-
-  const selected: SquareMovingAd[] = [];
-  byCategory.forEach((items) => {
-    const candidates =
-      items.length > 1 ? items.filter((it) => !prevSet.has(it.id)) : items;
-    const finalPool = candidates.length > 0 ? candidates : items;
-    const randomIndex = Math.floor(Math.random() * finalPool.length);
-    selected.push(finalPool[randomIndex]);
-  });
-
-  try {
-    localStorage.setItem(
-      ROTATION_STORAGE_KEY,
-      JSON.stringify({
-        bucket: currentBucket,
-        ids: selected.map((s) => s.id),
-      })
-    );
-  } catch {
-    // ignore
-  }
-
-  return selected;
-}

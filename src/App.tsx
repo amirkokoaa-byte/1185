@@ -2739,17 +2739,43 @@ export default function App() {
   };
 
   const handleAddTopBanner = (banner: TopBannerAd) => {
-    updateAndPersist((prev) => ({
-      ...prev,
-      topBanners: [banner, ...prev.topBanners],
-    }));
+    updateAndPersist((prev) => {
+      const exists = prev.topBanners.some((b) => b.id === banner.id);
+      const nextBanners = exists
+        ? prev.topBanners.map((b) => (b.id === banner.id ? banner : b))
+        : [banner, ...prev.topBanners];
+      return {
+        ...prev,
+        topBanners: nextBanners,
+        deletedRecordIds: (prev.deletedRecordIds || []).filter(
+          (id) => id !== banner.id
+        ),
+        settings: {
+          ...prev.settings,
+          updatedAt: Date.now(),
+        },
+      };
+    });
   };
 
   const handleUpdateTopBanner = (banner: TopBannerAd) => {
-    updateAndPersist((prev) => ({
-      ...prev,
-      topBanners: prev.topBanners.map((b) => (b.id === banner.id ? banner : b)),
-    }));
+    updateAndPersist((prev) => {
+      const exists = prev.topBanners.some((b) => b.id === banner.id);
+      const nextBanners = exists
+        ? prev.topBanners.map((b) => (b.id === banner.id ? banner : b))
+        : [banner, ...prev.topBanners];
+      return {
+        ...prev,
+        topBanners: nextBanners,
+        deletedRecordIds: (prev.deletedRecordIds || []).filter(
+          (id) => id !== banner.id
+        ),
+        settings: {
+          ...prev.settings,
+          updatedAt: Date.now(),
+        },
+      };
+    });
   };
 
   const handleDeleteTopBanner = (id: string) => {
@@ -2759,33 +2785,69 @@ export default function App() {
       deletedRecordIds: Array.from(
         new Set([...(prev.deletedRecordIds || []), id])
       ),
+      settings: {
+        ...prev.settings,
+        updatedAt: Date.now(),
+      },
     }));
   };
 
   const handleAddSquareAd = (ad: SquareMovingAd) => {
-    updateAndPersist((prev) => ({
-      ...prev,
-      squareAds: [ad, ...prev.squareAds],
-      stores: prev.stores.map((s) =>
-        (ad.storeId && s.id === ad.storeId) ||
-        s.name.trim() === ad.title.trim()
-          ? { ...s, hiddenFromMarquee: false }
-          : s
-      ),
-    }));
+    updateAndPersist((prev) => {
+      const exists = prev.squareAds.some(
+        (s) => s.id === ad.id || (ad.storeId && s.storeId === ad.storeId)
+      );
+      const nextSquareAds = exists
+        ? prev.squareAds.map((s) =>
+            s.id === ad.id || (ad.storeId && s.storeId === ad.storeId)
+              ? { ...ad, id: s.id }
+              : s
+          )
+        : [ad, ...prev.squareAds];
+      return {
+        ...prev,
+        squareAds: nextSquareAds,
+        deletedRecordIds: (prev.deletedRecordIds || []).filter(
+          (id) => id !== ad.id && id !== `sq-store-${ad.storeId || ''}`
+        ),
+        stores: prev.stores.map((s) =>
+          (ad.storeId && s.id === ad.storeId) ||
+          s.name.trim() === ad.title.trim()
+            ? { ...s, hiddenFromMarquee: false }
+            : s
+        ),
+        settings: {
+          ...prev.settings,
+          updatedAt: Date.now(),
+        },
+      };
+    });
   };
 
   const handleUpdateSquareAd = (ad: SquareMovingAd) => {
-    updateAndPersist((prev) => ({
-      ...prev,
-      squareAds: prev.squareAds.map((s) => (s.id === ad.id ? ad : s)),
-      stores: prev.stores.map((s) =>
-        (ad.storeId && s.id === ad.storeId) ||
-        s.name.trim() === ad.title.trim()
-          ? { ...s, hiddenFromMarquee: false }
-          : s
-      ),
-    }));
+    updateAndPersist((prev) => {
+      const exists = prev.squareAds.some((s) => s.id === ad.id);
+      const nextSquareAds = exists
+        ? prev.squareAds.map((s) => (s.id === ad.id ? ad : s))
+        : [ad, ...prev.squareAds];
+      return {
+        ...prev,
+        squareAds: nextSquareAds,
+        deletedRecordIds: (prev.deletedRecordIds || []).filter(
+          (id) => id !== ad.id && id !== `sq-store-${ad.storeId || ''}`
+        ),
+        stores: prev.stores.map((s) =>
+          (ad.storeId && s.id === ad.storeId) ||
+          s.name.trim() === ad.title.trim()
+            ? { ...s, hiddenFromMarquee: false }
+            : s
+        ),
+        settings: {
+          ...prev.settings,
+          updatedAt: Date.now(),
+        },
+      };
+    });
   };
 
   const handleTogglePinSquareAd = (id: string) => {
@@ -2794,6 +2856,10 @@ export default function App() {
       squareAds: prev.squareAds.map((ad) =>
         ad.id === id ? { ...ad, isAdminPinned: !ad.isAdminPinned } : ad
       ),
+      settings: {
+        ...prev.settings,
+        updatedAt: Date.now(),
+      },
     }));
   };
 
@@ -2804,6 +2870,10 @@ export default function App() {
       deletedRecordIds: Array.from(
         new Set([...(prev.deletedRecordIds || []), id])
       ),
+      settings: {
+        ...prev.settings,
+        updatedAt: Date.now(),
+      },
     }));
   };
 
@@ -2811,6 +2881,10 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       popupAd: popup,
+      settings: {
+        ...prev.settings,
+        updatedAt: Date.now(),
+      },
     }));
   };
 
@@ -3189,9 +3263,9 @@ export default function App() {
             popupAd={dbState.popupAd}
             isAdmin={isAdmin}
             showBannersAndSquareAds={
-              isAdmin
-                ? activeSection === 'directory' || activeSection === 'settings'
-                : true
+              activeSection === 'directory' ||
+              activeSection === 'community' ||
+              activeSection === 'buy_sell'
             }
             onNavigateSection={setActiveSection}
             onBulkDeleteAds={(squareAdIds, topBannerIds, storeIds) => {

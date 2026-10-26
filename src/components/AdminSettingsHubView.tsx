@@ -479,7 +479,14 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
   const handleSaveAdPackageItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adPlaceName.trim()) return;
+    const effectiveTitle =
+      adPlaceName.trim() ||
+      adCategoryOrSub.trim() ||
+      (adMainImage.trim() ? 'إعلان مميز' : '');
+    if (!effectiveTitle) {
+      showToast('يرجى إدخال اسم المكان / عنوان الإعلان أو رفع صورة الإعلان أولاً.');
+      return;
+    }
 
     const days = Math.max(1, Number(adDurationDays) || 1);
     const expiresAtIso = new Date(
@@ -494,12 +501,14 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     if (activeAdPackageTab === 'moving_square') {
       const finalImg =
         adMainImage.trim() ||
-        createSquareAdSvg(adPlaceName.trim(), adCategoryOrSub || 'إعلان مميز', '#F59E0B');
+        createSquareAdSvg(effectiveTitle, adCategoryOrSub || 'إعلان مميز', '#F59E0B');
 
       const sqPayload: SquareMovingAd = {
-        id: editingAdId || `sq-${Date.now()}`,
+        id:
+          editingAdId ||
+          (adSelectedStoreId ? `sq-store-${adSelectedStoreId}` : `sq-${Date.now()}`),
         storeId: adSelectedStoreId || undefined,
-        title: adPlaceName.trim(),
+        title: effectiveTitle,
         category: adCategoryOrSub.trim() || 'عام',
         imageUrl: finalImg,
         locationUrl: adLocationUrl.trim() || undefined,
@@ -521,7 +530,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       } else {
         onAddSquareAd(sqPayload);
         showToast(
-          `تم نشر الإعلان المربع "${sqPayload.title}" لمدة ${days} أيام (يختفي تلقائياً عند انتهاء المدة).`
+          `تم نشر الإعلان المربع "${sqPayload.title}" لمدة ${days} أيام (يظل متواجداً في قاعدة البيانات حتى انتهاء المدة).`
         );
       }
       resetAdForm();
@@ -529,7 +538,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       const finalImg =
         adMainImage.trim() ||
         createBannerSvg(
-          adPlaceName.trim(),
+          effectiveTitle,
           adCategoryOrSub.trim() || 'بانر إعلاني مميز',
           `لمدة ${days} أيام`,
           '#38BDF8',
@@ -538,7 +547,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
       const bnrPayload: TopBannerAd = {
         id: editingAdId || `bnr-${Date.now()}`,
-        title: adPlaceName.trim(),
+        title: effectiveTitle,
         subtitle: adCategoryOrSub.trim() || 'إعلان بانر علوي مميز',
         imageUrl: finalImg,
         locationUrl: adLocationUrl.trim() || undefined,
@@ -559,7 +568,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       } else {
         onAddTopBanner(bnrPayload);
         showToast(
-          `تم إضافة البانر العلوي "${bnrPayload.title}" لمدة ${days} أيام بنجاح!`
+          `تم إضافة وتفعيل البانر العلوي "${bnrPayload.title}" لمدة ${days} أيام بنجاح!`
         );
       }
       resetAdForm();
@@ -568,7 +577,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         adMainImage.trim() ||
         state.popupAd.imageUrl ||
         createBannerSvg(
-          adPlaceName.trim(),
+          effectiveTitle,
           adCategoryOrSub.trim() || 'إعلان الشاشة المنبثقة عند الدخول',
           'إعلان VIP',
           '#38BDF8',
@@ -578,7 +587,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       const popupPayload: PopupAdConfig = {
         id: 'popup-main-1',
         active: adPopupActive,
-        title: adPlaceName.trim(),
+        title: effectiveTitle,
         description:
           adCategoryOrSub.trim() ||
           'عرض خاص لزوار المنصة — تصفح المنيو واللوكيشن وتواصل معنا مباشرة.',
@@ -1725,12 +1734,53 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                           setAdSelectedStoreId(storeId);
                           const found = state.stores.find((s) => s.id === storeId);
                           if (found) {
+                            const existingAd = state.squareAds.find(
+                              (a) =>
+                                a.storeId === found.id ||
+                                a.id === `sq-store-${found.id}`
+                            );
+                            const targetAdId = existingAd
+                              ? existingAd.id
+                              : `sq-store-${found.id}`;
+                            const days = Math.max(1, Number(adDurationDays) || 5);
+                            const expiresAtIso = new Date(
+                              Date.now() + days * 24 * 60 * 60 * 1000
+                            ).toISOString();
+                            const storeImgs = found.menuImages || [];
+                            const primaryImg =
+                              storeImgs[0] ||
+                              createSquareAdSvg(found.name, found.category, '#F59E0B');
+
+                            setEditingAdId(targetAdId);
                             setAdPlaceName(found.name);
                             setAdCategoryOrSub(found.category);
                             setAdLocationUrl(found.locationUrl || '');
                             setAdPhone(found.phone || '');
-                            applyCombinedAdImages(found.menuImages || []);
+                            applyCombinedAdImages(storeImgs);
                             setAdPinned(true);
+
+                            const autoSqPayload: SquareMovingAd = {
+                              id: targetAdId,
+                              storeId: found.id,
+                              title: found.name,
+                              category: found.category,
+                              imageUrl: primaryImg,
+                              locationUrl: found.locationUrl || undefined,
+                              phone: found.phone || undefined,
+                              targetSection: 'directory',
+                              menuImages: storeImgs.slice(1),
+                              description:
+                                found.details || `إعلان نشط لمدة ${days} يوم`,
+                              isAdminPinned: true,
+                              durationDays: days,
+                              expiresAt: expiresAtIso,
+                              active: true,
+                              createdAt: existingAd?.createdAt || new Date().toISOString(),
+                            };
+                            onAddSquareAd(autoSqPayload);
+                            showToast(
+                              `تم اختيار المحل "${found.name}" وتفعيل ظهوره فوراً في لوحة الإعلانات والخصومات لمدة ${days} أيام (يمكنك تعديل المدة أو الصور بالأسفل ثم الضغط على حفظ).`
+                            );
                           }
                         }}
                         className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-amber-400 px-3 py-2 text-xs sm:text-sm text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
@@ -1775,7 +1825,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                       </label>
                       <input
                         type="text"
-                        required
+                        required={!adMainImage.trim()}
                         value={adPlaceName}
                         onChange={(e) => setAdPlaceName(e.target.value)}
                         placeholder="مثال: مطعم ومشويات السلطان..."

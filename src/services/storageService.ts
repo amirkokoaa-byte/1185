@@ -45,6 +45,8 @@ const AUTH_SESSION_KEY = 'fluent_portal_session_user_v1185';
 const USER_BROWSER_CACHE_PREFIX = 'nakhil_1185_user_cache_';
 const OFFLINE_PENDING_SYNC_KEY = 'nakhil_1185_offline_pending_sync_v1';
 
+const AD_CAMPAIGNS_STORAGE_KEY = 'nakhil_1185_ad_campaigns_v1';
+
 export const DEFAULT_STORE_CATEGORIES: string[] = [
   'سوبر ماركت',
   'مطعم',
@@ -66,6 +68,15 @@ export const DEFAULT_UTILITY_TYPES: string[] = [
   'تقديم الغاز',
 ];
 
+function escapeSvgXml(raw: string): string {
+  return String(raw || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // High-resolution embedded SVG banners & menu visuals
 export const createBannerSvg = (
   headline: string,
@@ -74,6 +85,9 @@ export const createBannerSvg = (
   primaryHex: string,
   secondaryHex: string
 ) => {
+  const safeBadge = escapeSvgXml(badge);
+  const safeHeadline = escapeSvgXml(headline);
+  const safeSubtext = escapeSvgXml(subtext);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420">
     <defs>
       <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -95,22 +109,13 @@ export const createBannerSvg = (
       <path d="M 60 340 L 380 340" stroke-width="3"/>
     </g>
     <rect x="880" y="68" width="240" height="44" rx="10" fill="${primaryHex}" fill-opacity="0.2" stroke="${primaryHex}" stroke-width="1.5"/>
-    <text x="1000" y="97" text-anchor="middle" fill="${primaryHex}" font-family="Cairo, sans-serif" font-size="20" font-weight="700">${badge}</text>
-    <text x="1120" y="195" text-anchor="end" fill="#F8FAFC" font-family="Cairo, sans-serif" font-size="44" font-weight="800">${headline}</text>
-    <text x="1120" y="255" text-anchor="end" fill="#94A3B8" font-family="Cairo, sans-serif" font-size="24" font-weight="500">${subtext}</text>
+    <text x="1000" y="97" text-anchor="middle" fill="${primaryHex}" font-family="Cairo, sans-serif" font-size="20" font-weight="700">${safeBadge}</text>
+    <text x="1120" y="195" text-anchor="end" fill="#F8FAFC" font-family="Cairo, sans-serif" font-size="44" font-weight="800">${safeHeadline}</text>
+    <text x="1120" y="255" text-anchor="end" fill="#94A3B8" font-family="Cairo, sans-serif" font-size="24" font-weight="500">${safeSubtext}</text>
     <text x="220" y="220" text-anchor="middle" fill="#F8FAFC" font-family="IBM Plex Mono, monospace" font-size="32" font-weight="700">VIP AD</text>
   </svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
-
-function escapeSvgXml(raw: string): string {
-  return String(raw || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 export const createSquareAdSvg = (title: string, category: string, colorHex: string) => {
   const cleanCat = (category || 'محل تجاري').trim();
@@ -446,6 +451,47 @@ function mergeCollectionById<T extends { id: string }>(
   }
 
   return result;
+}
+
+function isAdCampaignExpired(expiresAt?: string): boolean {
+  if (!expiresAt) return false;
+  const expMs = new Date(expiresAt).getTime();
+  if (Number.isNaN(expMs)) return false;
+  return expMs <= Date.now();
+}
+
+function mergeAdCampaignsById<
+  T extends { id: string; expiresAt?: string; active?: boolean }
+>(
+  baseList: T[] | undefined,
+  incomingList: T[] | undefined,
+  deletedIds?: string[]
+): T[] {
+  const merged = mergeCollectionById(baseList, incomingList, deletedIds);
+  return merged
+    .filter((item) => !isAdCampaignExpired(item.expiresAt))
+    .map((item) => ({
+      ...item,
+      active: item.active !== false,
+    }));
+}
+
+function mergePopupAdCampaign(
+  basePopup: PopupAdConfig | undefined,
+  incomingPopup: PopupAdConfig | undefined
+): PopupAdConfig {
+  const b = basePopup || INITIAL_POPUP_AD;
+  if (!incomingPopup || typeof incomingPopup !== 'object') {
+    return b;
+  }
+  const bHasCustomCampaign = Boolean(b.expiresAt && !isAdCampaignExpired(b.expiresAt));
+  const incHasCustomCampaign = Boolean(
+    incomingPopup.expiresAt && !isAdCampaignExpired(incomingPopup.expiresAt)
+  );
+  if (bHasCustomCampaign && !incHasCustomCampaign) {
+    return b;
+  }
+  return incomingPopup;
 }
 
 function mergePlatformSettings(
@@ -1009,30 +1055,72 @@ class HybridStorageEngine {
       if (!idbCandidate) return;
 
       const current = this.latestState || this.loadLocalState();
-      // Preserve any large uploaded app file or offline additions stored in IndexedDB
+      const mergedDeletedIds = Array.from(
+        new Set([
+          ...(current.deletedRecordIds || []),
+          ...(idbCandidate.deletedRecordIds || []),
+        ])
+      );
+
+      const mergedTopBanners = mergeAdCampaignsById(
+        current.topBanners,
+        idbCandidate.topBanners,
+        mergedDeletedIds
+      );
+      const mergedSquareAds = mergeAdCampaignsById(
+        current.squareAds,
+        idbCandidate.squareAds,
+        mergedDeletedIds
+      );
+      const mergedPopupAd = mergePopupAdCampaign(
+        current.popupAd,
+        idbCandidate.popupAd
+      );
+
+      const needsAdHydration =
+        mergedTopBanners.length !== (current.topBanners || []).length ||
+        mergedSquareAds.length !== (current.squareAds || []).length ||
+        mergedPopupAd.imageUrl !== current.popupAd?.imageUrl ||
+        Boolean(
+          idbCandidate.settings?.appUploadedFileUrl &&
+            !current.settings.appUploadedFileUrl
+        );
+
       if (
-        idbCandidate.settings?.appUploadedFileUrl &&
-        !current.settings.appUploadedFileUrl
+        pendingOffline &&
+        (pendingOffline.settings?.updatedAt || 0) > (current.settings?.updatedAt || 0)
       ) {
+        const restoredOffline: PlatformDatabaseState = {
+          ...pendingOffline,
+          topBanners: mergedTopBanners,
+          squareAds: mergedSquareAds,
+          popupAd: mergedPopupAd,
+          deletedRecordIds: mergedDeletedIds,
+        };
+        this.saveLocalState(restoredOffline);
+        this.notifyData(restoredOffline);
+      } else if (needsAdHydration) {
         const enriched: PlatformDatabaseState = {
           ...current,
+          topBanners: mergedTopBanners,
+          squareAds: mergedSquareAds,
+          popupAd: mergedPopupAd,
+          deletedRecordIds: mergedDeletedIds,
           settings: {
             ...current.settings,
-            appUploadedFileUrl: idbCandidate.settings.appUploadedFileUrl,
+            appUploadedFileUrl:
+              current.settings.appUploadedFileUrl ||
+              idbCandidate.settings?.appUploadedFileUrl ||
+              '',
             appUploadedFileName:
               current.settings.appUploadedFileName ||
-              idbCandidate.settings.appUploadedFileName,
+              idbCandidate.settings?.appUploadedFileName ||
+              '',
           },
         };
         this.latestState = enriched;
         fastBrowserCache.setMemoryAndDiskCache(enriched);
         this.notifyData(enriched);
-      } else if (
-        pendingOffline &&
-        (pendingOffline.settings?.updatedAt || 0) > (current.settings?.updatedAt || 0)
-      ) {
-        this.saveLocalState(pendingOffline);
-        this.notifyData(pendingOffline);
       }
     } catch {
       // ignore
@@ -1163,9 +1251,51 @@ class HybridStorageEngine {
 
       if (savedStateRaw) {
         const parsed = JSON.parse(savedStateRaw);
-        const deletedRecordIds: string[] = Array.isArray(parsed.deletedRecordIds)
-          ? parsed.deletedRecordIds
-          : [];
+        let savedAdCampaigns: {
+          topBanners?: TopBannerAd[];
+          squareAds?: SquareMovingAd[];
+          popupAd?: PopupAdConfig;
+          deletedRecordIds?: string[];
+        } = {};
+        try {
+          const rawCampaigns = localStorage.getItem(AD_CAMPAIGNS_STORAGE_KEY);
+          if (rawCampaigns) {
+            savedAdCampaigns = JSON.parse(rawCampaigns) || {};
+          }
+        } catch {
+          // ignore
+        }
+
+        const deletedRecordIds: string[] = Array.from(
+          new Set([
+            ...(Array.isArray(parsed.deletedRecordIds) ? parsed.deletedRecordIds : []),
+            ...(Array.isArray(savedAdCampaigns.deletedRecordIds)
+              ? savedAdCampaigns.deletedRecordIds
+              : []),
+          ])
+        );
+
+        const hydratedTopBanners = mergeAdCampaignsById(
+          Array.isArray(parsed.topBanners) ? parsed.topBanners : INITIAL_TOP_BANNERS,
+          Array.isArray(savedAdCampaigns.topBanners)
+            ? savedAdCampaigns.topBanners
+            : undefined,
+          deletedRecordIds
+        );
+
+        const hydratedSquareAds = mergeAdCampaignsById(
+          Array.isArray(parsed.squareAds) ? parsed.squareAds : INITIAL_SQUARE_ADS,
+          Array.isArray(savedAdCampaigns.squareAds)
+            ? savedAdCampaigns.squareAds
+            : undefined,
+          deletedRecordIds
+        );
+
+        const hydratedPopupAd = mergePopupAdCampaign(
+          parsed.popupAd || INITIAL_POPUP_AD,
+          savedAdCampaigns.popupAd
+        );
+
         const hydrated: PlatformDatabaseState = {
           users: mergeUsersLists(
             Array.isArray(parsed.users) && parsed.users.length > 0
@@ -1174,9 +1304,9 @@ class HybridStorageEngine {
             undefined,
             deletedRecordIds
           ),
-          topBanners: Array.isArray(parsed.topBanners) ? parsed.topBanners : INITIAL_TOP_BANNERS,
-          squareAds: Array.isArray(parsed.squareAds) ? parsed.squareAds : INITIAL_SQUARE_ADS,
-          popupAd: parsed.popupAd || INITIAL_POPUP_AD,
+          topBanners: hydratedTopBanners,
+          squareAds: hydratedSquareAds,
+          popupAd: hydratedPopupAd,
           messages: Array.isArray(parsed.messages) ? parsed.messages : INITIAL_MESSAGES,
           stores: Array.isArray(parsed.stores)
             ? normalizeStoresList(parsed.stores)
@@ -1302,6 +1432,19 @@ class HybridStorageEngine {
     }
     try {
       localStorage.setItem(
+        AD_CAMPAIGNS_STORAGE_KEY,
+        JSON.stringify({
+          topBanners: state.topBanners || [],
+          squareAds: state.squareAds || [],
+          popupAd: state.popupAd,
+          deletedRecordIds: state.deletedRecordIds || [],
+        })
+      );
+    } catch {
+      // IndexedDB holds full ad campaigns if localStorage is full
+    }
+    try {
+      localStorage.setItem(
         DB_STORAGE_KEY,
         JSON.stringify({
           users: state.users,
@@ -1327,7 +1470,39 @@ class HybridStorageEngine {
         })
       );
     } catch (e) {
-      console.error('LocalStorage save error:', e);
+      console.error('LocalStorage save error (falling back to compact DB_STORAGE_KEY + IndexedDB):', e);
+      try {
+        localStorage.setItem(
+          DB_STORAGE_KEY,
+          JSON.stringify({
+            users: state.users,
+            topBanners: state.topBanners,
+            squareAds: state.squareAds,
+            popupAd: state.popupAd,
+            messages: (state.messages || []).slice(0, 100),
+            stores: (state.stores || []).map((st) => ({
+              ...st,
+              menuImages: (st.menuImages || []).slice(0, 1),
+            })),
+            serviceNumbers: state.serviceNumbers,
+            tawsilaRides: state.tawsilaRides,
+            communityPosts: (state.communityPosts || []).slice(0, 60),
+            utilitySubmissions: normalizeUtilitySubmissionsList(state.utilitySubmissions),
+            utilityPosts: (state.utilityPosts || []).slice(0, 60),
+            buySellPosts: (state.buySellPosts || []).slice(0, 60),
+            liveChatMessages: normalizeLiveChatList(state.liveChatMessages),
+            chatPenalties: state.chatPenalties || [],
+            privateChatMessages: (state.privateChatMessages || []).slice(-100),
+            privateChatStatuses: state.privateChatStatuses || {},
+            chatTypingMap: state.chatTypingMap || {},
+            userBlockedMap: state.userBlockedMap || {},
+            privateChatReports: state.privateChatReports || [],
+            deletedRecordIds: state.deletedRecordIds || [],
+          })
+        );
+      } catch {
+        // Full state is preserved in IndexedDB
+      }
     }
   }
 
@@ -1511,19 +1686,23 @@ class HybridStorageEngine {
         : undefined,
       mergedDeletedIds
     );
-    const mergedTopBanners = mergeCollectionById(
+    const mergedTopBanners = mergeAdCampaignsById(
       base.topBanners,
       Array.isArray(remoteData.topBanners)
         ? (remoteData.topBanners as TopBannerAd[])
         : undefined,
       mergedDeletedIds
     );
-    const mergedSquareAds = mergeCollectionById(
+    const mergedSquareAds = mergeAdCampaignsById(
       base.squareAds,
       Array.isArray(remoteData.squareAds)
         ? (remoteData.squareAds as SquareMovingAd[])
         : undefined,
       mergedDeletedIds
+    );
+    const mergedPopupAd = mergePopupAdCampaign(
+      base.popupAd,
+      remoteData.popupAd as PopupAdConfig | undefined
     );
     const mergedMessages = mergeCollectionById(
       base.messages,
@@ -1543,7 +1722,7 @@ class HybridStorageEngine {
       ),
       topBanners: mergedTopBanners,
       squareAds: mergedSquareAds,
-      popupAd: (remoteData.popupAd as PopupAdConfig) || base.popupAd,
+      popupAd: mergedPopupAd,
       messages: mergedMessages,
       stores: normalizeStoresList(mergedStoresRaw),
       serviceNumbers: normalizeServiceNumbersList(mergedServicesRaw),
@@ -1649,6 +1828,24 @@ class HybridStorageEngine {
           ? (chatPatch.users as UserAccount[])
           : undefined,
         mergedDeletedIds
+      ),
+      topBanners: mergeAdCampaignsById(
+        base.topBanners,
+        Array.isArray(chatPatch.topBanners)
+          ? (chatPatch.topBanners as TopBannerAd[])
+          : undefined,
+        mergedDeletedIds
+      ),
+      squareAds: mergeAdCampaignsById(
+        base.squareAds,
+        Array.isArray(chatPatch.squareAds)
+          ? (chatPatch.squareAds as SquareMovingAd[])
+          : undefined,
+        mergedDeletedIds
+      ),
+      popupAd: mergePopupAdCampaign(
+        base.popupAd,
+        chatPatch.popupAd as PopupAdConfig | undefined
       ),
       stores: mergedStores,
       liveChatMessages: Array.isArray(chatPatch.liveChatMessages)
@@ -2040,6 +2237,9 @@ class HybridStorageEngine {
 
     const fastChatPatch = sanitizeForFirebase({
       users: nextState.users || [],
+      topBanners: nextState.topBanners || [],
+      squareAds: nextState.squareAds || [],
+      popupAd: nextState.popupAd,
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
@@ -2450,6 +2650,9 @@ class HybridStorageEngine {
 
     const ultraLightChatPatch = sanitizeForFirebase({
       users: nextState.users || [],
+      topBanners: nextState.topBanners || [],
+      squareAds: nextState.squareAds || [],
+      popupAd: nextState.popupAd,
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
@@ -2840,7 +3043,7 @@ export async function uploadImageDynamic(
   file: File,
   imgbbApiKey?: string
 ): Promise<{ url: string; provider: 'imgbb' | 'local_compressed' }> {
-  const compressedBase64 = await compressImageToBase64(file, 950, 0.82);
+  const compressedBase64 = await compressImageToBase64(file, 880, 0.76);
   const activeCloudKey = resolveEncryptedImageCloudKey(imgbbApiKey);
 
   if (activeCloudKey && activeCloudKey.length > 8) {

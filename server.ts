@@ -52,6 +52,9 @@ try {
       }
       latestChatPatch = {
         users: parsed.users || [],
+        topBanners: parsed.topBanners || [],
+        squareAds: parsed.squareAds || [],
+        popupAd: parsed.popupAd,
         liveChatMessages: parsed.liveChatMessages || [],
         privateChatMessages: parsed.privateChatMessages || [],
         privateChatStatuses: parsed.privateChatStatuses || {},
@@ -104,6 +107,23 @@ function mergeArrayByIdServer(
     }
   }
   return result;
+}
+
+function mergeAdCampaignsServer(
+  prevList: unknown,
+  nextList: unknown,
+  deletedSet: Set<string>
+): Array<Record<string, unknown>> {
+  const merged = mergeArrayByIdServer(prevList, nextList, deletedSet);
+  const nowMs = Date.now();
+  return merged.filter((item) => {
+    if (!item) return false;
+    if (typeof item.expiresAt === 'string' && item.expiresAt.trim()) {
+      const expMs = new Date(item.expiresAt).getTime();
+      if (!Number.isNaN(expMs) && expMs <= nowMs) return false;
+    }
+    return true;
+  });
 }
 
 function mergeUsersServer(
@@ -416,6 +436,9 @@ async function startServer() {
 
     latestChatPatch = {
       users: restoredState.users || [],
+      topBanners: restoredState.topBanners || [],
+      squareAds: restoredState.squareAds || [],
+      popupAd: restoredState.popupAd,
       liveChatMessages: restoredState.liveChatMessages || [],
       privateChatMessages: restoredState.privateChatMessages || [],
       privateChatStatuses: restoredState.privateChatStatuses || {},
@@ -495,12 +518,12 @@ async function startServer() {
             state.buySellPosts,
             deletedSet
           ),
-          topBanners: mergeArrayByIdServer(
+          topBanners: mergeAdCampaignsServer(
             authoritativeState.topBanners,
             state.topBanners,
             deletedSet
           ),
-          squareAds: mergeArrayByIdServer(
+          squareAds: mergeAdCampaignsServer(
             authoritativeState.squareAds,
             state.squareAds,
             deletedSet
@@ -543,6 +566,9 @@ async function startServer() {
     lastChatSenderTabId = senderTabId || null;
     latestChatPatch = {
       users: mergedState.users || [],
+      topBanners: mergedState.topBanners || [],
+      squareAds: mergedState.squareAds || [],
+      popupAd: mergedState.popupAd,
       liveChatMessages: mergedState.liveChatMessages || [],
       privateChatMessages: mergedState.privateChatMessages || [],
       privateChatStatuses: mergedState.privateChatStatuses || {},
@@ -661,6 +687,16 @@ async function startServer() {
         users: chatPatch.users
           ? mergeUsersServer(authoritativeState.users, chatPatch.users, deletedSet)
           : authoritativeState.users,
+        topBanners: mergeAdCampaignsServer(
+          authoritativeState.topBanners,
+          chatPatch.topBanners,
+          deletedSet
+        ),
+        squareAds: mergeAdCampaignsServer(
+          authoritativeState.squareAds,
+          chatPatch.squareAds,
+          deletedSet
+        ),
         stores: mergedStores,
         settings: mergeSettingsServer(prevSettings, patchSettings),
       };

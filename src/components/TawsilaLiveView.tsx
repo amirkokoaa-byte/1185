@@ -155,6 +155,11 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
     y: 0,
   });
 
+  // Mobile Driver Details Popup Modal from Drivers Table
+  const [mobileDetailsDriverId, setMobileDetailsDriverId] = useState<string | null>(
+    null
+  );
+
   // Bottom All-Drivers Embedded Fleet Map Zoom & Pan
   const [fleetMapZoom, setFleetMapZoom] = useState<number>(15);
   const [fleetMapPan, setFleetMapPan] = useState<{ x: number; y: number }>({
@@ -447,6 +452,9 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
   const liveModalDriver =
     rides.find((r) => r.id === liveModalDriverId) || null;
 
+  const mobileDetailsDriver =
+    rides.find((r) => r.id === mobileDetailsDriverId) || null;
+
   return (
     <div className="space-y-6 w-full overflow-x-hidden">
       {/* 1. Top Header Bar: "توصيلة LIVE GPS" + "أضف سواق" Button in 1 line + Admin Policy Toggle & Exports */}
@@ -717,7 +725,28 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
             </span>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Mobile View: Show only driver name; clicking the name opens a popup modal with all details */}
+          <div className="sm:hidden divide-y divide-[#334155]/70">
+            {displayedDrivers.map((drv) => (
+              <button
+                key={drv.id}
+                type="button"
+                onClick={() => setMobileDetailsDriverId(drv.id)}
+                className="w-full py-3.5 px-4 text-right hover:bg-[#1E293B]/70 transition-colors flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <div className="font-extrabold text-[#F8FAFC] text-sm flex items-center gap-2 truncate">
+                  <span>🚗</span>
+                  <span className="truncate">{drv.driverName}</span>
+                </div>
+                <span className="text-[11px] font-bold text-sky-400 shrink-0">
+                  عرض البيانات
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Desktop View: Full Table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-right border-collapse">
               <thead>
                 <tr className="bg-[#0A192F]/90 text-[#94A3B8] text-xs border-b border-[#334155]">
@@ -950,6 +979,241 @@ export const TawsilaLiveView: React.FC<TawsilaLiveViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Mobile Driver Details Popup Modal when clicking driver name in the table */}
+      {mobileDetailsDriver &&
+        (() => {
+          const activation = evaluateDriverActivation(
+            mobileDetailsDriver,
+            settings.requireDriverCriminalRecordApproval
+          );
+          const isWorkingNow =
+            mobileDetailsDriver.availableNow && activation.canWork;
+
+          return (
+            <FluentModal
+              isOpen={Boolean(mobileDetailsDriver)}
+              onClose={() => setMobileDetailsDriverId(null)}
+              title={`بيانات السائق: ${mobileDetailsDriver.driverName}`}
+              subtitle="تفاصيل التواصل والتتبع اللحظي وحالة التفعيل"
+              maxWidth="md"
+            >
+              <div className="space-y-4 text-xs sm:text-sm text-[#F8FAFC]">
+                {/* 1. Driver Name, National ID & Live Map Button */}
+                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2">
+                  <div>
+                    <div className="font-extrabold text-[#F8FAFC] text-sm flex items-center gap-1.5">
+                      <span>🚗</span>
+                      <span>{mobileDetailsDriver.driverName}</span>
+                    </div>
+                    <div className="text-[11px] text-[#94A3B8] font-mono-tabular mt-1">
+                      بطاقة: {mobileDetailsDriver.nationalId || 'غير مسجل'}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetId = mobileDetailsDriver.id;
+                      setMobileDetailsDriverId(null);
+                      setControlDriverId(targetId);
+                      setLiveModalDriverId(targetId);
+                      setSingleMapZoom(17);
+                      setSingleMapPan({ x: 0, y: 0 });
+                    }}
+                    className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold cursor-pointer shadow shrink-0"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>جوجل ماب لايف</span>
+                  </button>
+                </div>
+
+                {/* 2. Phone Number (Call / WhatsApp) */}
+                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-2">
+                  <div className="text-[11px] font-bold text-[#94A3B8]">
+                    رقم الهاتف (اتصال / واتساب):
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono-tabular font-extrabold text-sky-400 text-sm">
+                      {mobileDetailsDriver.phone}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <a
+                        href={`tel:${mobileDetailsDriver.phone}`}
+                        className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>اتصال</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/${formatWhatsappNumber(
+                          mobileDetailsDriver.phone
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>واتساب</span>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Activation Status & Criminal Record */}
+                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-2">
+                  <div className="text-[11px] font-bold text-[#94A3B8]">
+                    حالة التفعيل والفيش والتشبيه:
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {activation.status === 'active_verified' && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {activation.badgeLabel}
+                      </span>
+                    )}
+
+                    {activation.status === 'active_grace_period' && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-bold">
+                        <Clock className="w-3.5 h-3.5" />
+                        {activation.badgeLabel}
+                      </span>
+                    )}
+
+                    {(activation.status === 'pending_admin' ||
+                      activation.status === 'suspended_expired') && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-bold">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        {activation.badgeLabel}
+                      </span>
+                    )}
+                  </div>
+
+                  {activation.remainingText && (
+                    <div className="text-[11px] text-amber-300 font-bold">
+                      ⏳ {activation.remainingText}
+                    </div>
+                  )}
+
+                  {!mobileDetailsDriver.criminalRecordImageUrl && (
+                    <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#112240] hover:bg-[#1E293B] text-sky-300 border border-sky-400/40 text-[11px] font-bold cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>إرفاق صورة الفيش والتشبيه</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) =>
+                          handleCriminalRecordFileUpload(e, mobileDetailsDriver)
+                        }
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* 4. Work Status (GPS): شغل / نهاية عمل */}
+                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-[#94A3B8]">
+                    حالة العمل (GPS):
+                  </span>
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDriverWorkStatusChange(mobileDetailsDriver, true)
+                      }
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                        isWorkingNow
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-[#112240] text-[#94A3B8] hover:text-white border border-[#334155]'
+                      }`}
+                    >
+                      شغل
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDriverWorkStatusChange(mobileDetailsDriver, false)
+                      }
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                        !isWorkingNow
+                          ? 'bg-rose-600 text-white'
+                          : 'bg-[#112240] text-[#94A3B8] hover:text-white border border-[#334155]'
+                      }`}
+                    >
+                      نهاية عمل
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5. Admin Controls */}
+                <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-[#94A3B8]">
+                    صلاحيات Admin:
+                  </span>
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateTawsila({
+                          ...mobileDetailsDriver,
+                          adminApproved: !mobileDetailsDriver.adminApproved,
+                        })
+                      }
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${
+                        mobileDetailsDriver.adminApproved
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                          : 'bg-amber-500/20 text-amber-300 border-amber-400/40'
+                      }`}
+                    >
+                      {mobileDetailsDriver.adminApproved
+                        ? 'معتمد ✓'
+                        : 'موافقة الآن'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = mobileDetailsDriver;
+                        setMobileDetailsDriverId(null);
+                        openEditDriverModal(target);
+                      }}
+                      className="p-2 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-[#0A192F] cursor-pointer"
+                      title="تعديل السائق"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+
+                    {isStrictAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetId = mobileDetailsDriver.id;
+                          setMobileDetailsDriverId(null);
+                          onDeleteTawsila(targetId);
+                        }}
+                        className="p-2 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white cursor-pointer"
+                        title="حذف السائق"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <FluentButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setMobileDetailsDriverId(null)}
+                  >
+                    إغلاق
+                  </FluentButton>
+                </div>
+              </div>
+            </FluentModal>
+          );
+        })()}
 
       {/* 5. Bottom Real Google Maps Live Driver Tracking ("🗺️ خريطة تتبع جميع السائقين المتاحين لايف — يظهر جوجل ماب ويظهر فيها لايف لوكيشن للسواق المختار") */}
       {(() => {

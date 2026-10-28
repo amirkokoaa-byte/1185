@@ -1121,6 +1121,30 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     }
   };
 
+  // زر مؤقت لترحيل البيانات المحلية (المحلات، أرقام الخدمات، الصور) من IndexedDB و localStorage إلى Firebase Firestore بدون تكرار
+  const [isMigratingLocalData, setIsMigratingLocalData] = useState(false);
+  const [migrationResultMsg, setMigrationResultMsg] = useState<string>('');
+
+  const handleMigrateLocalDataToFirebase = async () => {
+    if (isMigratingLocalData) return;
+    setIsMigratingLocalData(true);
+    setMigrationResultMsg('');
+    try {
+      const result = await storageEngine.migrateLocalDataToFirebase(currentUser?.id);
+      setMigrationResultMsg(result.summary);
+      showToast(result.summary);
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'حدث خطأ أثناء ترحيل البيانات المحلية إلى Firebase Firestore';
+      setMigrationResultMsg(`خطأ: ${msg}`);
+      showToast(`خطأ: ${msg}`);
+    } finally {
+      setIsMigratingLocalData(false);
+    }
+  };
+
   // Unified messages grouped strictly by sender account so each account is completely separate from the other
   const unifiedMessages: AdminMessage[] = React.useMemo(() => {
     const map = new Map<string, AdminMessage>();
@@ -1263,6 +1287,21 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             <FluentButton
+              type="button"
+              variant="emerald"
+              size="sm"
+              disabled={isMigratingLocalData}
+              onClick={handleMigrateLocalDataToFirebase}
+              className="font-extrabold shadow-md"
+            >
+              <Upload className="w-4 h-4" />
+              <span>
+                {isMigratingLocalData
+                  ? 'جاري ترحيل البيانات المحلية...'
+                  : 'ترحيل البيانات المحلية'}
+              </span>
+            </FluentButton>
+            <FluentButton
               variant="secondary"
               size="sm"
               onClick={() => exportUsersAndMessagesToExcel(state.users, state.messages)}
@@ -1280,6 +1319,22 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
             </FluentButton>
           </div>
         </div>
+
+        {migrationResultMsg && (
+          <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-400/60 text-emerald-200 text-xs sm:text-sm font-extrabold flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{migrationResultMsg}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMigrationResultMsg('')}
+              className="text-xs underline cursor-pointer shrink-0"
+            >
+              إغلاق
+            </button>
+          </div>
+        )}
 
         <form
           onSubmit={handleSaveGeneralTopFields}
@@ -3035,7 +3090,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
              ==================================================================== */}
           {activeSubTab === 'storage' && (
             <div className="space-y-5">
-              <FluentCard className="space-y-3">
+              <FluentCard className="space-y-4">
                 <div className="flex items-center gap-2.5 text-emerald-400 font-extrabold text-sm sm:text-base">
                   <ShieldCheck className="w-5 h-5 shrink-0" />
                   <span>التخزين السحابي ومفتاح موقع تحميل الصور مشفر ومخفي بالكامل</span>
@@ -3043,6 +3098,32 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                 <p className="text-xs text-[#94A3B8] leading-relaxed">
                   يعمل مفتاح تحميل الصور السحابي والتسجيل السحابي تلقائياً في الخلفية بنظام تشفير كامل ومخفي ولا يظهر لأي مستخدم.
                 </p>
+
+                <div className="p-4 rounded-2xl bg-[#0A192F] border-2 border-emerald-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h4 className="text-sm sm:text-base font-extrabold text-emerald-300 flex items-center gap-2">
+                      <Upload className="w-4 h-4 shrink-0" />
+                      <span>ترحيل البيانات المحلية إلى Firebase Firestore</span>
+                    </h4>
+                    <p className="text-xs text-[#94A3B8] leading-relaxed">
+                      قراءة جميع البيانات (المحلات، أرقام الخدمات، الصور) المحفوظة في التخزين المحلي القديم (IndexedDB و localStorage) ورفعها دفعة واحدة إلى Firebase Firestore مع منع رفع أي بيانات مكررة موجودة بالفعل.
+                    </p>
+                  </div>
+                  <FluentButton
+                    type="button"
+                    variant="emerald"
+                    disabled={isMigratingLocalData}
+                    onClick={handleMigrateLocalDataToFirebase}
+                    className="shrink-0 font-extrabold py-2.5 px-4"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>
+                      {isMigratingLocalData
+                        ? 'جاري ترحيل البيانات المحلية...'
+                        : 'ترحيل البيانات المحلية'}
+                    </span>
+                  </FluentButton>
+                </div>
               </FluentCard>
 
               {/* Part A & Part B: مفاتيح رفع الصور والتسجيل السحابي مخفية ومشفرة بالكامل ولا تظهر لأي مستخدم */}
@@ -3509,6 +3590,34 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     </span>
                   </FluentButton>
                 </div>
+              </div>
+
+              {/* Temporary Button Card: ترحيل البيانات المحلية (IndexedDB + localStorage -> Firebase Firestore) */}
+              <div className="p-4 rounded-2xl bg-[#0A192F] border-2 border-emerald-400/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-emerald-300 font-extrabold text-sm sm:text-base">
+                    <Database className="w-5 h-5 shrink-0" />
+                    <span>ترحيل البيانات المحلية (IndexedDB &amp; localStorage → Firebase Firestore)</span>
+                  </div>
+                  <p className="text-xs text-[#94A3B8] leading-relaxed">
+                    يقوم هذا الزر المؤقت بقراءة كافة المحلات وأرقام الخدمات والصور المحفوظة في التخزين المحلي القديم على هذا الجهاز ورفعها دفعة واحدة إلى Firebase Firestore ليتم مزامنتها فوراً مع جميع المستخدمين، مع فحص تلقائي (Check) يمنع رفع أي سجل مكرر موجود بالفعل على Firebase.
+                  </p>
+                </div>
+
+                <FluentButton
+                  type="button"
+                  variant="emerald"
+                  disabled={isMigratingLocalData || isDataActionBusy}
+                  onClick={handleMigrateLocalDataToFirebase}
+                  className="shrink-0 py-3 px-5 font-extrabold shadow-md"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>
+                    {isMigratingLocalData
+                      ? 'جاري ترحيل البيانات المحلية...'
+                      : 'ترحيل البيانات المحلية'}
+                  </span>
+                </FluentButton>
               </div>
 
               {/* Live Summary of Saved Platform Data */}

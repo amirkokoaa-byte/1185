@@ -10,6 +10,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  writeBatch,
   onSnapshot,
   Unsubscribe as FirestoreUnsubscribe,
 } from 'firebase/firestore';
@@ -3534,6 +3535,473 @@ class HybridStorageEngine {
   }
 
   /**
+   * ترحيل البيانات المحلية (المحلات، أرقام الخدمات، الصور) من IndexedDB و localStorage
+   * دفعة واحدة إلى Firebase Firestore مع التحقق الصارم لمنع تكرار أي بيانات موجودة مسبقاً على Firebase.
+   */
+  public async migrateLocalDataToFirebase(
+    activeUserId?: string
+  ): Promise<{
+    state: PlatformDatabaseState;
+    newStoresAdded: number;
+    skippedDuplicateStores: number;
+    newServicesAdded: number;
+    skippedDuplicateServices: number;
+    migratedImagesCount: number;
+    summary: string;
+  }> {
+    const normalizeTextKey = (val?: string): string =>
+      String(val || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[أإآ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/ى/g, 'ي')
+        .replace(/\s+/g, ' ');
+
+    const normalizePhoneKey = (val?: string): string =>
+      String(val || '').replace(/[^0-9]/g, '');
+
+    // 1. Ensure Firestore instance is initialized
+    const currentState = this.latestState || this.loadLocalState();
+    if (!this.firestoreDb) {
+      await this.initializeSync(
+        currentState.settings.firebase || HIDDEN_DEFAULT_FIREBASE_CONFIG,
+        currentState
+      );
+    }
+    if (!this.firestoreDb) {
+      throw new Error('تعذر الاتصال بـ Firebase Firestore. تأكد من الاتصال بالإنترنت.');
+    }
+
+    // 2. Harvest all local data from localStorage + IndexedDB
+    const localStoresCandidates: StoreListingItem[] = [];
+    const localServicesCandidates: ServicePhoneEntry[] = [];
+    const localImagesByStoreId: Record<string, string[]> = {};
+    const localImagesByStoreName: Record<string, string[]> = {};
+
+    const collectStoreImages = (
+      storeId: string | undefined,
+      storeName: string | undefined,
+      images: unknown
+    ) => {
+      if (!Array.isArray(images)) return;
+      const realImgs = getRealUploadedStoreImagesOnly(images as string[]);
+      if (realImgs.length === 0) return;
+      if (storeId) {
+        const existing = localImagesByStoreId[storeId] || [];
+        localImagesByStoreId[storeId] = Array.from(new Set([...existing, ...realImgs]));
+      }
+      const normName = normalizeTextKey(storeName);
+      if (normName) {
+        const existingByName = localImagesByStoreName[normName] || [];
+        localImagesByStoreName[normName] = Array.from(
+          new Set([...existingByName, ...realImgs])
+        );
+      }
+    };
+
+    const collectSnapshotData = (snap: unknown) => {
+      if (!snap || typeof snap !== 'object') return;
+      const record = snap as Record<string, unknown>;
+      const nestedState =
+        record.state && typeof record.state === 'object'
+          ? (record.state as Record<string, unknown>)
+          : record;
+
+      if (Array.isArray(nestedState.stores)) {
+        for (const st of nestedState.stores as StoreListingItem[]) {
+          if (st && st.name) {
+            localStoresCandidates.push(st);
+            collectStoreImages(st.id, st.name, st.menuImages);
+          }
+        }
+      }
+      if (Array.isArray(nestedState.serviceNumbers)) {
+        for (const srv of nestedState.serviceNumbers as ServicePhoneEntry[]) {
+          if (srv && (srv.title || srv.phone)) {
+            localServicesCandidates.push(srv);
+          }
+        }
+      }
+    };
+
+    // 2A. Read current state & cumulative vault in memory
+    collectSnapshotData(currentState);
+    collectSnapshotData(fastBrowserCache.getCumulativeVaultSync());
+
+    // 2B. Read all localStorage keys (DB_STORAGE_KEY, CUMULATIVE_VAULT_STORAGE_KEY, STORE_IMAGES_VAULT_KEY, and any legacy keys)
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const vaultMap = loadStoreImagesVault();
+        for (const [storeId, imgs] of Object.entries(vaultMap)) {
+          collectStoreImages(storeId, undefined, imgs);
+        }
+      } catch {
+        // ignore
+      }
+
+      const priorityKeys = [
+        DB_STORAGE_KEY,
+        CUMULATIVE_VAULT_STORAGE_KEY,
+        STORE_IMAGES_VAULT_KEY,
+      ];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (k && !priorityKeys.includes(k)) {
+          priorityKeys.push(k);
+        }
+      }
+
+      for (const key of priorityKeys) {
+        try {
+          const raw = window.localStorage.getItem(key);
+          if (!raw || (!raw.startsWith('{') && !raw.startsWith('['))) continue;
+          const parsed = JSON.parse(raw);
+          if (key === STORE_IMAGES_VAULT_KEY && parsed && typeof parsed === 'object') {
+            for (const [stId, imgs] of Object.entries(parsed)) {
+              collectStoreImages(stId, undefined, imgs);
+            }
+          } else {
+            collectSnapshotData(parsed);
+          }
+        } catch {
+          // ignore non-json keys
+        }
+      }
+    }
+
+    // 2C. Read all historical & active snapshots from IndexedDB (Nakhil1185FastCacheDB)
+    try {
+      const idbSnapshots = await fastBrowserCache.getAllHistoricalSnapshotsFromIDB();
+      for (const snap of idbSnapshots) {
+        collectSnapshotData(snap);
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3. Read existing data currently on Firebase Firestore to prevent duplicates
+    const storesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_stores');
+    const servicesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_services');
+    const workspaceDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
+    const archiveDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'cumulative_archive');
+
+    const [storesSnap, servicesSnap, workspaceSnap] = await Promise.all([
+      getDoc(storesDocRef).catch(() => null),
+      getDoc(servicesDocRef).catch(() => null),
+      getDoc(workspaceDocRef).catch(() => null),
+    ]);
+
+    const remoteStoresRaw: StoreListingItem[] = [];
+    const remoteServicesRaw: ServicePhoneEntry[] = [];
+
+    if (storesSnap && storesSnap.exists()) {
+      const d = storesSnap.data();
+      if (Array.isArray(d?.stores)) {
+        remoteStoresRaw.push(...(d.stores as StoreListingItem[]));
+      }
+    }
+    if (workspaceSnap && workspaceSnap.exists()) {
+      const d = workspaceSnap.data();
+      if (Array.isArray(d?.stores)) {
+        for (const st of d.stores as StoreListingItem[]) {
+          if (st && !remoteStoresRaw.some((r) => r.id === st.id)) {
+            remoteStoresRaw.push(st);
+          }
+        }
+      }
+      if (Array.isArray(d?.serviceNumbers)) {
+        for (const srv of d.serviceNumbers as ServicePhoneEntry[]) {
+          if (srv && !remoteServicesRaw.some((r) => r.id === srv.id)) {
+            remoteServicesRaw.push(srv);
+          }
+        }
+      }
+    }
+    if (servicesSnap && servicesSnap.exists()) {
+      const d = servicesSnap.data();
+      if (Array.isArray(d?.serviceNumbers)) {
+        for (const srv of d.serviceNumbers as ServicePhoneEntry[]) {
+          if (srv && !remoteServicesRaw.some((r) => r.id === srv.id)) {
+            remoteServicesRaw.push(srv);
+          }
+        }
+      }
+    }
+
+    // 4. Deduplicate & Merge Stores + Images (Check لمنع رفع أي محل مكرر موجود بالفعل على Firebase)
+    const finalStoresList: StoreListingItem[] = remoteStoresRaw.map((st) => ({
+      ...st,
+      menuImages: getRealUploadedStoreImagesOnly(st.menuImages),
+    }));
+
+    let newStoresAdded = 0;
+    let skippedDuplicateStores = 0;
+    let migratedImagesCount = 0;
+
+    // Deduplicate local candidates among themselves first (merging their real images)
+    const uniqueLocalStoresMap = new Map<string, StoreListingItem>();
+    for (const candidate of localStoresCandidates) {
+      if (!candidate || !candidate.name) continue;
+      const normName = normalizeTextKey(candidate.name);
+      const normCat = normalizeTextKey(candidate.category);
+      const dedupeKey = `${normName}::${normCat}`;
+      const candidateRealImgs = Array.from(
+        new Set([
+          ...getRealUploadedStoreImagesOnly(candidate.menuImages),
+          ...(candidate.id ? localImagesByStoreId[candidate.id] || [] : []),
+          ...(normName ? localImagesByStoreName[normName] || [] : []),
+        ])
+      );
+
+      const prev = uniqueLocalStoresMap.get(dedupeKey);
+      if (!prev) {
+        uniqueLocalStoresMap.set(dedupeKey, {
+          ...candidate,
+          menuImages: candidateRealImgs,
+        });
+      } else {
+        const mergedImgs = Array.from(
+          new Set([
+            ...getRealUploadedStoreImagesOnly(prev.menuImages),
+            ...candidateRealImgs,
+          ])
+        );
+        uniqueLocalStoresMap.set(dedupeKey, {
+          ...prev,
+          ...candidate,
+          id: prev.id || candidate.id,
+          menuImages: mergedImgs,
+        });
+      }
+    }
+
+    // Check each unique local store against existing Firebase stores
+    for (const localStore of uniqueLocalStoresMap.values()) {
+      const localNameKey = normalizeTextKey(localStore.name);
+      const localCatKey = normalizeTextKey(localStore.category);
+      const localPhoneKey = normalizePhoneKey(localStore.phone);
+      const localRealImages = getRealUploadedStoreImagesOnly(localStore.menuImages);
+
+      const existingFirebaseIndex = finalStoresList.findIndex((remoteSt) => {
+        if (!remoteSt) return false;
+        if (remoteSt.id && localStore.id && remoteSt.id === localStore.id) {
+          return true;
+        }
+        const remoteNameKey = normalizeTextKey(remoteSt.name);
+        const remoteCatKey = normalizeTextKey(remoteSt.category);
+        const remotePhoneKey = normalizePhoneKey(remoteSt.phone);
+        if (remoteNameKey && remoteNameKey === localNameKey) {
+          if (remoteCatKey === localCatKey) return true;
+          if (localPhoneKey && remotePhoneKey && localPhoneKey === remotePhoneKey) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (existingFirebaseIndex !== -1) {
+        // Store already exists on Firebase -> Do NOT duplicate it
+        skippedDuplicateStores++;
+        const existingRemote = finalStoresList[existingFirebaseIndex];
+        const remoteRealImages = getRealUploadedStoreImagesOnly(
+          existingRemote.menuImages
+        );
+
+        // If local storage has real uploaded images that are missing on the remote store, migrate the missing images
+        const combinedRealImages = Array.from(
+          new Set([...remoteRealImages, ...localRealImages])
+        );
+        const newlyAddedImgs = combinedRealImages.length - remoteRealImages.length;
+        if (newlyAddedImgs > 0) {
+          migratedImagesCount += newlyAddedImgs;
+          finalStoresList[existingFirebaseIndex] = {
+            ...existingRemote,
+            menuImages: combinedRealImages,
+            imagesExplicitlyCleared: false,
+            updatedAt: Date.now(),
+          };
+        }
+      } else {
+        // Store does NOT exist on Firebase -> Add to migration batch
+        newStoresAdded++;
+        migratedImagesCount += localRealImages.length;
+        finalStoresList.push({
+          ...localStore,
+          id: localStore.id || `st-mig-${Date.now()}-${ newStoresAdded }`,
+          menuImages: localRealImages,
+          imagesExplicitlyCleared: false,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    // 5. Deduplicate & Merge Service Numbers (Check لمنع رفع أي رقم خدمة مكرر موجود بالفعل على Firebase)
+    const finalServicesList: ServicePhoneEntry[] = [...remoteServicesRaw];
+    let newServicesAdded = 0;
+    let skippedDuplicateServices = 0;
+
+    const uniqueLocalServicesMap = new Map<string, ServicePhoneEntry>();
+    for (const srv of localServicesCandidates) {
+      if (!srv || (!srv.title && !srv.phone)) continue;
+      const key = `${normalizeTextKey(srv.title)}::${normalizePhoneKey(srv.phone)}`;
+      if (!uniqueLocalServicesMap.has(key)) {
+        uniqueLocalServicesMap.set(key, srv);
+      } else {
+        const prev = uniqueLocalServicesMap.get(key)!;
+        uniqueLocalServicesMap.set(key, {
+          ...prev,
+          ...srv,
+          imageUrl: srv.imageUrl || prev.imageUrl,
+        });
+      }
+    }
+
+    for (const localSrv of uniqueLocalServicesMap.values()) {
+      const localTitleKey = normalizeTextKey(localSrv.title);
+      const localPhoneKey = normalizePhoneKey(localSrv.phone);
+      const localCatKey = normalizeTextKey(localSrv.category || localSrv.profession);
+
+      const existingSrvIdx = finalServicesList.findIndex((remoteSrv) => {
+        if (!remoteSrv) return false;
+        if (remoteSrv.id && localSrv.id && remoteSrv.id === localSrv.id) {
+          return true;
+        }
+        const remoteTitleKey = normalizeTextKey(remoteSrv.title);
+        const remotePhoneKey = normalizePhoneKey(remoteSrv.phone);
+        const remoteCatKey = normalizeTextKey(
+          remoteSrv.category || remoteSrv.profession
+        );
+        if (
+          localPhoneKey &&
+          remotePhoneKey &&
+          localPhoneKey === remotePhoneKey &&
+          (remoteTitleKey === localTitleKey || remoteCatKey === localCatKey)
+        ) {
+          return true;
+        }
+        if (
+          localTitleKey &&
+          remoteTitleKey === localTitleKey &&
+          remoteCatKey === localCatKey
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      if (existingSrvIdx !== -1) {
+        skippedDuplicateServices++;
+        const existingSrv = finalServicesList[existingSrvIdx];
+        if (!existingSrv.imageUrl && localSrv.imageUrl) {
+          migratedImagesCount++;
+          finalServicesList[existingSrvIdx] = {
+            ...existingSrv,
+            imageUrl: localSrv.imageUrl,
+            updatedAt: Date.now(),
+          };
+        }
+      } else {
+        newServicesAdded++;
+        if (localSrv.imageUrl) {
+          migratedImagesCount++;
+        }
+        finalServicesList.push({
+          ...localSrv,
+          id: localSrv.id || `srv-mig-${Date.now()}-${newServicesAdded}`,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    // 6. Build the unified state and upload in a single Firestore WriteBatch
+    const combinedCategories = ensureStoreCategoriesWithDreamPlaza([
+      ...(currentState.settings.storeCategories || []),
+      ...finalStoresList.map((s) => s.category).filter(Boolean),
+    ]);
+    const combinedProfessions = ensureServiceProfessionsList([
+      ...(currentState.settings.serviceProfessions || []),
+      ...finalServicesList
+        .map((s) => s.category || s.profession || '')
+        .filter(Boolean),
+    ]);
+
+    const migratedState: PlatformDatabaseState = {
+      ...currentState,
+      stores: normalizeStoresList(finalStoresList),
+      serviceNumbers: normalizeServiceNumbersList(finalServicesList),
+      deletedRecordIds: [],
+      settings: {
+        ...currentState.settings,
+        storeCategories: combinedCategories,
+        serviceProfessions: combinedProfessions,
+        updatedAt: Date.now(),
+      },
+    };
+
+    const tabId = getOrCreateTabSessionId();
+    const nowIso = new Date().toISOString();
+    const compactCloudStores = stripGeneratedSvgFromStores(migratedState.stores);
+
+    const batch = writeBatch(this.firestoreDb);
+    batch.set(
+      storesDocRef,
+      sanitizeForFirebase({
+        stores: compactCloudStores,
+        storeCategories: combinedCategories,
+        deletedRecordIds: [],
+        senderTabId: tabId,
+        updatedAt: nowIso,
+      })
+    );
+    batch.set(
+      servicesDocRef,
+      sanitizeForFirebase({
+        serviceNumbers: normalizeServiceNumbersList(finalServicesList),
+        serviceProfessions: combinedProfessions,
+        deletedRecordIds: [],
+        senderTabId: tabId,
+        updatedAt: nowIso,
+      })
+    );
+    batch.set(
+      workspaceDocRef,
+      sanitizeForFirebase({
+        ...migratedState,
+        stores: compactCloudStores,
+        senderTabId: tabId,
+        updatedAt: nowIso,
+      })
+    );
+    batch.set(
+      archiveDocRef,
+      sanitizeForFirebase({
+        ...migratedState,
+        stores: compactCloudStores,
+        senderTabId: tabId,
+        updatedAt: nowIso,
+      })
+    );
+
+    await batch.commit();
+
+    // Persist & broadcast to all connected clients
+    await this.persistState(migratedState, activeUserId);
+
+    const summary = `تم ترحيل البيانات المحلية إلى Firebase Firestore بنجاح! (تم رفع ${newStoresAdded} محل جديد، ${newServicesAdded} رقم خدمة جديد، و ${migratedImagesCount} صورة — وتم تخطي ${skippedDuplicateStores} محل مكرر و ${skippedDuplicateServices} رقم خدمة مكرر موجود بالفعل على Firebase).`;
+
+    return {
+      state: migratedState,
+      newStoresAdded,
+      skippedDuplicateStores,
+      newServicesAdded,
+      skippedDuplicateServices,
+      migratedImagesCount,
+      summary,
+    };
+  }
+
+  /**
    * Dedicated ultra-fast (< 3KB payload) sync for Live Chat messages, Private Chat messages,
    * Read Receipts (✓✓), Typing Indicators ("يكتب الآن..."), and Store Likes/Dislikes without serializing the heavy database.
    */
@@ -3620,6 +4088,10 @@ class HybridStorageEngine {
 }
 
 export const storageEngine = new HybridStorageEngine();
+
+export async function migrateLocalDataToFirebase(activeUserId?: string) {
+  return storageEngine.migrateLocalDataToFirebase(activeUserId);
+}
 
 export interface RealOnlinePresenceStats {
   totalOnline: number;

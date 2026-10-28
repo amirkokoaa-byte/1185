@@ -61,6 +61,7 @@ import {
   createBannerSvg,
   createSquareAdSvg,
   getEffectiveOnlineDisplayCount,
+  isPermanentDreamPlazaStore,
   RealOnlinePresenceStats,
   storageEngine,
   uploadImageDynamic,
@@ -1747,55 +1748,65 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {state.stores.map((st) => (
-                    <div
-                      key={st.id}
-                      className="fluent-reveal p-4 rounded-xl bg-[#0A192F] border border-[#334155] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                    >
-                      <div className="flex items-center gap-3 min-w-0 relative z-10">
-                        <img
-                          src={st.menuImages?.[0] || ''}
-                          alt={st.name}
-                          className="w-14 h-14 rounded-xl object-cover border border-[#334155] shrink-0 bg-[#1E293B]"
-                        />
-                        <div className="min-w-0 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm sm:text-base font-extrabold text-[#F8FAFC] truncate">
-                              {st.name}
-                            </span>
-                            <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 text-[11px] font-bold">
-                              {st.category}
-                            </span>
-                          </div>
-                          <div className="text-xs text-[#94A3B8] flex flex-wrap items-center gap-3">
-                            <span className="font-mono-tabular">هاتف: {st.phone}</span>
-                            <span>صور المنيو: {st.menuImages?.length || 0}</span>
-                            <span>التعليقات: {st.comments?.length || 0}</span>
+                  {state.stores.map((st, stIdx) => {
+                    const isPermanent = isPermanentDreamPlazaStore(st);
+                    return (
+                      <div
+                        key={st.id || `admin-store-${stIdx}`}
+                        className="fluent-reveal p-4 rounded-xl bg-[#0A192F] border border-[#334155] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3 min-w-0 relative z-10">
+                          <img
+                            src={st.menuImages?.[0] || ''}
+                            alt={st.name}
+                            className="w-14 h-14 rounded-xl object-cover border border-[#334155] shrink-0 bg-[#1E293B]"
+                          />
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm sm:text-base font-extrabold text-[#F8FAFC] truncate">
+                                {st.name}
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 text-[11px] font-bold">
+                                {st.category}
+                              </span>
+                              {isPermanent && (
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[10px] font-extrabold">
+                                  ثابت
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-[#94A3B8] flex flex-wrap items-center gap-3">
+                              <span className="font-mono-tabular">هاتف: {st.phone}</span>
+                              <span>صور المنيو: {st.menuImages?.length || 0}</span>
+                              <span>التعليقات: {st.comments?.length || 0}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-2 shrink-0 relative z-10">
-                        <FluentButton
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => openEditStoreModal(st)}
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-sky-400" />
-                          <span>تعديل</span>
-                        </FluentButton>
+                        <div className="flex items-center gap-2 shrink-0 relative z-10">
+                          <FluentButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => openEditStoreModal(st)}
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-sky-400" />
+                            <span>تعديل</span>
+                          </FluentButton>
 
-                        <FluentButton
-                          variant="danger"
-                          size="sm"
-                          onClick={() => setStorePendingDelete(st)}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>حذف</span>
-                        </FluentButton>
+                          {!isPermanent && (
+                            <FluentButton
+                              variant="danger"
+                              size="sm"
+                              onClick={() => setStorePendingDelete(st)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>حذف</span>
+                            </FluentButton>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </FluentCard>

@@ -41,6 +41,8 @@ import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import {
   createSquareAdSvg,
   getOrCreateVisitorId,
+  isPermanentDreamPlazaStore,
+  normalizeCategoryString,
   uploadImageDynamic,
 } from '../services/storageService';
 import {
@@ -306,17 +308,21 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     }
 
     const cleanName = storeName.trim();
+    const cleanStoreCategory =
+      editingStoreObj && isPermanentDreamPlazaStore(editingStoreObj)
+        ? 'مول دريم بلازا'
+        : storeCategory.trim() || 'مول دريم بلازا';
     const realUploadedImages = menuImages.filter(
       (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
     );
     const finalMenuImages =
       realUploadedImages.length > 0
         ? realUploadedImages
-        : [createSquareAdSvg(cleanName, storeCategory, '#0284C7')];
+        : [createSquareAdSvg(cleanName, cleanStoreCategory, '#0284C7')];
 
     // في حالة تسجيل صيدلية أو غيره لا يُكتب "محل" إلا في حالة كتابة "محل" فقط
     const fallbackDetails =
-      cleanName.includes('محل') || storeCategory.includes('محل')
+      cleanName.includes('محل') || cleanStoreCategory.includes('محل')
         ? 'محل مسجل بالدليل التجاري'
         : '';
 
@@ -326,7 +332,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
       onUpdateStore({
         ...editingStoreObj,
         name: cleanName,
-        category: storeCategory,
+        category: cleanStoreCategory,
         subCategory: cleanSubCat || undefined,
         locationUrl: storeLocationUrl.trim(),
         phone: storePhone.trim(),
@@ -342,7 +348,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         ownerId: currentUser?.id || 'guest',
         ownerUsername: currentUser?.username || 'زائر',
         name: cleanName,
-        category: storeCategory,
+        category: cleanStoreCategory,
         subCategory: cleanSubCat || undefined,
         locationUrl: storeLocationUrl.trim(),
         phone: storePhone.trim(),
@@ -515,18 +521,26 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     };
   };
 
-  // Filter stores by search & category (when 'مول دريم بلازا' is selected, show strictly stores registered under 'مول دريم بلازا' and allow searching by store name or subCategory like 'سوبر ماركت' or 'موبيل')
+  // Filter stores by search & category (using normalized string comparison so trailing spaces never hide stores)
+  const normalizedSelectedCat = normalizeCategoryString(selectedCategory);
   const filteredStores = stores.filter((s) => {
+    if (!s) return false;
     const matchesCategory =
-      selectedCategory === 'all' || s.category === selectedCategory;
+      selectedCategory === 'all' ||
+      normalizeCategoryString(s.category) === normalizedSelectedCat;
     const q = searchQuery.trim().toLowerCase();
+    const sName = String(s.name || '').toLowerCase();
+    const sSub = String(s.subCategory || '').toLowerCase();
+    const sCat = String(s.category || '').toLowerCase();
+    const sDet = String(s.details || '').toLowerCase();
+    const sPhone = String(s.phone || '');
     const matchesSearch =
       !q ||
-      s.name.toLowerCase().includes(q) ||
-      (s.subCategory && s.subCategory.toLowerCase().includes(q)) ||
-      s.category.toLowerCase().includes(q) ||
-      s.details.toLowerCase().includes(q) ||
-      s.phone.includes(q);
+      sName.includes(q) ||
+      sSub.includes(q) ||
+      sCat.includes(q) ||
+      sDet.includes(q) ||
+      sPhone.includes(q);
     return matchesCategory && matchesSearch;
   });
 
@@ -820,7 +834,16 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               <option value="all">جميع الأقسام ({stores.length})</option>
               {allStoreCategories.map((cat) => (
                 <option key={cat} value={cat}>
-                  {cat} ({stores.filter((s) => s.category === cat).length})
+                  {cat} (
+                  {
+                    stores.filter(
+                      (s) =>
+                        s &&
+                        normalizeCategoryString(s.category) ===
+                          normalizeCategoryString(cat)
+                    ).length
+                  }
+                  )
                 </option>
               ))}
             </select>
@@ -885,16 +908,17 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
       ) : storeLayoutMode === 'horizontal' ? (
         /* ================= HORIZONTAL VIEW: خلفية بيضاء وخط أسود واضح ================= */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-          {filteredStores.map((store) => {
+          {filteredStores.map((store, storeIdx) => {
             const firstMenuPhoto = getStoreCoverPhoto(store);
             const isLiked = store.likes.includes(currentVisitorId);
             const isDisliked = store.dislikes.includes(currentVisitorId);
             const ratingInfo = getStoreRatingSummary(store);
             const cleanDetails = getCleanStoreDetails(store);
+            const isPermanentStore = isPermanentDreamPlazaStore(store);
 
             return (
               <div
-                key={store.id}
+                key={store.id || `store-horiz-${storeIdx}`}
                 onClick={() => {
                   onIncrementStoreViews?.(store.id);
                   setActiveStoreId(store.id);
@@ -940,7 +964,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       >
                         <Edit3 className="w-3 h-3" />
                       </button>
-                      {isStrictAdmin && (
+                      {isStrictAdmin && !isPermanentStore && (
                         <button
                           type="button"
                           onClick={() => setStorePendingDelete(store)}
@@ -1026,16 +1050,17 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
       ) : (
         /* ================= GRID VIEW: يظهر في نسخة الهاتف 2 بجانب بعض بخلفية بيضاء وخط أسود ================= */
         <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-5">
-          {filteredStores.map((store) => {
+          {filteredStores.map((store, storeIdx) => {
             const firstMenuPhoto = getStoreCoverPhoto(store);
             const isLiked = store.likes.includes(currentVisitorId);
             const isDisliked = store.dislikes.includes(currentVisitorId);
             const ratingInfo = getStoreRatingSummary(store);
             const cleanDetails = getCleanStoreDetails(store);
+            const isPermanentStore = isPermanentDreamPlazaStore(store);
 
             return (
               <div
-                key={store.id}
+                key={store.id || `store-grid-${storeIdx}`}
                 onClick={() => {
                   onIncrementStoreViews?.(store.id);
                   setActiveStoreId(store.id);
@@ -1094,7 +1119,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       >
                         <Edit3 className="w-3 h-3" />
                       </button>
-                      {isStrictAdmin && (
+                      {isStrictAdmin && !isPermanentStore && (
                         <button
                           type="button"
                           onClick={() => setStorePendingDelete(store)}
@@ -1264,7 +1289,12 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   type="button"
                   onClick={() =>
                     exportStoresToExcel(
-                      stores.filter((s) => s.category === storeCategory)
+                      stores.filter(
+                        (s) =>
+                          s &&
+                          normalizeCategoryString(s.category) ===
+                            normalizeCategoryString(storeCategory)
+                      )
                     )
                   }
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-400 text-xs font-extrabold cursor-pointer"
@@ -1569,7 +1599,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   <Edit3 className="w-3.5 h-3.5 text-sky-400" />
                   <span>تعديل البيانات</span>
                 </FluentButton>
-                {isStrictAdmin && (
+                {isStrictAdmin && !isPermanentDreamPlazaStore(activeStore) && (
                   <FluentButton
                     variant="danger"
                     size="sm"

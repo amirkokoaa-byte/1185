@@ -47,6 +47,7 @@ import {
 import {
   getEffectiveOnlineDisplayCount,
   getOrCreateVisitorId,
+  isPermanentDreamPlazaStore,
   RealOnlinePresenceStats,
   removeCurrentTabPresence,
   storageEngine,
@@ -129,6 +130,7 @@ export default function App() {
     tick: number;
   } | null>(null);
   const [loginWelcomeToast, setLoginWelcomeToast] = useState<string>('');
+  const [cloudWriteErrorToast, setCloudWriteErrorToast] = useState<string>('');
 
   useEffect(() => {
     try {
@@ -211,6 +213,8 @@ export default function App() {
     if (autoClearMins <= 0) return;
 
     const checkAndAutoClear = () => {
+      // Wait for initial Firebase onSnapshot hydration before writing any background state changes
+      if (!storageEngine.isHydratedFromCloud()) return;
       setDbState((prev) => {
         const mins = prev.settings.liveChatAutoClearMinutes ?? 0;
         if (mins <= 0) return prev;
@@ -254,12 +258,16 @@ export default function App() {
       setConnStatus(status);
       if (msg) setConnMessage(msg);
     });
+    const unsubWriteError = storageEngine.subscribeCloudWriteError((errMsg) => {
+      setCloudWriteErrorToast(errMsg);
+    });
 
     storageEngine.initializeSync(dbState.settings.firebase, dbState);
 
     return () => {
       unsubData();
       unsubStatus();
+      unsubWriteError();
     };
   }, []);
 
@@ -286,7 +294,15 @@ export default function App() {
   ) => {
     setDbState((prev) => {
       const next = updater(prev);
-      storageEngine.persistState(next, currentUser?.id);
+      storageEngine.persistState(next, currentUser?.id).catch((err: unknown) => {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'تعذر حفظ البيانات في خادم Firebase';
+        setCloudWriteErrorToast(
+          `تنبيه: تعذر الحفظ في السحابة (${msg}). تأكد من الاتصال بالإنترنت أو إعدادات Firebase.`
+        );
+      });
       return next;
     });
   };
@@ -605,30 +621,52 @@ export default function App() {
 
   // --- Stage 2: Directory Stores, Likes/Dislikes, Ratings, Comments, Replies, Import ---
   const handleAddStore = (store: StoreListingItem) => {
-    const stampedStore: StoreListingItem = {
-      ...store,
-      updatedAt: Date.now(),
-    };
-    updateAndPersist((prev) => ({
-      ...prev,
-      stores: [stampedStore, ...prev.stores],
-      deletedRecordIds: (prev.deletedRecordIds || []).filter(
-        (id) => id !== stampedStore.id
-      ),
-    }));
+    try {
+      const cleanCategory = String(store.category || '').trim() || 'مول دريم بلازا';
+      const stampedStore: StoreListingItem = {
+        ...store,
+        id:
+          store.id && String(store.id).trim().length > 0
+            ? String(store.id).trim()
+            : `st-${Date.now()}`,
+        name: String(store.name || '').trim(),
+        category: cleanCategory,
+        updatedAt: Date.now(),
+      };
+      updateAndPersist((prev) => ({
+        ...prev,
+        stores: [stampedStore, ...prev.stores],
+        deletedRecordIds: (prev.deletedRecordIds || []).filter(
+          (id) => id !== stampedStore.id
+        ),
+      }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء إضافة المحل';
+      setCloudWriteErrorToast(`فشل حفظ المحل الجديد: ${msg}`);
+    }
   };
 
   const handleUpdateStore = (updatedStore: StoreListingItem) => {
-    const stampedStore: StoreListingItem = {
-      ...updatedStore,
-      updatedAt: Date.now(),
-    };
-    updateAndPersist((prev) => ({
-      ...prev,
-      stores: prev.stores.map((s) =>
-        s.id === stampedStore.id ? stampedStore : s
-      ),
-    }));
+    try {
+      const cleanCategory = isPermanentDreamPlazaStore(updatedStore)
+        ? 'مول دريم بلازا'
+        : String(updatedStore.category || '').trim() || 'مول دريم بلازا';
+      const stampedStore: StoreListingItem = {
+        ...updatedStore,
+        name: String(updatedStore.name || '').trim(),
+        category: cleanCategory,
+        updatedAt: Date.now(),
+      };
+      updateAndPersist((prev) => ({
+        ...prev,
+        stores: prev.stores.map((s) =>
+          s.id === stampedStore.id ? stampedStore : s
+        ),
+      }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء تعديل المحل';
+      setCloudWriteErrorToast(`فشل حفظ تعديلات المحل: ${msg}`);
+    }
   };
 
   const handleIncrementStoreViews = (storeId: string) => {
@@ -643,22 +681,37 @@ export default function App() {
   };
 
   const handleImportStoresBatch = (importedStores: StoreListingItem[]) => {
-    const nowTs = Date.now();
-    const stampedBatch = importedStores.map((st) => ({
-      ...st,
-      updatedAt: nowTs,
-    }));
-    updateAndPersist((prev) => ({
-      ...prev,
-      stores: [...stampedBatch, ...prev.stores],
-    }));
+    try {
+      const nowTs = Date.now();
+      const stampedBatch = importedStores.map((st, idx) => ({
+        ...st,
+        id:
+          st.id && String(st.id).trim().length > 0
+            ? String(st.id).trim()
+            : `st-imp-${nowTs}-${idx}`,
+        name: String(st.name || '').trim(),
+        category: String(st.category || '').trim() || 'مول دريم بلازا',
+        updatedAt: nowTs,
+      }));
+      updateAndPersist((prev) => ({
+        ...prev,
+        stores: [...stampedBatch, ...prev.stores],
+      }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء استيراد المحلات';
+      setCloudWriteErrorToast(`فشل حفظ المحلات المستوردة: ${msg}`);
+    }
   };
 
   const handleDeleteStore = (id: string) => {
     if (currentUser?.role === 'moderator') return;
+    // Protect the 24 permanent Dream Plaza stores from deletion
+    if (isPermanentDreamPlazaStore(id)) return;
+    const targetStore = dbState.stores.find((s) => s.id === id);
+    if (targetStore && isPermanentDreamPlazaStore(targetStore)) return;
     updateAndPersist((prev) => ({
       ...prev,
-      stores: prev.stores.filter((s) => s.id !== id),
+      stores: prev.stores.filter((s) => s.id !== id || isPermanentDreamPlazaStore(s)),
       deletedRecordIds: Array.from(
         new Set([...(prev.deletedRecordIds || []), id])
       ),
@@ -3134,6 +3187,25 @@ export default function App() {
             type="button"
             onClick={() => setLoginWelcomeToast('')}
             className="text-xs text-emerald-300 hover:text-white underline mr-2 cursor-pointer"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
+
+      {/* Cloud Write Error Toast (منع الفشل الصامت عند الحفظ في Firebase) */}
+      {cloudWriteErrorToast && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[130] w-[92vw] max-w-xl px-5 py-3.5 rounded-2xl bg-rose-950/95 border-2 border-rose-400 text-rose-100 shadow-[0_12px_35px_rgba(244,63,94,0.45)] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <X className="w-5 h-5 text-rose-400 shrink-0" />
+            <span className="text-xs sm:text-sm font-extrabold text-white leading-relaxed">
+              {cloudWriteErrorToast}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCloudWriteErrorToast('')}
+            className="px-2.5 py-1 rounded-lg bg-rose-800/80 hover:bg-rose-700 text-xs font-extrabold text-white shrink-0 cursor-pointer"
           >
             إغلاق
           </button>

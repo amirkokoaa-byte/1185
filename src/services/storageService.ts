@@ -269,7 +269,277 @@ export const INITIAL_POPUP_AD: PopupAdConfig = {
   whatsappPhone: '',
 };
 
-export const INITIAL_STORES: StoreListingItem[] = [];
+export function normalizeCategoryString(rawCategory?: string): string {
+  return String(rawCategory || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ');
+}
+
+export function normalizeStoreNameKey(rawName?: string): string {
+  return String(rawName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[()[\]{}\-_،,.]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const DREAM_PLAZA_CANONICAL_CATEGORY = 'مول دريم بلازا';
+
+interface PermanentDreamPlazaSeed {
+  id: string;
+  name: string;
+  altNames?: string[];
+  phone: string;
+  details: string;
+  subCategory: string;
+}
+
+const PERMANENT_DREAM_PLAZA_SEEDS: PermanentDreamPlazaSeed[] = [
+  {
+    id: 'dream-plaza-perm-1',
+    name: 'منظفات آدم',
+    phone: '01042217583',
+    details: 'منظفات وأدوات منزلية',
+    subCategory: 'أدوات منزلية',
+  },
+  {
+    id: 'dream-plaza-perm-2',
+    name: 'مازن للمنظفات 2',
+    phone: '01101563335 - 01206013562',
+    details: 'منظفات ومستحضرات تجميل (جملة وقطاعي)',
+    subCategory: 'أدوات منزلية',
+  },
+  {
+    id: 'dream-plaza-perm-3',
+    name: 'فول أبو مازن',
+    phone: '01557673646 - 01127319156',
+    details: 'مطعم (فول وفلافل)',
+    subCategory: 'مطعم',
+  },
+  {
+    id: 'dream-plaza-perm-4',
+    name: 'منظفات المصطفى',
+    phone: '01042669619',
+    details: 'منظفات ومستحضرات تجميل',
+    subCategory: 'أدوات منزلية',
+  },
+  {
+    id: 'dream-plaza-perm-5',
+    name: 'SNAP STORE (موبيل )',
+    altNames: ['(موبيل ) SNAP STORE', 'SNAP STORE', 'موبيل SNAP STORE'],
+    phone: '01000000000',
+    details: 'إكسسوارات هواتف (موبايلات)',
+    subCategory: 'موبيل',
+  },
+  {
+    id: 'dream-plaza-perm-6',
+    name: 'ألبان الروضة',
+    phone: '01031278756',
+    details: 'منتجات ألبان خدمه توصيل 24 ساعه',
+    subCategory: 'سوبر ماركت',
+  },
+  {
+    id: 'dream-plaza-perm-7',
+    name: 'نوفا',
+    phone: '01007812474',
+    details: 'منظفات ومستحضرات تجميل',
+    subCategory: 'أدوات منزلية',
+  },
+  {
+    id: 'dream-plaza-perm-8',
+    name: 'دريم فون',
+    phone: '01000000000',
+    details: 'إكسسوارات هواتف وموبايلات',
+    subCategory: 'موبيل',
+  },
+  {
+    id: 'dream-plaza-perm-9',
+    name: 'محمصات وعطارة الرحاب',
+    phone: '01000000000',
+    details: 'محمصات وعطارة',
+    subCategory: 'عطارة',
+  },
+  {
+    id: 'dream-plaza-perm-10',
+    name: 'طيور المدينة',
+    phone: '01132115465 - 01043120997',
+    details: 'طيور ودواجن',
+    subCategory: 'طيور ودواجن',
+  },
+  {
+    id: 'dream-plaza-perm-11',
+    name: 'أولاد آدم',
+    phone: '01088865546',
+    details: 'خضروات وفاكهة',
+    subCategory: 'خضروات وفاكهة',
+  },
+  {
+    id: 'dream-plaza-perm-12',
+    name: 'سلسلة مخابز كريستال',
+    phone: '01000000000',
+    details: 'مخبز',
+    subCategory: 'مخبز وحلواني',
+  },
+  {
+    id: 'dream-plaza-perm-13',
+    name: 'فول جحا فلافل',
+    phone: '01041678929 - 01018638782',
+    details: 'مطعم (فول وفلافل)',
+    subCategory: 'مطعم',
+  },
+  {
+    id: 'dream-plaza-perm-14',
+    name: 'البستان',
+    phone: '01000000000',
+    details: 'خضروات وفواكه',
+    subCategory: 'خضروات وفاكهة',
+  },
+  {
+    id: 'dream-plaza-perm-15',
+    name: 'ماركت التحرير',
+    phone: '01106260163 - 01043135459',
+    details: 'ماركت / مواد غذائية جميع انواع المواد الغذائيه ومنتجات الألبان',
+    subCategory: 'سوبر ماركت',
+  },
+  {
+    id: 'dream-plaza-perm-16',
+    name: 'سوبر ماركت دريم بلازا',
+    phone: '01106344959 - 01041491959',
+    details: 'سوبر ماركت',
+    subCategory: 'سوبر ماركت',
+  },
+  {
+    id: 'dream-plaza-perm-17',
+    name: 'وان شوت (One Shot)',
+    altNames: ['وان شوت', 'One Shot'],
+    phone: '01100894361',
+    details: 'بلايستيشن ومشروبات',
+    subCategory: 'كافيه',
+  },
+  {
+    id: 'dream-plaza-perm-18',
+    name: 'صالون الشورا (Elshora Salon)',
+    altNames: ['صالون الشورا', 'Elshora Salon'],
+    phone: '01000000000',
+    details: 'صالون حلاقة',
+    subCategory: 'كوافير وبيوتي سنتر',
+  },
+  {
+    id: 'dream-plaza-perm-19',
+    name: 'مشويات عجيبة',
+    phone: '01149106900 - 01043104373',
+    details: 'مطعم مشويات',
+    subCategory: 'مطعم',
+  },
+  {
+    id: 'dream-plaza-perm-20',
+    name: 'أزياء ومفروشات كنزي',
+    phone: '01141910539 - 01011629773',
+    details: 'مفروشات وستائر وأزياء',
+    subCategory: 'ملابس وأحذية',
+  },
+  {
+    id: 'dream-plaza-perm-21',
+    name: 'كافيه الجوهرة',
+    phone: '01000000000',
+    details: 'كافيه (مقهى)',
+    subCategory: 'كافيه',
+  },
+  {
+    id: 'dream-plaza-perm-22',
+    name: 'مطعم الزعيم',
+    phone: '01043094142',
+    details: 'مطعم (بيتزا، كريب، فطائر)',
+    subCategory: 'مطعم',
+  },
+  {
+    id: 'dream-plaza-perm-23',
+    name: 'فكهاني مصر',
+    phone: '01109180033 - 01109180440 - 01112893536 - 01025701385',
+    details: 'خضروات وفواكه',
+    subCategory: 'خضروات وفاكهة',
+  },
+  {
+    id: 'dream-plaza-perm-24',
+    name: 'عطارة ديما',
+    phone: '01111068814',
+    details: 'عطارة وعلافة',
+    subCategory: 'عطارة',
+  },
+];
+
+export const PERMANENT_DREAM_PLAZA_STORES: StoreListingItem[] =
+  PERMANENT_DREAM_PLAZA_SEEDS.map((seed, idx) => {
+    const firstPhone = seed.phone.split('-')[0].trim().replace(/[^0-9]/g, '');
+    return {
+      id: seed.id,
+      ownerId: 'usr-admin-1',
+      ownerUsername: 'admin',
+      name: seed.name,
+      category: DREAM_PLAZA_CANONICAL_CATEGORY,
+      subCategory: seed.subCategory,
+      locationUrl: 'https://maps.google.com',
+      phone: seed.phone,
+      whatsapp: firstPhone || '01000000000',
+      details: seed.details,
+      menuImages: [
+        createSquareAdSvg(seed.name, DREAM_PLAZA_CANONICAL_CATEGORY, '#0284C7'),
+      ],
+      likes: [],
+      dislikes: [],
+      ratings: {},
+      ratingsResetV2: true,
+      comments: [],
+      viewsCount: 0,
+      approved: true,
+      createdAt: new Date(1730000000000 + idx * 1000).toISOString(),
+      updatedAt: 1730000000000 + idx * 1000,
+    };
+  });
+
+const PERMANENT_DREAM_PLAZA_IDS = new Set<string>(
+  PERMANENT_DREAM_PLAZA_SEEDS.map((s) => s.id)
+);
+
+const PERMANENT_DREAM_PLAZA_NAME_TO_SEED = new Map<
+  string,
+  PermanentDreamPlazaSeed
+>();
+PERMANENT_DREAM_PLAZA_SEEDS.forEach((seed) => {
+  PERMANENT_DREAM_PLAZA_NAME_TO_SEED.set(normalizeStoreNameKey(seed.name), seed);
+  (seed.altNames || []).forEach((alt) => {
+    PERMANENT_DREAM_PLAZA_NAME_TO_SEED.set(normalizeStoreNameKey(alt), seed);
+  });
+});
+
+export function isPermanentDreamPlazaStore(
+  storeOrId: StoreListingItem | string | null | undefined
+): boolean {
+  if (!storeOrId) return false;
+  if (typeof storeOrId === 'string') {
+    return PERMANENT_DREAM_PLAZA_IDS.has(storeOrId.trim());
+  }
+  if (storeOrId.id && PERMANENT_DREAM_PLAZA_IDS.has(String(storeOrId.id).trim())) {
+    return true;
+  }
+  const nameKey = normalizeStoreNameKey(storeOrId.name);
+  if (nameKey && PERMANENT_DREAM_PLAZA_NAME_TO_SEED.has(nameKey)) {
+    return true;
+  }
+  return false;
+}
+
+export const INITIAL_STORES: StoreListingItem[] = PERMANENT_DREAM_PLAZA_STORES;
 
 export const INITIAL_SERVICE_NUMBERS: ServicePhoneEntry[] = [];
 
@@ -323,6 +593,10 @@ function saveStoreImagesVault(stores: StoreListingItem[]) {
     );
     if (realImgs.length > 0) {
       vault[st.id] = realImgs;
+      const nameKey = normalizeStoreNameKey(st.name);
+      if (nameKey) {
+        vault[`name:${nameKey}`] = realImgs;
+      }
       changed = true;
     } else if (st.imagesExplicitlyCleared && vault[st.id]) {
       delete vault[st.id];
@@ -353,10 +627,94 @@ export function stripGeneratedSvgFromStores(
   stores: StoreListingItem[] | undefined
 ): StoreListingItem[] {
   if (!Array.isArray(stores)) return [];
-  return stores.map((st) => ({
+  return stores.map((st, idx) => ({
     ...st,
+    id: ensureValidStoreId(st, idx),
+    category: canonicalizeStoreCategoryName(st.category),
     menuImages: getRealUploadedStoreImagesOnly(st.menuImages),
   }));
+}
+
+function canonicalizeStoreCategoryName(rawCategory?: string): string {
+  const trimmed = String(rawCategory || '').trim();
+  if (!trimmed) return DREAM_PLAZA_CANONICAL_CATEGORY;
+  if (
+    normalizeCategoryString(trimmed) ===
+    normalizeCategoryString(DREAM_PLAZA_CANONICAL_CATEGORY)
+  ) {
+    return DREAM_PLAZA_CANONICAL_CATEGORY;
+  }
+  const matchedDefault = DEFAULT_STORE_CATEGORIES.find(
+    (defCat) => normalizeCategoryString(defCat) === normalizeCategoryString(trimmed)
+  );
+  return matchedDefault || trimmed;
+}
+
+function ensureValidStoreId(
+  store: Partial<StoreListingItem> | null | undefined,
+  fallbackIndex = 0
+): string {
+  if (!store) return `store-fallback-${fallbackIndex}`;
+  const rawNameKey = normalizeStoreNameKey(store.name);
+  if (rawNameKey && PERMANENT_DREAM_PLAZA_NAME_TO_SEED.has(rawNameKey)) {
+    return PERMANENT_DREAM_PLAZA_NAME_TO_SEED.get(rawNameKey)!.id;
+  }
+  if (typeof store.id === 'string' && store.id.trim().length > 0) {
+    return store.id.trim();
+  }
+  if (rawNameKey) {
+    const phoneDigits = String(store.phone || '').replace(/[^0-9]/g, '');
+    return `st-auto-${rawNameKey.replace(/\s+/g, '-')}-${phoneDigits || fallbackIndex}`;
+  }
+  return `store-fallback-${fallbackIndex}`;
+}
+
+function ensureStoreListHasIds(
+  list: StoreListingItem[] | undefined
+): StoreListingItem[] {
+  if (!Array.isArray(list)) return [];
+  const byId = new Map<string, StoreListingItem>();
+  list.forEach((rawItem, idx) => {
+    if (!rawItem || typeof rawItem !== 'object') return;
+    const id = ensureValidStoreId(rawItem, idx);
+    const normalizedItem: StoreListingItem = {
+      ...rawItem,
+      id,
+      name: String(rawItem.name || '').trim(),
+      category: canonicalizeStoreCategoryName(rawItem.category),
+    };
+    const existing = byId.get(id);
+    if (!existing) {
+      byId.set(id, normalizedItem);
+    } else {
+      const existingRealImgs = getRealUploadedStoreImagesOnly(existing.menuImages);
+      const nextRealImgs = getRealUploadedStoreImagesOnly(normalizedItem.menuImages);
+      const mergedImgs =
+        nextRealImgs.length > 0
+          ? nextRealImgs
+          : existingRealImgs.length > 0
+          ? existingRealImgs
+          : normalizedItem.menuImages || existing.menuImages || [];
+      byId.set(id, {
+        ...existing,
+        ...normalizedItem,
+        menuImages: mergedImgs,
+        likes: Array.from(
+          new Set([...(existing.likes || []), ...(normalizedItem.likes || [])])
+        ),
+        dislikes: Array.from(
+          new Set([...(existing.dislikes || []), ...(normalizedItem.dislikes || [])])
+        ),
+        ratings: { ...(existing.ratings || {}), ...(normalizedItem.ratings || {}) },
+        viewsCount: Math.max(existing.viewsCount || 0, normalizedItem.viewsCount || 0),
+        comments: mergeCollectionById(
+          existing.comments || [],
+          normalizedItem.comments || []
+        ),
+      });
+    }
+  });
+  return Array.from(byId.values());
 }
 
 export function mergeStoresWithImages(
@@ -365,22 +723,30 @@ export function mergeStoresWithImages(
   deletedIds?: string[],
   authoritativeCloud = false
 ): StoreListingItem[] {
+  const safeBaseList = ensureStoreListHasIds(baseList);
+  const safeIncomingList = ensureStoreListHasIds(incomingList);
+  const nonPermanentDeletedIds = (deletedIds || []).filter(
+    (id) => !PERMANENT_DREAM_PLAZA_IDS.has(id)
+  );
   const merged = mergeCollectionById(
-    baseList,
-    incomingList,
-    deletedIds,
+    safeBaseList,
+    safeIncomingList,
+    nonPermanentDeletedIds,
     authoritativeCloud
   );
   const vault = loadStoreImagesVault();
   return normalizeStoresList(
     merged.map((st) => {
-      const prevSt = (baseList || []).find((x) => x && x.id === st.id);
-      const incSt = (incomingList || []).find((x) => x && x.id === st.id);
+      const prevSt = safeBaseList.find((x) => x && x.id === st.id);
+      const incSt = safeIncomingList.find((x) => x && x.id === st.id);
       if (!prevSt && !incSt) return st;
 
+      const nameKey = normalizeStoreNameKey(st.name || incSt?.name || prevSt?.name);
       const prevRealImgs = getRealUploadedStoreImagesOnly(prevSt?.menuImages);
       const incRealImgs = getRealUploadedStoreImagesOnly(incSt?.menuImages);
-      const vaultRealImgs = getRealUploadedStoreImagesOnly(vault[st.id]);
+      const vaultRealImgs = getRealUploadedStoreImagesOnly(
+        vault[st.id] || (nameKey ? vault[`name:${nameKey}`] : undefined)
+      );
 
       const prevHasReal = prevRealImgs.length > 0;
       const incHasReal = incRealImgs.length > 0;
@@ -421,6 +787,10 @@ export function mergeStoresWithImages(
       return {
         ...st,
         ...baseMerged,
+        id: st.id,
+        category: isPermanentDreamPlazaStore(st)
+          ? DREAM_PLAZA_CANONICAL_CATEGORY
+          : canonicalizeStoreCategoryName(baseMerged.category || st.category),
         menuImages: resolvedImages,
         updatedAt: Math.max(prevUpdated, incUpdated) || st.updatedAt,
         imagesExplicitlyCleared: explicitlyCleared && resolvedImages.length === 0,
@@ -439,7 +809,7 @@ export function mergeStoresWithImages(
         comments: mergeCollectionById(
           prevSt?.comments || [],
           incSt?.comments || [],
-          deletedIds
+          nonPermanentDeletedIds
         ),
       };
     })
@@ -448,7 +818,53 @@ export function mergeStoresWithImages(
 
 function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] {
   const vault = loadStoreImagesVault();
-  return rawStores.map((s) => {
+  const ensuredInput = ensureStoreListHasIds(rawStores);
+
+  // Ensure all 24 permanent Dream Plaza stores are always present, merged with any existing data/photos
+  const byId = new Map<string, StoreListingItem>();
+  ensuredInput.forEach((st) => {
+    byId.set(st.id, st);
+  });
+
+  const combinedList: StoreListingItem[] = [];
+  const addedIds = new Set<string>();
+
+  // 1. Add non-permanent stores in their current order first (so newly added stores appear at top)
+  for (const st of ensuredInput) {
+    if (!PERMANENT_DREAM_PLAZA_IDS.has(st.id) && !addedIds.has(st.id)) {
+      combinedList.push(st);
+      addedIds.add(st.id);
+    }
+  }
+
+  // 2. Always include all 24 permanent Dream Plaza stores (merging any user edits/photos/interactions)
+  for (const permStore of PERMANENT_DREAM_PLAZA_STORES) {
+    const existingPerm = byId.get(permStore.id);
+    if (existingPerm) {
+      combinedList.push({
+        ...permStore,
+        ...existingPerm,
+        id: permStore.id,
+        name: existingPerm.name?.trim() || permStore.name,
+        category: DREAM_PLAZA_CANONICAL_CATEGORY,
+        phone: existingPerm.phone?.trim() || permStore.phone,
+        details: existingPerm.details?.trim() || permStore.details,
+        subCategory: existingPerm.subCategory?.trim() || permStore.subCategory,
+      });
+    } else {
+      combinedList.push(permStore);
+    }
+    addedIds.add(permStore.id);
+  }
+
+  return combinedList.map((s, idx) => {
+    const ensuredId = ensureValidStoreId(s, idx);
+    const cleanName = String(s.name || '').trim() || `محل #${idx + 1}`;
+    const cleanCategory = isPermanentDreamPlazaStore(s)
+      ? DREAM_PLAZA_CANONICAL_CATEGORY
+      : canonicalizeStoreCategoryName(s.category);
+    const nameKey = normalizeStoreNameKey(cleanName);
+
     const candidateImages =
       Array.isArray(s.menuImages) && s.menuImages.length > 0
         ? s.menuImages
@@ -456,46 +872,62 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
         ? (s as unknown as { images: string[] }).images
         : [];
 
-    const vaultImgs = vault[s.id] || [];
-    const rawImages =
-      hasRealUploadedStoreImages(candidateImages)
-        ? candidateImages
-        : !s.imagesExplicitlyCleared && hasRealUploadedStoreImages(vaultImgs)
-        ? vaultImgs
-        : candidateImages.length > 0
-        ? candidateImages
-        : [createSquareAdSvg(s.name, s.category, '#0284C7')];
+    const vaultImgs =
+      vault[ensuredId] || (nameKey ? vault[`name:${nameKey}`] : undefined) || [];
+    const rawImages = hasRealUploadedStoreImages(candidateImages)
+      ? candidateImages
+      : !s.imagesExplicitlyCleared && hasRealUploadedStoreImages(vaultImgs)
+      ? vaultImgs
+      : candidateImages.length > 0
+      ? candidateImages
+      : [createSquareAdSvg(cleanName, cleanCategory, '#0284C7')];
 
-    const upgradedImages = rawImages.map((img, idx) =>
-      idx === 0 && typeof img === 'string' && img.startsWith('data:image/svg+xml')
-        ? createSquareAdSvg(s.name, s.category, '#0284C7')
+    const upgradedImages = rawImages.map((img, i) =>
+      i === 0 && typeof img === 'string' && img.startsWith('data:image/svg+xml')
+        ? createSquareAdSvg(cleanName, cleanCategory, '#0284C7')
         : img
     );
 
-    if (hasRealUploadedStoreImages(upgradedImages) && s.id) {
-      inMemoryStoreImagesVault[s.id] = upgradedImages.filter(
+    if (hasRealUploadedStoreImages(upgradedImages) && ensuredId) {
+      const realOnly = upgradedImages.filter(
         (img) =>
           typeof img === 'string' &&
           img.trim().length > 0 &&
           !img.startsWith('data:image/svg+xml')
       );
+      inMemoryStoreImagesVault[ensuredId] = realOnly;
+      if (nameKey) {
+        inMemoryStoreImagesVault[`name:${nameKey}`] = realOnly;
+      }
     }
 
     const hasResetV2 = Boolean(s.ratingsResetV2);
     const cleanRatings =
       hasResetV2 && s.ratings && typeof s.ratings === 'object' ? s.ratings : {};
     const cleanComments = Array.isArray(s.comments)
-      ? s.comments.map((c) => ({
+      ? s.comments.map((c, cIdx) => ({
           ...c,
+          id: c.id || `st-cmt-${ensuredId}-${cIdx}`,
           rating: hasResetV2 && typeof c.rating === 'number' ? c.rating : 0,
         }))
       : [];
 
     return {
       ...s,
+      id: ensuredId,
+      name: cleanName,
+      category: cleanCategory,
       subCategory: s.subCategory ? s.subCategory.trim() : undefined,
       locationUrl: s.locationUrl || 'https://maps.google.com',
-      details: s.details || (s as unknown as { description?: string }).description || '',
+      phone: String(s.phone || '').trim() || '01000000000',
+      whatsapp:
+        String(s.whatsapp || s.phone || '')
+          .split('-')[0]
+          .replace(/[^0-9]/g, '') || '01000000000',
+      details:
+        s.details ||
+        (s as unknown as { description?: string }).description ||
+        '',
       menuImages: upgradedImages,
       likes: Array.isArray(s.likes) ? s.likes : [],
       dislikes: Array.isArray(s.dislikes) ? s.dislikes : [],
@@ -503,21 +935,24 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
       ratingsResetV2: true,
       comments: cleanComments,
       viewsCount: typeof s.viewsCount === 'number' ? s.viewsCount : 0,
+      approved: s.approved !== false,
+      createdAt: s.createdAt || new Date().toISOString(),
     };
   });
 }
 
 function normalizeServiceNumbersList(rawList: ServicePhoneEntry[]): ServicePhoneEntry[] {
-  return rawList.map((n) => ({
+  return rawList.map((n, idx) => ({
     ...n,
+    id: n.id && String(n.id).trim() ? String(n.id).trim() : `srv-auto-${idx}`,
     locationUrl: n.locationUrl || 'https://maps.google.com',
-    category: n.category || n.profession || 'خدمات عامة',
+    category: (n.category || n.profession || 'خدمات عامة').trim(),
     likes: Array.isArray(n.likes) ? n.likes : [],
     viewsCount: typeof n.viewsCount === 'number' ? n.viewsCount : 0,
     ratings: n.ratings && typeof n.ratings === 'object' ? n.ratings : {},
     comments: Array.isArray(n.comments)
-      ? n.comments.map((c, idx) => ({
-          id: c.id || `srv-cmt-${idx}`,
+      ? n.comments.map((c, cIdx) => ({
+          id: c.id || `srv-cmt-${cIdx}`,
           authorId: c.authorId || 'guest',
           authorUsername: c.authorUsername || 'زائر',
           rating: typeof c.rating === 'number' ? c.rating : 0,
@@ -533,6 +968,7 @@ function normalizeServiceNumbersList(rawList: ServicePhoneEntry[]): ServicePhone
 function normalizeTawsilaList(rawList: TawsilaRideItem[]): TawsilaRideItem[] {
   return rawList.map((r, idx) => ({
     ...r,
+    id: r.id && String(r.id).trim() ? String(r.id).trim() : `taw-auto-${idx}`,
     nationalId: r.nationalId || '',
     criminalRecordImageUrl: r.criminalRecordImageUrl || '',
     adminApproved: r.adminApproved !== undefined ? r.adminApproved : true,
@@ -547,8 +983,9 @@ function normalizeTawsilaList(rawList: TawsilaRideItem[]): TawsilaRideItem[] {
 }
 
 function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPostItem[] {
-  return rawList.map((p) => ({
+  return rawList.map((p, idx) => ({
     ...p,
+    id: p.id && String(p.id).trim() ? String(p.id).trim() : `post-auto-${idx}`,
     postType: p.postType || 'استفسار',
     status: p.status || 'approved',
     isPinned: Boolean(p.isPinned),
@@ -653,16 +1090,33 @@ function mergeCollectionById<T extends { id: string }>(
   authoritativeCloud = false
 ): T[] {
   const deletedSet = new Set(deletedIds || []);
+  const ensureItemId = (item: T, idx: number, prefix: string): T => {
+    if (item && typeof item.id === 'string' && item.id.trim().length > 0) {
+      return item;
+    }
+    return {
+      ...item,
+      id: `${prefix}-fallback-${idx}`,
+    };
+  };
+
   const safeBase = Array.isArray(baseList)
-    ? baseList.filter((item) => item && item.id && !deletedSet.has(item.id))
+    ? baseList
+        .filter((item) => Boolean(item && typeof item === 'object'))
+        .map((item, idx) => ensureItemId(item, idx, 'base'))
+        .filter((item) => !deletedSet.has(item.id))
     : [];
+
   if (!Array.isArray(incomingList)) {
     return safeBase;
   }
-  const safeIncoming = incomingList.filter(
-    (item) => item && item.id && !deletedSet.has(item.id)
-  );
-  if (safeIncoming.length === 0 && safeBase.length > 0 && !authoritativeCloud) {
+
+  const safeIncoming = incomingList
+    .filter((item) => Boolean(item && typeof item === 'object'))
+    .map((item, idx) => ensureItemId(item, idx, 'inc'))
+    .filter((item) => !deletedSet.has(item.id));
+
+  if (safeIncoming.length === 0 && safeBase.length > 0) {
     return safeBase;
   }
 
@@ -671,6 +1125,7 @@ function mergeCollectionById<T extends { id: string }>(
 
   // Keep incoming order for items present in incoming, merged with base fields respecting updatedAt
   for (const inc of safeIncoming) {
+    if (seenIds.has(inc.id)) continue;
     const existing = safeBase.find((b) => b.id === inc.id);
     if (!existing) {
       result.push(inc);
@@ -689,26 +1144,11 @@ function mergeCollectionById<T extends { id: string }>(
     seenIds.add(inc.id);
   }
 
-  // Preserve local items in baseList that were not in incomingList if not deleted
-  // When authoritativeCloud is true and safeIncoming is non-empty, only keep local items created/updated within the last 30s (in-flight writes)
-  const nowMs = Date.now();
+  // Safely preserve any non-deleted items in safeBase that were not yet in safeIncoming
   for (const loc of safeBase) {
     if (!seenIds.has(loc.id) && !deletedSet.has(loc.id)) {
-      if (authoritativeCloud && safeIncoming.length > 0) {
-        const locTs =
-          parseItemTimestampMs((loc as unknown as { updatedAt?: unknown }).updatedAt) ||
-          parseItemTimestampMs((loc as unknown as { createdAt?: unknown }).createdAt);
-        if (locTs > 0 && nowMs - locTs <= 30000) {
-          result.unshift(loc);
-          seenIds.add(loc.id);
-        } else if (!locTs) {
-          result.push(loc);
-          seenIds.add(loc.id);
-        }
-      } else {
-        result.unshift(loc);
-        seenIds.add(loc.id);
-      }
+      result.push(loc);
+      seenIds.add(loc.id);
     }
   }
 
@@ -1347,13 +1787,41 @@ class HybridStorageEngine {
   private lastChatVersion = 0;
   private deferredSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private latestState: PlatformDatabaseState | null = null;
+  private isCloudHydrated = false;
+  private hasSyncedPermanentDreamPlazaToCloud = false;
+  private overflowStoreImagesChunk1: Record<string, string[]> = {};
+  private overflowStoreImagesChunk2: Record<string, string[]> = {};
   private listeners: Array<(state: PlatformDatabaseState) => void> = [];
+  private cloudWriteErrorListeners: Array<(message: string) => void> = [];
   private connectionStatusListeners: Array<
     (status: 'local' | 'firebase_connected' | 'firebase_error', message?: string) => void
   > = [];
   private currentStatus: 'local' | 'firebase_connected' | 'firebase_error' = 'local';
   private currentMessage: string =
     'يعمل بنظام المزامنة اللحظية السحابية (Firebase Realtime Sync)';
+
+  public isHydratedFromCloud(): boolean {
+    return this.isCloudHydrated;
+  }
+
+  public subscribeCloudWriteError(listener: (message: string) => void) {
+    this.cloudWriteErrorListeners.push(listener);
+    return () => {
+      this.cloudWriteErrorListeners = this.cloudWriteErrorListeners.filter(
+        (l) => l !== listener
+      );
+    };
+  }
+
+  private notifyCloudWriteError(message: string) {
+    this.cloudWriteErrorListeners.forEach((cb) => {
+      try {
+        cb(message);
+      } catch {
+        // ignore listener error
+      }
+    });
+  }
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -1397,8 +1865,17 @@ class HybridStorageEngine {
     }
   }
 
+  private isFirebaseConfiguredAndEnabled(): boolean {
+    const st = this.latestState || this.loadLocalState();
+    const fb = st?.settings?.firebase;
+    return Boolean(fb && fb.enabled && fb.apiKey && fb.projectId);
+  }
+
   public async pullLatestDeltaNow() {
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return;
+    // Wait for initial Firebase onSnapshot response first when Firebase is enabled
+    const waitForFirebaseFirst =
+      this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated;
     try {
       const [stateRes, chatRes] = await Promise.all([
         fetch(`/api/realtime/state?t=${Date.now()}`, { cache: 'no-store' }).catch(
@@ -1414,7 +1891,12 @@ class HybridStorageEngine {
         if (sData && sData.onlineStats && typeof sData.onlineStats.totalOnline === 'number') {
           updateLatestServerOnlineStats(sData.onlineStats);
         }
-        if (sData && sData.state && typeof sData.state === 'object') {
+        if (
+          !waitForFirebaseFirst &&
+          sData &&
+          sData.state &&
+          typeof sData.state === 'object'
+        ) {
           this.applyIncomingRemoteState(sData.state as Record<string, unknown>);
         }
       }
@@ -1426,7 +1908,7 @@ class HybridStorageEngine {
         if (data && data.onlineStats && typeof data.onlineStats.totalOnline === 'number') {
           updateLatestServerOnlineStats(data.onlineStats);
         }
-        if (data && data.changed && data.chatPatch) {
+        if (!waitForFirebaseFirst && data && data.changed && data.chatPatch) {
           this.applyIncomingFastChatPatch(data.chatPatch);
         }
       }
@@ -2230,6 +2712,58 @@ class HybridStorageEngine {
     this.notifyData(mergedState);
   }
 
+  private enrichStoresWithOverflowChunks(stores: StoreListingItem[]): StoreListingItem[] {
+    const combinedOverflow: Record<string, string[]> = {};
+    for (const map of [this.overflowStoreImagesChunk1, this.overflowStoreImagesChunk2]) {
+      for (const [stId, imgs] of Object.entries(map || {})) {
+        if (Array.isArray(imgs) && imgs.length > 0) {
+          const prev = combinedOverflow[stId] || [];
+          combinedOverflow[stId] = Array.from(new Set([...prev, ...imgs]));
+        }
+      }
+    }
+    if (Object.keys(combinedOverflow).length === 0) return stores;
+    return stores.map((st) => {
+      const extraImgs = combinedOverflow[st.id];
+      if (!extraImgs || extraImgs.length === 0 || st.imagesExplicitlyCleared) {
+        return st;
+      }
+      const existingReal = getRealUploadedStoreImagesOnly(st.menuImages);
+      const mergedReal = Array.from(new Set([...existingReal, ...extraImgs]));
+      if (mergedReal.length === existingReal.length) return st;
+      return {
+        ...st,
+        menuImages: mergedReal,
+      };
+    });
+  }
+
+  private applySectionStoresOverflowSnapshot(
+    data: Record<string, unknown>,
+    chunkIndex: 1 | 2
+  ) {
+    if (!data || typeof data !== 'object') return;
+    const rawMap =
+      data.imagesByStoreId && typeof data.imagesByStoreId === 'object'
+        ? (data.imagesByStoreId as Record<string, string[]>)
+        : {};
+    if (chunkIndex === 1) {
+      this.overflowStoreImagesChunk1 = rawMap;
+    } else {
+      this.overflowStoreImagesChunk2 = rawMap;
+    }
+    const base = this.latestState || this.loadLocalState();
+    const enrichedStores = normalizeStoresList(
+      this.enrichStoresWithOverflowChunks(base.stores)
+    );
+    const nextState: PlatformDatabaseState = {
+      ...base,
+      stores: enrichedStores,
+    };
+    this.notifyData(nextState);
+    this.scheduleDeferredLocalSave(nextState);
+  }
+
   private applySectionStoresSnapshot(data: Record<string, unknown>) {
     if (!data || typeof data !== 'object') return;
     const base = this.latestState || this.loadLocalState();
@@ -2241,14 +2775,16 @@ class HybridStorageEngine {
     );
     const mergedStores = Array.isArray(data.stores)
       ? normalizeStoresList(
-          mergeStoresWithImages(
-            base.stores,
-            data.stores as StoreListingItem[],
-            mergedDeletedIds,
-            true
+          this.enrichStoresWithOverflowChunks(
+            mergeStoresWithImages(
+              base.stores,
+              data.stores as StoreListingItem[],
+              mergedDeletedIds,
+              true
+            )
           )
         )
-      : base.stores;
+      : normalizeStoresList(this.enrichStoresWithOverflowChunks(base.stores));
     const updatedCategories = Array.isArray(data.storeCategories)
       ? ensureStoreCategoriesWithDreamPlaza(data.storeCategories as string[])
       : base.settings.storeCategories;
@@ -2691,6 +3227,7 @@ class HybridStorageEngine {
             updateLatestServerOnlineStats(data.onlineStats);
           }
           if (
+            !(this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated) &&
             data &&
             data.changed &&
             data.chatPatch &&
@@ -2719,6 +3256,7 @@ class HybridStorageEngine {
             this.lastChatVersion = parsed.version;
           }
           if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
+          if (this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated) return;
           if (parsed.state) {
             this.applyIncomingRemoteState(parsed.state);
           }
@@ -2737,6 +3275,7 @@ class HybridStorageEngine {
             updateLatestServerOnlineStats(parsed.onlineStats);
           }
           if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
+          if (this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated) return;
           if (parsed.chatPatch) {
             this.applyIncomingFastChatPatch(parsed.chatPatch);
           }
@@ -2787,6 +3326,7 @@ class HybridStorageEngine {
     }
 
     if (!firebaseConfig.enabled || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
+      this.isCloudHydrated = true;
       this.notifyStatus(
         'local',
         'التخزين المؤقت المحلي نشط (Offline Cache)'
@@ -2873,6 +3413,7 @@ class HybridStorageEngine {
         this.unsubscribeSnapshot = onValue(
           stateRef,
           (snapshot) => {
+            this.isCloudHydrated = true;
             const remoteData = snapshot.val();
             if (remoteData) {
               this.applyIncomingRemoteState(remoteData);
@@ -2889,6 +3430,7 @@ class HybridStorageEngine {
             this.notifyStatus('firebase_connected', 'التسجيل السحابي نشط (Realtime DB)');
           },
           (error) => {
+            this.isCloudHydrated = true;
             this.notifyStatus(
               'firebase_error',
               `تعذر المزامنة مع Realtime DB: ${error.message}`
@@ -2921,6 +3463,16 @@ class HybridStorageEngine {
           'live_chat_realtime'
         );
         const storesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_stores');
+        const storesOverflow1DocRef = doc(
+          this.firestoreDb,
+          'fluent_portal_v3',
+          'section_stores_overflow'
+        );
+        const storesOverflow2DocRef = doc(
+          this.firestoreDb,
+          'fluent_portal_v3',
+          'section_stores_overflow_2'
+        );
         const servicesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_services');
         const communityDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_community');
         const adsDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_ads');
@@ -2931,16 +3483,74 @@ class HybridStorageEngine {
           'section_settings_users'
         );
 
+        // Section 1A & 1B Realtime Listeners: Overflow Store Images Chunks
+        this.sectionUnsubscribers.push(
+          onSnapshot(
+            storesOverflow1DocRef,
+            (snapshot) => {
+              if (snapshot.exists()) {
+                this.applySectionStoresOverflowSnapshot(snapshot.data(), 1);
+              }
+            },
+            () => {}
+          ),
+          onSnapshot(
+            storesOverflow2DocRef,
+            (snapshot) => {
+              if (snapshot.exists()) {
+                this.applySectionStoresOverflowSnapshot(snapshot.data(), 2);
+              }
+            },
+            () => {}
+          )
+        );
+
         // Section 1 Realtime Listener: المحلات والدليل (Stores & Categories)
         this.sectionUnsubscribers.push(
           onSnapshot(
             storesDocRef,
             (snapshot) => {
+              this.isCloudHydrated = true;
               if (snapshot.exists()) {
-                this.applySectionStoresSnapshot(snapshot.data());
+                const snapData = snapshot.data();
+                this.applySectionStoresSnapshot(snapData);
+                // Ensure the 24 permanent Dream Plaza stores are saved in Firestore section_stores so all devices see them
+                if (!this.hasSyncedPermanentDreamPlazaToCloud) {
+                  this.hasSyncedPermanentDreamPlazaToCloud = true;
+                  const remoteStoresList = Array.isArray(snapData?.stores)
+                    ? (snapData.stores as StoreListingItem[])
+                    : [];
+                  const remoteIds = new Set(
+                    remoteStoresList.map((s) => s?.id).filter(Boolean)
+                  );
+                  const missingPermanent = PERMANENT_DREAM_PLAZA_STORES.some(
+                    (perm) => !remoteIds.has(perm.id)
+                  );
+                  if (missingPermanent && this.latestState) {
+                    this.writeStoresToFirestoreSafe(
+                      this.latestState.stores,
+                      this.latestState.settings.storeCategories,
+                      this.latestState.deletedRecordIds || [],
+                      getOrCreateTabSessionId(),
+                      new Date().toISOString()
+                    ).catch(() => {});
+                  }
+                }
+              } else if (!this.hasSyncedPermanentDreamPlazaToCloud) {
+                this.hasSyncedPermanentDreamPlazaToCloud = true;
+                const baseState = this.latestState || currentState;
+                this.writeStoresToFirestoreSafe(
+                  baseState.stores,
+                  baseState.settings.storeCategories,
+                  baseState.deletedRecordIds || [],
+                  getOrCreateTabSessionId(),
+                  new Date().toISOString()
+                ).catch(() => {});
               }
             },
-            () => {}
+            () => {
+              this.isCloudHydrated = true;
+            }
           )
         );
 
@@ -3027,6 +3637,7 @@ class HybridStorageEngine {
         this.unsubscribeSnapshot = onSnapshot(
           docRef,
           (snapshot) => {
+            this.isCloudHydrated = true;
             if (snapshot.exists()) {
               const remoteData = snapshot.data();
               if (remoteData) {
@@ -3036,7 +3647,12 @@ class HybridStorageEngine {
               const baseState = this.latestState || currentState;
               const cleanPayload = sanitizeForFirebase({
                 ...baseState,
-                stores: stripGeneratedSvgFromStores(baseState.stores || []),
+                stores: stripGeneratedSvgFromStores(baseState.stores || []).map((st) => ({
+                  ...st,
+                  menuImages: (st.menuImages || []).filter(
+                    (img) => typeof img === 'string' && !img.startsWith('data:image/')
+                  ),
+                })),
                 senderTabId: getOrCreateTabSessionId(),
                 updatedAt: new Date().toISOString(),
               });
@@ -3048,6 +3664,7 @@ class HybridStorageEngine {
             }
           },
           (error) => {
+            this.isCloudHydrated = true;
             this.notifyStatus(
               'firebase_error',
               `تعذر الاتصال بـ Firestore: ${error.message}`
@@ -3056,9 +3673,117 @@ class HybridStorageEngine {
         );
       }
     } catch (err: unknown) {
+      this.isCloudHydrated = true;
       const msg = err instanceof Error ? err.message : 'خطأ في إعدادات Firebase';
       this.notifyStatus('firebase_error', `خطأ في تهيئة Firebase: ${msg}`);
     }
+  }
+
+  private async writeStoresToFirestoreSafe(
+    storesList: StoreListingItem[],
+    storeCategories: string[],
+    deletedRecordIds: string[],
+    tabId: string,
+    nowIso: string
+  ): Promise<void> {
+    if (!this.firestoreDb) return;
+    const storesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_stores');
+    const overflow1Ref = doc(this.firestoreDb, 'fluent_portal_v3', 'section_stores_overflow');
+    const overflow2Ref = doc(
+      this.firestoreDb,
+      'fluent_portal_v3',
+      'section_stores_overflow_2'
+    );
+
+    const compactCloudStores = stripGeneratedSvgFromStores(
+      ensureStoreListHasIds(storesList || [])
+    );
+    const fullStoresPayload = sanitizeForFirebase({
+      stores: compactCloudStores,
+      storeCategories: ensureStoreCategoriesWithDreamPlaza(storeCategories),
+      deletedRecordIds: deletedRecordIds || [],
+      senderTabId: tabId,
+      updatedAt: nowIso,
+    });
+
+    const serializedLength = JSON.stringify(fullStoresPayload).length;
+    if (serializedLength < 820000) {
+      try {
+        await setDoc(storesDocRef, fullStoresPayload);
+        return;
+      } catch {
+        // Fallback to chunked image splitting below if Firestore rejects payload size
+      }
+    }
+
+    // Split heavy base64 images into overflow documents so section_stores stays well below Firestore's 1MB limit
+    const chunk1Map: Record<string, string[]> = {};
+    const chunk2Map: Record<string, string[]> = {};
+    let chunk1Bytes = 0;
+
+    const lightStores = compactCloudStores.map((st) => {
+      const imgs = getRealUploadedStoreImagesOnly(st.menuImages);
+      if (imgs.length === 0) return { ...st, menuImages: [] };
+
+      const inlineUrls: string[] = [];
+      const overflowBase64: string[] = [];
+
+      imgs.forEach((img, i) => {
+        if (!img.startsWith('data:image/') || (i === 0 && img.length < 45000)) {
+          inlineUrls.push(img);
+        } else {
+          overflowBase64.push(img);
+        }
+      });
+
+      if (overflowBase64.length > 0) {
+        const entrySize = JSON.stringify(overflowBase64).length;
+        if (chunk1Bytes + entrySize < 750000) {
+          chunk1Map[st.id] = overflowBase64;
+          chunk1Bytes += entrySize;
+        } else {
+          chunk2Map[st.id] = overflowBase64;
+        }
+      }
+
+      return {
+        ...st,
+        menuImages: inlineUrls,
+      };
+    });
+
+    const lightStoresPayload = sanitizeForFirebase({
+      stores: lightStores,
+      storeCategories: ensureStoreCategoriesWithDreamPlaza(storeCategories),
+      deletedRecordIds: deletedRecordIds || [],
+      senderTabId: tabId,
+      updatedAt: nowIso,
+    });
+
+    const writes: Promise<unknown>[] = [setDoc(storesDocRef, lightStoresPayload)];
+    if (Object.keys(chunk1Map).length > 0) {
+      writes.push(
+        setDoc(
+          overflow1Ref,
+          sanitizeForFirebase({
+            imagesByStoreId: chunk1Map,
+            updatedAt: nowIso,
+          })
+        )
+      );
+    }
+    if (Object.keys(chunk2Map).length > 0) {
+      writes.push(
+        setDoc(
+          overflow2Ref,
+          sanitizeForFirebase({
+            imagesByStoreId: chunk2Map,
+            updatedAt: nowIso,
+          })
+        )
+      );
+    }
+    await Promise.all(writes);
   }
 
   private buildStoreInteractionsMap(stores: StoreListingItem[]) {
@@ -3087,66 +3812,85 @@ class HybridStorageEngine {
   public async persistState(nextState: PlatformDatabaseState, activeUserId?: string) {
     const tabId = getOrCreateTabSessionId();
     const nowIso = new Date().toISOString();
-    const compactCloudStores = stripGeneratedSvgFromStores(nextState.stores || []);
+    const normalizedNextStores = normalizeStoresList(
+      ensureStoreListHasIds(nextState.stores || [])
+    );
+    const normalizedNextState: PlatformDatabaseState = {
+      ...nextState,
+      stores: normalizedNextStores,
+      settings: {
+        ...nextState.settings,
+        storeCategories: ensureStoreCategoriesWithDreamPlaza(
+          nextState.settings.storeCategories
+        ),
+      },
+    };
+    const compactCloudStores = stripGeneratedSvgFromStores(normalizedNextStores);
 
     // Update local React state and offline cache
-    this.saveLocalState(nextState, activeUserId);
-    this.notifyData(nextState);
+    this.saveLocalState(normalizedNextState, activeUserId);
+    this.notifyData(normalizedNextState);
 
     const sectionStoresPayload = sanitizeForFirebase({
       stores: compactCloudStores,
-      storeCategories: ensureStoreCategoriesWithDreamPlaza(nextState.settings.storeCategories),
-      deletedRecordIds: nextState.deletedRecordIds || [],
+      storeCategories: ensureStoreCategoriesWithDreamPlaza(
+        normalizedNextState.settings.storeCategories
+      ),
+      deletedRecordIds: normalizedNextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: nowIso,
     });
 
     const sectionServicesPayload = sanitizeForFirebase({
-      serviceNumbers: normalizeServiceNumbersList(nextState.serviceNumbers || []),
-      serviceProfessions: ensureServiceProfessionsList(nextState.settings.serviceProfessions),
-      deletedRecordIds: nextState.deletedRecordIds || [],
+      serviceNumbers: normalizeServiceNumbersList(normalizedNextState.serviceNumbers || []),
+      serviceProfessions: ensureServiceProfessionsList(
+        normalizedNextState.settings.serviceProfessions
+      ),
+      deletedRecordIds: normalizedNextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: nowIso,
     });
 
     const sectionCommunityPayload = sanitizeForFirebase({
-      communityPosts: nextState.communityPosts || [],
-      buySellPosts: nextState.buySellPosts || [],
-      utilityPosts: nextState.utilityPosts || [],
-      utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),
-      deletedRecordIds: nextState.deletedRecordIds || [],
+      communityPosts: normalizedNextState.communityPosts || [],
+      buySellPosts: normalizedNextState.buySellPosts || [],
+      utilityPosts: normalizedNextState.utilityPosts || [],
+      utilitySubmissions: normalizeUtilitySubmissionsList(
+        normalizedNextState.utilitySubmissions
+      ),
+      deletedRecordIds: normalizedNextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: nowIso,
     });
 
     const sectionAdsPayload = sanitizeForFirebase({
-      topBanners: nextState.topBanners || [],
-      squareAds: nextState.squareAds || [],
-      popupAd: nextState.popupAd,
-      adPackagesPricing: nextState.settings.adPackagesPricing,
-      deletedRecordIds: nextState.deletedRecordIds || [],
+      topBanners: normalizedNextState.topBanners || [],
+      squareAds: normalizedNextState.squareAds || [],
+      popupAd: normalizedNextState.popupAd,
+      adPackagesPricing: normalizedNextState.settings.adPackagesPricing,
+      deletedRecordIds: normalizedNextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: nowIso,
     });
 
     const sectionTawsilaPayload = sanitizeForFirebase({
-      tawsilaRides: normalizeTawsilaList(nextState.tawsilaRides || []),
-      deletedRecordIds: nextState.deletedRecordIds || [],
+      tawsilaRides: normalizeTawsilaList(normalizedNextState.tawsilaRides || []),
+      deletedRecordIds: normalizedNextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: nowIso,
     });
 
     const sectionSettingsUsersPayload = sanitizeForFirebase({
-      users: nextState.users || [],
-      messages: nextState.messages || [],
-      settings: nextState.settings,
-      deletedRecordIds: nextState.deletedRecordIds || [],
+      users: normalizedNextState.users || [],
+      messages: normalizedNextState.messages || [],
+      settings: normalizedNextState.settings,
+      deletedRecordIds: normalizedNextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: nowIso,
     });
 
     const cleanFullPayload = sanitizeForFirebase({
-      ...nextState,
+      ...normalizedNextState,
       stores: compactCloudStores,
       senderTabId: tabId,
       updatedAt: nowIso,
@@ -3165,12 +3909,12 @@ class HybridStorageEngine {
 
     // If currently offline, queue state in Offline Cache for automatic sync when internet returns
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      this.markPendingOfflineSync(nextState);
+      this.markPendingOfflineSync(normalizedNextState);
       return;
     }
 
     // 2. Write directly to Firebase servers first so onSnapshot/onValue listeners update all connected users immediately
-    const fb = nextState.settings.firebase;
+    const fb = normalizedNextState.settings.firebase;
     const firebaseWritePromises: Promise<unknown>[] = [];
 
     if (fb.enabled && fb.apiKey && fb.projectId) {
@@ -3185,7 +3929,6 @@ class HybridStorageEngine {
           set(ref(this.realtimeDb, 'fluent_portal_v3/workspace'), cleanFullPayload)
         );
       } else if (this.firestoreDb) {
-        const storesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_stores');
         const servicesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_services');
         const communityDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_community');
         const adsDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_ads');
@@ -3197,23 +3940,42 @@ class HybridStorageEngine {
         );
         const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
 
+        const writeWorkspaceSafe = async () => {
+          const fullStrLen = JSON.stringify(cleanFullPayload).length;
+          if (fullStrLen < 820000) {
+            try {
+              await setDoc(docRef, cleanFullPayload);
+              return;
+            } catch {
+              // fallback below
+            }
+          }
+          const ultraCompactPayload = sanitizeForFirebase({
+            ...cleanFullPayload,
+            stores: compactCloudStores.map((st) => ({
+              ...st,
+              menuImages: (st.menuImages || []).filter(
+                (img) => typeof img === 'string' && !img.startsWith('data:image/')
+              ),
+            })),
+          });
+          await setDoc(docRef, ultraCompactPayload);
+        };
+
         firebaseWritePromises.push(
-          setDoc(storesDocRef, sectionStoresPayload),
+          this.writeStoresToFirestoreSafe(
+            normalizedNextStores,
+            normalizedNextState.settings.storeCategories,
+            normalizedNextState.deletedRecordIds || [],
+            tabId,
+            nowIso
+          ),
           setDoc(servicesDocRef, sectionServicesPayload),
           setDoc(communityDocRef, sectionCommunityPayload),
           setDoc(adsDocRef, sectionAdsPayload),
           setDoc(tawsilaDocRef, sectionTawsilaPayload),
           setDoc(settingsUsersDocRef, sectionSettingsUsersPayload),
-          setDoc(docRef, cleanFullPayload).catch(async () => {
-            const ultraCompactPayload = sanitizeForFirebase({
-              ...cleanFullPayload,
-              stores: compactCloudStores.map((st) => ({
-                ...st,
-                menuImages: (st.menuImages || []).slice(0, 1),
-              })),
-            });
-            await setDoc(docRef, ultraCompactPayload);
-          })
+          writeWorkspaceSafe()
         );
       }
     }
@@ -3237,7 +3999,7 @@ class HybridStorageEngine {
           senderTabId: tabId,
         }),
       }).catch(() => {
-        this.markPendingOfflineSync(nextState);
+        this.markPendingOfflineSync(normalizedNextState);
       });
     }
 
@@ -3246,8 +4008,14 @@ class HybridStorageEngine {
         await Promise.all(firebaseWritePromises);
         this.clearPendingOfflineSyncFlag();
       } catch (error) {
-        this.markPendingOfflineSync(nextState);
-        console.error('Firebase sync write error (queued for auto-sync):', error);
+        this.markPendingOfflineSync(normalizedNextState);
+        const errMsg =
+          error instanceof Error ? error.message : 'تعذر الاتصال بخادم Firebase';
+        console.error('Firebase sync write error:', error);
+        this.notifyCloudWriteError(
+          `فشل الحفظ السحابي في Firebase (${errMsg}). يرجى التحقق من اتصال الإنترنت أو صلاحيات القواعد (Rules).`
+        );
+        throw error;
       }
     }
   }

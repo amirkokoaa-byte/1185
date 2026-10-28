@@ -397,14 +397,13 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     const finalImgs =
       realUploaded.length > 0
         ? realUploaded
-        : stMenuImages.length > 0
-        ? stMenuImages
         : [createSquareAdSvg(stName.trim(), stCategory, '#38BDF8')];
     onUpdateStore({
       ...editingStore,
       name: stName.trim(),
       category: stCategory,
       phone: stPhone.trim(),
+      whatsapp: stPhone.trim().replace(/[^0-9]/g, ''),
       locationUrl: stLocationUrl.trim(),
       details: stDetails.trim(),
       menuImages: finalImgs,
@@ -4373,7 +4372,12 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                   onChange={(e) => setStCategory(e.target.value)}
                   className="w-full rounded-xl bg-[#0A192F] border border-[#334155] px-3 py-2 text-xs text-[#F8FAFC] outline-none"
                 >
-                  {state.settings.storeCategories.map((c) => (
+                  {[
+                    'مول دريم بلازا',
+                    ...state.settings.storeCategories.filter(
+                      (c) => c !== 'مول دريم بلازا'
+                    ),
+                  ].map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -4466,6 +4470,15 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                           if (editingStore) {
                             const updatedStore: StoreListingItem = {
                               ...editingStore,
+                              name: stName.trim() || editingStore.name,
+                              category: stCategory || editingStore.category,
+                              phone: stPhone.trim() || editingStore.phone,
+                              whatsapp: (stPhone.trim() || editingStore.phone).replace(
+                                /[^0-9]/g,
+                                ''
+                              ),
+                              locationUrl: stLocationUrl.trim(),
+                              details: stDetails.trim() || editingStore.details,
                               menuImages: nextImgs,
                               updatedAt: Date.now(),
                               imagesExplicitlyCleared: false,

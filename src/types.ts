@@ -165,6 +165,7 @@ export interface ServicePhoneEntry {
   viewsCount?: number; // عدد المشاهدات لجميع المستخدمين
   ratings?: Record<string, number>; // Map of userId -> 1..5 stars
   comments?: StoreCommentItem[]; // تعليقات وتقييمات العامل / مقدم الخدمة
+  updatedAt?: number | string;
   createdAt: string;
 }
 
@@ -186,6 +187,7 @@ export interface TawsilaRideItem {
   lng: number;
   heading?: number;
   lastLocationUpdate?: string;
+  updatedAt?: number | string;
   createdAt: string; // تاريخ تسجيل الحساب لحساب مهلة الـ 3 أيام
 }
 

@@ -3,6 +3,7 @@ import { getAnalytics, isSupported as isAnalyticsSupported } from 'firebase/anal
 import {
   getFirestore,
   initializeFirestore,
+  enableIndexedDbPersistence,
   persistentLocalCache,
   persistentMultipleTabManager,
   Firestore,
@@ -337,12 +338,38 @@ function saveStoreImagesVault(stores: StoreListingItem[]) {
   }
 }
 
+export function getRealUploadedStoreImagesOnly(images?: string[]): string[] {
+  if (!Array.isArray(images) || images.length === 0) return [];
+  return images.filter(
+    (img) =>
+      typeof img === 'string' &&
+      img.trim().length > 0 &&
+      !img.startsWith('data:image/svg+xml')
+  );
+}
+
+export function stripGeneratedSvgFromStores(
+  stores: StoreListingItem[] | undefined
+): StoreListingItem[] {
+  if (!Array.isArray(stores)) return [];
+  return stores.map((st) => ({
+    ...st,
+    menuImages: getRealUploadedStoreImagesOnly(st.menuImages),
+  }));
+}
+
 export function mergeStoresWithImages(
   baseList: StoreListingItem[] | undefined,
   incomingList: StoreListingItem[] | undefined,
-  deletedIds?: string[]
+  deletedIds?: string[],
+  authoritativeCloud = false
 ): StoreListingItem[] {
-  const merged = mergeCollectionById(baseList, incomingList, deletedIds);
+  const merged = mergeCollectionById(
+    baseList,
+    incomingList,
+    deletedIds,
+    authoritativeCloud
+  );
   const vault = loadStoreImagesVault();
   return normalizeStoresList(
     merged.map((st) => {
@@ -350,17 +377,19 @@ export function mergeStoresWithImages(
       const incSt = (incomingList || []).find((x) => x && x.id === st.id);
       if (!prevSt && !incSt) return st;
 
-      const prevImgs = prevSt?.menuImages || [];
-      const incImgs = incSt?.menuImages || [];
-      const vaultImgs = vault[st.id] || [];
+      const prevRealImgs = getRealUploadedStoreImagesOnly(prevSt?.menuImages);
+      const incRealImgs = getRealUploadedStoreImagesOnly(incSt?.menuImages);
+      const vaultRealImgs = getRealUploadedStoreImagesOnly(vault[st.id]);
 
-      const prevHasReal = hasRealUploadedStoreImages(prevImgs);
-      const incHasReal = hasRealUploadedStoreImages(incImgs);
-      const vaultHasReal = hasRealUploadedStoreImages(vaultImgs);
+      const prevHasReal = prevRealImgs.length > 0;
+      const incHasReal = incRealImgs.length > 0;
+      const vaultHasReal = vaultRealImgs.length > 0;
 
       const prevUpdated = typeof prevSt?.updatedAt === 'number' ? prevSt.updatedAt : 0;
       const incUpdated = typeof incSt?.updatedAt === 'number' ? incSt.updatedAt : 0;
-      const preferIncoming = incUpdated >= prevUpdated;
+      const preferIncoming = authoritativeCloud
+        ? incUpdated >= prevUpdated || prevUpdated === 0 || incUpdated === 0
+        : incUpdated >= prevUpdated;
 
       let resolvedImages: string[];
       const explicitlyCleared = preferIncoming
@@ -368,29 +397,32 @@ export function mergeStoresWithImages(
         : Boolean(prevSt?.imagesExplicitlyCleared);
 
       if (explicitlyCleared && !incHasReal && !prevHasReal) {
-        resolvedImages = incImgs.length > 0 ? incImgs : prevImgs;
+        resolvedImages = [];
       } else if (incHasReal && prevHasReal) {
-        resolvedImages = preferIncoming ? incImgs : prevImgs;
+        resolvedImages = preferIncoming ? incRealImgs : prevRealImgs;
       } else if (incHasReal) {
-        resolvedImages = incImgs;
+        resolvedImages = incRealImgs;
       } else if (prevHasReal) {
-        resolvedImages = prevImgs;
+        resolvedImages = prevRealImgs;
       } else if (vaultHasReal && !explicitlyCleared) {
-        resolvedImages = vaultImgs;
+        resolvedImages = vaultRealImgs;
       } else {
-        resolvedImages = incImgs.length > 0 ? incImgs : prevImgs;
+        resolvedImages = [];
       }
 
-      const baseMerged = preferIncoming
-        ? { ...(prevSt || {}), ...(incSt || {}) }
-        : { ...(incSt || {}), ...(prevSt || {}) };
+      const baseMerged =
+        incSt && preferIncoming
+          ? { ...(prevSt || {}), ...incSt }
+          : prevSt
+          ? { ...(incSt || {}), ...prevSt }
+          : st;
 
       return {
         ...st,
         ...baseMerged,
         menuImages: resolvedImages,
         updatedAt: Math.max(prevUpdated, incUpdated) || st.updatedAt,
-        imagesExplicitlyCleared: explicitlyCleared && !hasRealUploadedStoreImages(resolvedImages),
+        imagesExplicitlyCleared: explicitlyCleared && resolvedImages.length === 0,
         likes: Array.isArray(incSt?.likes)
           ? incSt!.likes
           : Array.isArray(prevSt?.likes)
@@ -604,10 +636,20 @@ function mergeUsersLists(
   return merged.length > 0 ? merged : INITIAL_USERS;
 }
 
+function parseItemTimestampMs(val: unknown): number {
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
+  if (typeof val === 'string' && val.trim()) {
+    const t = new Date(val).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  return 0;
+}
+
 function mergeCollectionById<T extends { id: string }>(
   baseList: T[] | undefined,
   incomingList: T[] | undefined,
-  deletedIds?: string[]
+  deletedIds?: string[],
+  authoritativeCloud = false
 ): T[] {
   const deletedSet = new Set(deletedIds || []);
   const safeBase = Array.isArray(baseList)
@@ -619,27 +661,53 @@ function mergeCollectionById<T extends { id: string }>(
   const safeIncoming = incomingList.filter(
     (item) => item && item.id && !deletedSet.has(item.id)
   );
-  if (safeIncoming.length === 0 && safeBase.length > 0) {
+  if (safeIncoming.length === 0 && safeBase.length > 0 && !authoritativeCloud) {
     return safeBase;
   }
-  const incomingMap = new Map<string, T>();
-  safeIncoming.forEach((item) => incomingMap.set(item.id, item));
 
   const result: T[] = [];
   const seenIds = new Set<string>();
 
-  // Keep incoming order for items present in incoming, merged with base fields
+  // Keep incoming order for items present in incoming, merged with base fields respecting updatedAt
   for (const inc of safeIncoming) {
     const existing = safeBase.find((b) => b.id === inc.id);
-    result.push(existing ? { ...existing, ...inc } : inc);
+    if (!existing) {
+      result.push(inc);
+    } else {
+      const prevTs = parseItemTimestampMs(
+        (existing as unknown as { updatedAt?: unknown }).updatedAt
+      );
+      const incTs = parseItemTimestampMs(
+        (inc as unknown as { updatedAt?: unknown }).updatedAt
+      );
+      const preferInc = authoritativeCloud
+        ? incTs >= prevTs || prevTs === 0 || incTs === 0
+        : incTs >= prevTs;
+      result.push(preferInc ? { ...existing, ...inc } : { ...inc, ...existing });
+    }
     seenIds.add(inc.id);
   }
 
-  // Preserve any local items in baseList that were not in incomingList and not manually deleted
+  // Preserve local items in baseList that were not in incomingList if not deleted
+  // When authoritativeCloud is true and safeIncoming is non-empty, only keep local items created/updated within the last 30s (in-flight writes)
+  const nowMs = Date.now();
   for (const loc of safeBase) {
     if (!seenIds.has(loc.id) && !deletedSet.has(loc.id)) {
-      result.unshift(loc);
-      seenIds.add(loc.id);
+      if (authoritativeCloud && safeIncoming.length > 0) {
+        const locTs =
+          parseItemTimestampMs((loc as unknown as { updatedAt?: unknown }).updatedAt) ||
+          parseItemTimestampMs((loc as unknown as { createdAt?: unknown }).createdAt);
+        if (locTs > 0 && nowMs - locTs <= 30000) {
+          result.unshift(loc);
+          seenIds.add(loc.id);
+        } else if (!locTs) {
+          result.push(loc);
+          seenIds.add(loc.id);
+        }
+      } else {
+        result.unshift(loc);
+        seenIds.add(loc.id);
+      }
     }
   }
 
@@ -1270,6 +1338,8 @@ class HybridStorageEngine {
   private realtimeDb: Database | null = null;
   private unsubscribeSnapshot: FirestoreUnsubscribe | RTDBUnsubscribe | null = null;
   private unsubscribeFastChatSnapshot: FirestoreUnsubscribe | null = null;
+  private sectionUnsubscribers: Array<FirestoreUnsubscribe | RTDBUnsubscribe> = [];
+  private lastPersistedCloudState: PlatformDatabaseState | null = null;
   private eventSource: EventSource | null = null;
   private fastChatPollTimer: ReturnType<typeof setInterval> | null = null;
   private isFastChatPolling = false;
@@ -1282,7 +1352,7 @@ class HybridStorageEngine {
   > = [];
   private currentStatus: 'local' | 'firebase_connected' | 'firebase_error' = 'local';
   private currentMessage: string =
-    'يعمل بنظام التخزين الفوري السريع في المتصفح (Browser Instant Cache)';
+    'يعمل بنظام المزامنة اللحظية السحابية (Firebase Realtime Sync)';
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -1307,7 +1377,7 @@ class HybridStorageEngine {
         }
       });
 
-      // 3. Instant IndexedDB hydration on startup (< 5ms)
+      // 3. Offline-only cache hydration: IndexedDB is used strictly as an offline cache when internet is unavailable
       this.hydrateFromIndexedDBInstant();
 
       // 4. Auto-Sync offline additions/edits/deletions with Firebase & Server as soon as internet reconnects or app gains focus
@@ -1329,12 +1399,26 @@ class HybridStorageEngine {
   public async pullLatestDeltaNow() {
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return;
     try {
-      const res = await fetch(
-        `/api/realtime/chat-fast?since=${this.lastChatVersion}&t=${Date.now()}`,
-        { cache: 'no-store' }
-      );
-      if (res.ok) {
-        const data = await res.json();
+      const [stateRes, chatRes] = await Promise.all([
+        fetch(`/api/realtime/state?t=${Date.now()}`, { cache: 'no-store' }).catch(
+          () => null
+        ),
+        fetch(
+          `/api/realtime/chat-fast?since=${this.lastChatVersion}&t=${Date.now()}`,
+          { cache: 'no-store' }
+        ).catch(() => null),
+      ]);
+      if (stateRes && stateRes.ok) {
+        const sData = await stateRes.json();
+        if (sData && sData.onlineStats && typeof sData.onlineStats.totalOnline === 'number') {
+          updateLatestServerOnlineStats(sData.onlineStats);
+        }
+        if (sData && sData.state && typeof sData.state === 'object') {
+          this.applyIncomingRemoteState(sData.state as Record<string, unknown>);
+        }
+      }
+      if (chatRes && chatRes.ok) {
+        const data = await chatRes.json();
         if (data && typeof data.version === 'number') {
           this.lastChatVersion = data.version;
         }
@@ -1352,20 +1436,25 @@ class HybridStorageEngine {
 
   private async hydrateFromIndexedDBInstant() {
     try {
-      const [pendingOffline, latestIdb, cumulativeIdb] = await Promise.all([
+      const [pendingOffline, latestIdb] = await Promise.all([
         fastBrowserCache.getSnapshotByKeyFromIDB('pending_offline_state'),
         fastBrowserCache.getSnapshotByKeyFromIDB('latest_state'),
-        fastBrowserCache.getSnapshotByKeyFromIDB('cumulative_vault_all_time'),
       ]);
 
-      // Populate store images vault from any historical IndexedDB snapshot so store photos never vanish on refresh
-      for (const snap of [cumulativeIdb, latestIdb, pendingOffline]) {
+      // Keep real uploaded store images in memory vault so uploaded photos never vanish
+      for (const snap of [latestIdb, pendingOffline]) {
         if (snap && Array.isArray(snap.stores)) {
           saveStoreImagesVault(snap.stores);
         }
       }
 
-      const idbCandidate = pendingOffline || latestIdb || cumulativeIdb;
+      // Role of IndexedDB/LocalStorage is strictly offline caching when internet is absent or when unsynced offline changes exist
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      if (!isOffline && !this.hasPendingOfflineChanges()) {
+        return;
+      }
+
+      const idbCandidate = pendingOffline || latestIdb;
       if (!idbCandidate) return;
 
       const current = this.latestState || this.loadLocalState();
@@ -1376,85 +1465,70 @@ class HybridStorageEngine {
         ])
       );
 
-      const mergedStores = mergeStoresWithImages(
-        current.stores,
-        idbCandidate.stores,
-        mergedDeletedIds
-      );
-      const mergedServices = mergeServiceNumbersWithInteractions(
-        current.serviceNumbers,
-        idbCandidate.serviceNumbers,
-        mergedDeletedIds
-      );
-      const mergedTawsila = normalizeTawsilaList(
-        mergeCollectionById(
-          current.tawsilaRides,
-          idbCandidate.tawsilaRides,
-          mergedDeletedIds
-        )
-      );
-      const mergedCommunity = normalizeCommunityPostsList(
-        mergeCollectionById(
-          current.communityPosts,
-          idbCandidate.communityPosts,
-          mergedDeletedIds
-        )
-      );
-      const mergedBuySell = normalizeCommunityPostsList(
-        mergeCollectionById(
-          current.buySellPosts || [],
-          idbCandidate.buySellPosts || [],
-          mergedDeletedIds
-        )
-      );
-      const mergedUtilityPosts = normalizeCommunityPostsList(
-        mergeCollectionById(
-          current.utilityPosts || [],
-          idbCandidate.utilityPosts || [],
-          mergedDeletedIds
-        )
-      );
-      const mergedUtilitySubs = normalizeUtilitySubmissionsList(
-        mergeCollectionById(
-          current.utilitySubmissions || [],
-          idbCandidate.utilitySubmissions || [],
-          mergedDeletedIds
-        )
-      );
-      const mergedTopBanners = mergeAdCampaignsById(
-        current.topBanners,
-        idbCandidate.topBanners,
-        mergedDeletedIds
-      );
-      const mergedSquareAds = mergeAdCampaignsById(
-        current.squareAds,
-        idbCandidate.squareAds,
-        mergedDeletedIds
-      );
-      const mergedPopupAd = mergePopupAdCampaign(
-        current.popupAd,
-        idbCandidate.popupAd
-      );
-      const mergedMessages = mergeCollectionById(
-        current.messages,
-        idbCandidate.messages,
-        mergedDeletedIds
-      );
-
       const enriched: PlatformDatabaseState = {
         ...current,
         users: mergeUsersLists(current.users, idbCandidate.users, mergedDeletedIds),
-        stores: mergedStores,
-        serviceNumbers: mergedServices,
-        tawsilaRides: mergedTawsila,
-        communityPosts: mergedCommunity,
-        buySellPosts: mergedBuySell,
-        utilityPosts: mergedUtilityPosts,
-        utilitySubmissions: mergedUtilitySubs,
-        topBanners: mergedTopBanners,
-        squareAds: mergedSquareAds,
-        popupAd: mergedPopupAd,
-        messages: mergedMessages,
+        stores: mergeStoresWithImages(
+          current.stores,
+          idbCandidate.stores,
+          mergedDeletedIds
+        ),
+        serviceNumbers: mergeServiceNumbersWithInteractions(
+          current.serviceNumbers,
+          idbCandidate.serviceNumbers,
+          mergedDeletedIds
+        ),
+        tawsilaRides: normalizeTawsilaList(
+          mergeCollectionById(
+            current.tawsilaRides,
+            idbCandidate.tawsilaRides,
+            mergedDeletedIds
+          )
+        ),
+        communityPosts: normalizeCommunityPostsList(
+          mergeCollectionById(
+            current.communityPosts,
+            idbCandidate.communityPosts,
+            mergedDeletedIds
+          )
+        ),
+        buySellPosts: normalizeCommunityPostsList(
+          mergeCollectionById(
+            current.buySellPosts || [],
+            idbCandidate.buySellPosts || [],
+            mergedDeletedIds
+          )
+        ),
+        utilityPosts: normalizeCommunityPostsList(
+          mergeCollectionById(
+            current.utilityPosts || [],
+            idbCandidate.utilityPosts || [],
+            mergedDeletedIds
+          )
+        ),
+        utilitySubmissions: normalizeUtilitySubmissionsList(
+          mergeCollectionById(
+            current.utilitySubmissions || [],
+            idbCandidate.utilitySubmissions || [],
+            mergedDeletedIds
+          )
+        ),
+        topBanners: mergeAdCampaignsById(
+          current.topBanners,
+          idbCandidate.topBanners,
+          mergedDeletedIds
+        ),
+        squareAds: mergeAdCampaignsById(
+          current.squareAds,
+          idbCandidate.squareAds,
+          mergedDeletedIds
+        ),
+        popupAd: mergePopupAdCampaign(current.popupAd, idbCandidate.popupAd),
+        messages: mergeCollectionById(
+          current.messages,
+          idbCandidate.messages,
+          mergedDeletedIds
+        ),
         deletedRecordIds: mergedDeletedIds,
         settings: mergePlatformSettings(current.settings, idbCandidate.settings),
       };
@@ -2012,7 +2086,8 @@ class HybridStorageEngine {
       Array.isArray(remoteData.stores)
         ? (remoteData.stores as StoreListingItem[])
         : undefined,
-      mergedDeletedIds
+      mergedDeletedIds,
+      true
     );
     const mergedServicesRaw = mergeServiceNumbersWithInteractions(
       base.serviceNumbers,
@@ -2026,35 +2101,40 @@ class HybridStorageEngine {
       Array.isArray(remoteData.tawsilaRides)
         ? (remoteData.tawsilaRides as TawsilaRideItem[])
         : undefined,
-      mergedDeletedIds
+      mergedDeletedIds,
+      true
     );
     const mergedCommunityRaw = mergeCollectionById(
       base.communityPosts,
       Array.isArray(remoteData.communityPosts)
         ? (remoteData.communityPosts as CommunityPostItem[])
         : undefined,
-      mergedDeletedIds
+      mergedDeletedIds,
+      true
     );
     const mergedUtilitySubRaw = mergeCollectionById(
       base.utilitySubmissions || [],
       Array.isArray(remoteData.utilitySubmissions)
         ? (remoteData.utilitySubmissions as UtilitySubmissionItem[])
         : undefined,
-      mergedDeletedIds
+      mergedDeletedIds,
+      true
     );
     const mergedUtilityPostsRaw = mergeCollectionById(
       base.utilityPosts || [],
       Array.isArray(remoteData.utilityPosts)
         ? (remoteData.utilityPosts as CommunityPostItem[])
         : undefined,
-      mergedDeletedIds
+      mergedDeletedIds,
+      true
     );
     const mergedBuySellRaw = mergeCollectionById(
       base.buySellPosts || [],
       Array.isArray(remoteData.buySellPosts)
         ? (remoteData.buySellPosts as CommunityPostItem[])
         : undefined,
-      mergedDeletedIds
+      mergedDeletedIds,
+      true
     );
     const mergedTopBanners = mergeAdCampaignsById(
       base.topBanners,
@@ -2079,7 +2159,8 @@ class HybridStorageEngine {
       Array.isArray(remoteData.messages)
         ? (remoteData.messages as AdminMessage[])
         : undefined,
-      mergedDeletedIds
+      mergedDeletedIds,
+      true
     );
 
     const mergedState: PlatformDatabaseState = {
@@ -2111,7 +2192,8 @@ class HybridStorageEngine {
         ? mergeCollectionById(
             base.privateChatMessages || [],
             remoteData.privateChatMessages as PlatformDatabaseState['privateChatMessages'],
-            mergedDeletedIds
+            mergedDeletedIds,
+            true
           )
         : base.privateChatMessages || [],
       privateChatStatuses:
@@ -2136,7 +2218,8 @@ class HybridStorageEngine {
         ? mergeCollectionById(
             base.privateChatReports || [],
             remoteData.privateChatReports as PlatformDatabaseState['privateChatReports'],
-            mergedDeletedIds
+            mergedDeletedIds,
+            true
           )
         : base.privateChatReports || [],
       deletedRecordIds: mergedDeletedIds,
@@ -2144,6 +2227,228 @@ class HybridStorageEngine {
     };
     this.saveLocalState(mergedState);
     this.notifyData(mergedState);
+  }
+
+  private applySectionStoresSnapshot(data: Record<string, unknown>) {
+    if (!data || typeof data !== 'object') return;
+    const base = this.latestState || this.loadLocalState();
+    const remoteDeleted = Array.isArray(data.deletedRecordIds)
+      ? (data.deletedRecordIds as string[])
+      : [];
+    const mergedDeletedIds = Array.from(
+      new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
+    );
+    const mergedStores = Array.isArray(data.stores)
+      ? normalizeStoresList(
+          mergeStoresWithImages(
+            base.stores,
+            data.stores as StoreListingItem[],
+            mergedDeletedIds,
+            true
+          )
+        )
+      : base.stores;
+    const updatedCategories = Array.isArray(data.storeCategories)
+      ? ensureStoreCategoriesWithDreamPlaza(data.storeCategories as string[])
+      : base.settings.storeCategories;
+    const nextState: PlatformDatabaseState = {
+      ...base,
+      stores: mergedStores,
+      deletedRecordIds: mergedDeletedIds,
+      settings: {
+        ...base.settings,
+        storeCategories: updatedCategories,
+      },
+    };
+    this.notifyData(nextState);
+    this.scheduleDeferredLocalSave(nextState);
+  }
+
+  private applySectionServicesSnapshot(data: Record<string, unknown>) {
+    if (!data || typeof data !== 'object') return;
+    const base = this.latestState || this.loadLocalState();
+    const remoteDeleted = Array.isArray(data.deletedRecordIds)
+      ? (data.deletedRecordIds as string[])
+      : [];
+    const mergedDeletedIds = Array.from(
+      new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
+    );
+    const mergedServices = Array.isArray(data.serviceNumbers)
+      ? normalizeServiceNumbersList(
+          mergeServiceNumbersWithInteractions(
+            base.serviceNumbers,
+            data.serviceNumbers as ServicePhoneEntry[],
+            mergedDeletedIds
+          )
+        )
+      : base.serviceNumbers;
+    const updatedProfessions = Array.isArray(data.serviceProfessions)
+      ? ensureServiceProfessionsList(data.serviceProfessions as string[])
+      : base.settings.serviceProfessions;
+    const nextState: PlatformDatabaseState = {
+      ...base,
+      serviceNumbers: mergedServices,
+      deletedRecordIds: mergedDeletedIds,
+      settings: {
+        ...base.settings,
+        serviceProfessions: updatedProfessions,
+      },
+    };
+    this.notifyData(nextState);
+    this.scheduleDeferredLocalSave(nextState);
+  }
+
+  private applySectionCommunitySnapshot(data: Record<string, unknown>) {
+    if (!data || typeof data !== 'object') return;
+    const base = this.latestState || this.loadLocalState();
+    const remoteDeleted = Array.isArray(data.deletedRecordIds)
+      ? (data.deletedRecordIds as string[])
+      : [];
+    const mergedDeletedIds = Array.from(
+      new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
+    );
+    const nextState: PlatformDatabaseState = {
+      ...base,
+      communityPosts: Array.isArray(data.communityPosts)
+        ? normalizeCommunityPostsList(
+            mergeCollectionById(
+              base.communityPosts,
+              data.communityPosts as CommunityPostItem[],
+              mergedDeletedIds,
+              true
+            )
+          )
+        : base.communityPosts,
+      buySellPosts: Array.isArray(data.buySellPosts)
+        ? normalizeCommunityPostsList(
+            mergeCollectionById(
+              base.buySellPosts || [],
+              data.buySellPosts as CommunityPostItem[],
+              mergedDeletedIds,
+              true
+            )
+          )
+        : base.buySellPosts || [],
+      utilityPosts: Array.isArray(data.utilityPosts)
+        ? normalizeCommunityPostsList(
+            mergeCollectionById(
+              base.utilityPosts || [],
+              data.utilityPosts as CommunityPostItem[],
+              mergedDeletedIds,
+              true
+            )
+          )
+        : base.utilityPosts || [],
+      utilitySubmissions: Array.isArray(data.utilitySubmissions)
+        ? normalizeUtilitySubmissionsList(
+            mergeCollectionById(
+              base.utilitySubmissions || [],
+              data.utilitySubmissions as UtilitySubmissionItem[],
+              mergedDeletedIds,
+              true
+            )
+          )
+        : base.utilitySubmissions || [],
+      deletedRecordIds: mergedDeletedIds,
+    };
+    this.notifyData(nextState);
+    this.scheduleDeferredLocalSave(nextState);
+  }
+
+  private applySectionAdsSnapshot(data: Record<string, unknown>) {
+    if (!data || typeof data !== 'object') return;
+    const base = this.latestState || this.loadLocalState();
+    const remoteDeleted = Array.isArray(data.deletedRecordIds)
+      ? (data.deletedRecordIds as string[])
+      : [];
+    const mergedDeletedIds = Array.from(
+      new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
+    );
+    const nextState: PlatformDatabaseState = {
+      ...base,
+      topBanners: mergeAdCampaignsById(
+        base.topBanners,
+        Array.isArray(data.topBanners) ? (data.topBanners as TopBannerAd[]) : undefined,
+        mergedDeletedIds
+      ),
+      squareAds: mergeAdCampaignsById(
+        base.squareAds,
+        Array.isArray(data.squareAds) ? (data.squareAds as SquareMovingAd[]) : undefined,
+        mergedDeletedIds
+      ),
+      popupAd: mergePopupAdCampaign(
+        base.popupAd,
+        data.popupAd as PopupAdConfig | undefined
+      ),
+      deletedRecordIds: mergedDeletedIds,
+      settings: data.adPackagesPricing
+        ? mergePlatformSettings(base.settings, {
+            adPackagesPricing:
+              data.adPackagesPricing as PlatformSettings['adPackagesPricing'],
+          })
+        : base.settings,
+    };
+    this.notifyData(nextState);
+    this.scheduleDeferredLocalSave(nextState);
+  }
+
+  private applySectionTawsilaSnapshot(data: Record<string, unknown>) {
+    if (!data || typeof data !== 'object') return;
+    const base = this.latestState || this.loadLocalState();
+    const remoteDeleted = Array.isArray(data.deletedRecordIds)
+      ? (data.deletedRecordIds as string[])
+      : [];
+    const mergedDeletedIds = Array.from(
+      new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
+    );
+    const nextState: PlatformDatabaseState = {
+      ...base,
+      tawsilaRides: Array.isArray(data.tawsilaRides)
+        ? normalizeTawsilaList(
+            mergeCollectionById(
+              base.tawsilaRides,
+              data.tawsilaRides as TawsilaRideItem[],
+              mergedDeletedIds,
+              true
+            )
+          )
+        : base.tawsilaRides,
+      deletedRecordIds: mergedDeletedIds,
+    };
+    this.notifyData(nextState);
+    this.scheduleDeferredLocalSave(nextState);
+  }
+
+  private applySectionSettingsUsersSnapshot(data: Record<string, unknown>) {
+    if (!data || typeof data !== 'object') return;
+    const base = this.latestState || this.loadLocalState();
+    const remoteDeleted = Array.isArray(data.deletedRecordIds)
+      ? (data.deletedRecordIds as string[])
+      : [];
+    const mergedDeletedIds = Array.from(
+      new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
+    );
+    const remoteSettings = (data.settings as Partial<PlatformSettings>) || {};
+    const nextState: PlatformDatabaseState = {
+      ...base,
+      users: mergeUsersLists(
+        base.users,
+        Array.isArray(data.users) ? (data.users as UserAccount[]) : undefined,
+        mergedDeletedIds
+      ),
+      messages: Array.isArray(data.messages)
+        ? mergeCollectionById(
+            base.messages,
+            data.messages as AdminMessage[],
+            mergedDeletedIds,
+            true
+          )
+        : base.messages,
+      deletedRecordIds: mergedDeletedIds,
+      settings: mergePlatformSettings(base.settings, remoteSettings),
+    };
+    this.notifyData(nextState);
+    this.scheduleDeferredLocalSave(nextState);
   }
 
   private applyIncomingFastChatPatch(chatPatch: Record<string, unknown>) {
@@ -2160,7 +2465,8 @@ class HybridStorageEngine {
       ? mergeStoresWithImages(
           base.stores,
           chatPatch.stores as StoreListingItem[],
-          mergedDeletedIds
+          mergedDeletedIds,
+          true
         )
       : normalizeStoresList(
           base.stores.filter((st) => !mergedDeletedIds.includes(st.id))
@@ -2201,7 +2507,8 @@ class HybridStorageEngine {
           mergeCollectionById(
             base.tawsilaRides || [],
             chatPatch.tawsilaRides as TawsilaRideItem[],
-            mergedDeletedIds
+            mergedDeletedIds,
+            true
           )
         )
       : (base.tawsilaRides || []).filter(
@@ -2255,7 +2562,8 @@ class HybridStorageEngine {
         ? mergeCollectionById(
             base.privateChatMessages || [],
             chatPatch.privateChatMessages as PlatformDatabaseState['privateChatMessages'],
-            mergedDeletedIds
+            mergedDeletedIds,
+            true
           )
         : base.privateChatMessages || [],
       privateChatStatuses:
@@ -2280,14 +2588,16 @@ class HybridStorageEngine {
         ? mergeCollectionById(
             base.privateChatReports || [],
             chatPatch.privateChatReports as PlatformDatabaseState['privateChatReports'],
-            mergedDeletedIds
+            mergedDeletedIds,
+            true
           )
         : base.privateChatReports || [],
       messages: Array.isArray(chatPatch.messages)
         ? mergeCollectionById(
             base.messages || [],
             chatPatch.messages as PlatformDatabaseState['messages'],
-            mergedDeletedIds
+            mergedDeletedIds,
+            true
           )
         : base.messages || [],
       utilitySubmissions: Array.isArray(chatPatch.utilitySubmissions)
@@ -2295,7 +2605,8 @@ class HybridStorageEngine {
             mergeCollectionById(
               base.utilitySubmissions || [],
               chatPatch.utilitySubmissions as UtilitySubmissionItem[],
-              mergedDeletedIds
+              mergedDeletedIds,
+              true
             )
           )
         : base.utilitySubmissions || [],
@@ -2304,7 +2615,8 @@ class HybridStorageEngine {
             mergeCollectionById(
               base.utilityPosts || [],
               chatPatch.utilityPosts as CommunityPostItem[],
-              mergedDeletedIds
+              mergedDeletedIds,
+              true
             )
           )
         : base.utilityPosts || [],
@@ -2313,7 +2625,8 @@ class HybridStorageEngine {
             mergeCollectionById(
               base.buySellPosts || [],
               chatPatch.buySellPosts as CommunityPostItem[],
-              mergedDeletedIds
+              mergedDeletedIds,
+              true
             )
           )
         : base.buySellPosts || [],
@@ -2322,7 +2635,8 @@ class HybridStorageEngine {
             mergeCollectionById(
               base.communityPosts || [],
               chatPatch.communityPosts as CommunityPostItem[],
-              mergedDeletedIds
+              mergedDeletedIds,
+              true
             )
           )
         : base.communityPosts,
@@ -2332,7 +2646,6 @@ class HybridStorageEngine {
     this.notifyData(mergedState);
     this.scheduleDeferredLocalSave(mergedState);
   }
-
 
   private scheduleDeferredLocalSave(state: PlatformDatabaseState, activeUserId?: string) {
     this.latestState = state;
@@ -2461,11 +2774,21 @@ class HybridStorageEngine {
       this.unsubscribeFastChatSnapshot();
       this.unsubscribeFastChatSnapshot = null;
     }
+    if (this.sectionUnsubscribers.length > 0) {
+      this.sectionUnsubscribers.forEach((unsub) => {
+        try {
+          unsub();
+        } catch {
+          // ignore
+        }
+      });
+      this.sectionUnsubscribers = [];
+    }
 
     if (!firebaseConfig.enabled || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
       this.notifyStatus(
         'local',
-        'التخزين الفوري السريع في المتصفح نشط (Instant Browser Cache)'
+        'التخزين المؤقت المحلي نشط (Offline Cache)'
       );
       return;
     }
@@ -2512,24 +2835,57 @@ class HybridStorageEngine {
       if (firebaseConfig.mode === 'realtime' && firebaseConfig.databaseURL) {
         this.realtimeDb = getDatabase(this.firebaseApp);
         const stateRef = ref(this.realtimeDb, 'fluent_portal_v3/workspace');
+        const storesRef = ref(this.realtimeDb, 'fluent_portal_v3/sections/stores');
+        const servicesRef = ref(this.realtimeDb, 'fluent_portal_v3/sections/services');
+        const communityRef = ref(this.realtimeDb, 'fluent_portal_v3/sections/community');
+        const adsRef = ref(this.realtimeDb, 'fluent_portal_v3/sections/ads');
+        const tawsilaRef = ref(this.realtimeDb, 'fluent_portal_v3/sections/tawsila');
+        const settingsUsersRef = ref(this.realtimeDb, 'fluent_portal_v3/sections/settings_users');
+
+        this.sectionUnsubscribers.push(
+          onValue(storesRef, (snap) => {
+            const val = snap.val();
+            if (val) this.applySectionStoresSnapshot(val);
+          }),
+          onValue(servicesRef, (snap) => {
+            const val = snap.val();
+            if (val) this.applySectionServicesSnapshot(val);
+          }),
+          onValue(communityRef, (snap) => {
+            const val = snap.val();
+            if (val) this.applySectionCommunitySnapshot(val);
+          }),
+          onValue(adsRef, (snap) => {
+            const val = snap.val();
+            if (val) this.applySectionAdsSnapshot(val);
+          }),
+          onValue(tawsilaRef, (snap) => {
+            const val = snap.val();
+            if (val) this.applySectionTawsilaSnapshot(val);
+          }),
+          onValue(settingsUsersRef, (snap) => {
+            const val = snap.val();
+            if (val) this.applySectionSettingsUsersSnapshot(val);
+          })
+        );
 
         this.unsubscribeSnapshot = onValue(
           stateRef,
           (snapshot) => {
             const remoteData = snapshot.val();
             if (remoteData) {
-              if (remoteData.senderTabId !== getOrCreateTabSessionId()) {
-                this.applyIncomingRemoteState(remoteData);
-              }
+              this.applyIncomingRemoteState(remoteData);
             } else {
+              const baseState = this.latestState || currentState;
               const cleanPayload = sanitizeForFirebase({
-                ...(this.latestState || currentState),
+                ...baseState,
+                stores: stripGeneratedSvgFromStores(baseState.stores || []),
                 senderTabId: getOrCreateTabSessionId(),
                 updatedAt: new Date().toISOString(),
               });
               set(stateRef, cleanPayload);
             }
-            this.notifyStatus('firebase_connected', 'التسجيل السحابي نشط');
+            this.notifyStatus('firebase_connected', 'التسجيل السحابي نشط (Realtime DB)');
           },
           (error) => {
             this.notifyStatus(
@@ -2539,56 +2895,153 @@ class HybridStorageEngine {
           }
         );
       } else {
+        // Initialize Firestore and enable IndexedDB persistence for automatic cloud-to-local cache management
         try {
-          this.firestoreDb = initializeFirestore(this.firebaseApp, {
-            localCache: persistentLocalCache({
-              tabManager: persistentMultipleTabManager(),
-            }),
+          this.firestoreDb = getFirestore(this.firebaseApp);
+          await enableIndexedDbPersistence(this.firestoreDb).catch(() => {
+            // If multiple tabs are open or persistence was already configured, fallback to multi-tab local cache if needed
           });
         } catch {
-          this.firestoreDb = getFirestore(this.firebaseApp);
+          try {
+            this.firestoreDb = initializeFirestore(this.firebaseApp, {
+              localCache: persistentLocalCache({
+                tabManager: persistentMultipleTabManager(),
+              }),
+            });
+          } catch {
+            this.firestoreDb = getFirestore(this.firebaseApp);
+          }
         }
+
         const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
         const fastChatDocRef = doc(
           this.firestoreDb,
           'fluent_portal_v3',
           'live_chat_realtime'
         );
+        const storesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_stores');
+        const servicesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_services');
+        const communityDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_community');
+        const adsDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_ads');
+        const tawsilaDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_tawsila');
+        const settingsUsersDocRef = doc(
+          this.firestoreDb,
+          'fluent_portal_v3',
+          'section_settings_users'
+        );
 
-        // 1. Dedicated high-speed listener for Live Chat, Private Chat, Chat Settings & Utilities
+        // Section 1 Realtime Listener: المحلات والدليل (Stores & Categories)
+        this.sectionUnsubscribers.push(
+          onSnapshot(
+            storesDocRef,
+            (snapshot) => {
+              if (snapshot.exists()) {
+                this.applySectionStoresSnapshot(snapshot.data());
+              }
+            },
+            () => {}
+          )
+        );
+
+        // Section 2 Realtime Listener: أرقام الخدمات ومقدمي الخدمة (Service Numbers & Professions)
+        this.sectionUnsubscribers.push(
+          onSnapshot(
+            servicesDocRef,
+            (snapshot) => {
+              if (snapshot.exists()) {
+                this.applySectionServicesSnapshot(snapshot.data());
+              }
+            },
+            () => {}
+          )
+        );
+
+        // Section 3 Realtime Listener: مجتمع وبيع واشتري وخدمات عامة (Community, Buy/Sell & Utility Posts)
+        this.sectionUnsubscribers.push(
+          onSnapshot(
+            communityDocRef,
+            (snapshot) => {
+              if (snapshot.exists()) {
+                this.applySectionCommunitySnapshot(snapshot.data());
+              }
+            },
+            () => {}
+          )
+        );
+
+        // Section 4 Realtime Listener: الإعلانات والباقات (Top Banners, Square Ads, Popup Ad & Pricing)
+        this.sectionUnsubscribers.push(
+          onSnapshot(
+            adsDocRef,
+            (snapshot) => {
+              if (snapshot.exists()) {
+                this.applySectionAdsSnapshot(snapshot.data());
+              }
+            },
+            () => {}
+          )
+        );
+
+        // Section 5 Realtime Listener: توصيلة (Tawsila Rides)
+        this.sectionUnsubscribers.push(
+          onSnapshot(
+            tawsilaDocRef,
+            (snapshot) => {
+              if (snapshot.exists()) {
+                this.applySectionTawsilaSnapshot(snapshot.data());
+              }
+            },
+            () => {}
+          )
+        );
+
+        // Section 6 Realtime Listener: الإعدادات والحسابات والرسائل (Settings, Users & Admin Messages)
+        this.sectionUnsubscribers.push(
+          onSnapshot(
+            settingsUsersDocRef,
+            (snapshot) => {
+              if (snapshot.exists()) {
+                this.applySectionSettingsUsersSnapshot(snapshot.data());
+              }
+            },
+            () => {}
+          )
+        );
+
+        // Section 7 Realtime Listener: الدردشة اللحظية والخاصة (Live Chat & Private Chat)
         this.unsubscribeFastChatSnapshot = onSnapshot(
           fastChatDocRef,
           (snapshot) => {
             if (snapshot.exists()) {
               const fastData = snapshot.data();
-              if (fastData && fastData.senderTabId !== getOrCreateTabSessionId()) {
+              if (fastData) {
                 this.applyIncomingFastChatPatch(fastData);
               }
             }
           },
-          () => {
-            // ignore fast chat listener warning if rules fallback to local/SSE
-          }
+          () => {}
         );
 
-        // 2. Main workspace listener
+        // Section 8 Master Workspace Realtime Listener
         this.unsubscribeSnapshot = onSnapshot(
           docRef,
           (snapshot) => {
             if (snapshot.exists()) {
               const remoteData = snapshot.data();
-              if (remoteData && remoteData.senderTabId !== getOrCreateTabSessionId()) {
+              if (remoteData) {
                 this.applyIncomingRemoteState(remoteData);
               }
             } else {
+              const baseState = this.latestState || currentState;
               const cleanPayload = sanitizeForFirebase({
-                ...(this.latestState || currentState),
+                ...baseState,
+                stores: stripGeneratedSvgFromStores(baseState.stores || []),
                 senderTabId: getOrCreateTabSessionId(),
                 updatedAt: new Date().toISOString(),
               });
               setDoc(docRef, cleanPayload).catch(() => {});
             }
-            this.notifyStatus('firebase_connected', 'التسجيل السحابي نشط');
+            this.notifyStatus('firebase_connected', 'المزامنة اللحظية السحابية نشطة (Firebase)');
             if (this.hasPendingOfflineChanges()) {
               this.flushOfflinePendingSync();
             }
@@ -2632,69 +3085,145 @@ class HybridStorageEngine {
 
   public async persistState(nextState: PlatformDatabaseState, activeUserId?: string) {
     const tabId = getOrCreateTabSessionId();
+    const nowIso = new Date().toISOString();
+    const compactCloudStores = stripGeneratedSvgFromStores(nextState.stores || []);
+
+    // Update local React state and offline cache
     this.saveLocalState(nextState, activeUserId);
     this.notifyData(nextState);
 
-    const fastChatPatch = sanitizeForFirebase({
-      users: nextState.users || [],
+    const sectionStoresPayload = sanitizeForFirebase({
+      stores: compactCloudStores,
+      storeCategories: ensureStoreCategoriesWithDreamPlaza(nextState.settings.storeCategories),
+      deletedRecordIds: nextState.deletedRecordIds || [],
+      senderTabId: tabId,
+      updatedAt: nowIso,
+    });
+
+    const sectionServicesPayload = sanitizeForFirebase({
+      serviceNumbers: normalizeServiceNumbersList(nextState.serviceNumbers || []),
+      serviceProfessions: ensureServiceProfessionsList(nextState.settings.serviceProfessions),
+      deletedRecordIds: nextState.deletedRecordIds || [],
+      senderTabId: tabId,
+      updatedAt: nowIso,
+    });
+
+    const sectionCommunityPayload = sanitizeForFirebase({
+      communityPosts: nextState.communityPosts || [],
+      buySellPosts: nextState.buySellPosts || [],
+      utilityPosts: nextState.utilityPosts || [],
+      utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),
+      deletedRecordIds: nextState.deletedRecordIds || [],
+      senderTabId: tabId,
+      updatedAt: nowIso,
+    });
+
+    const sectionAdsPayload = sanitizeForFirebase({
       topBanners: nextState.topBanners || [],
       squareAds: nextState.squareAds || [],
       popupAd: nextState.popupAd,
-      stores: normalizeStoresList(nextState.stores || []),
-      storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
-      serviceNumbers: normalizeServiceNumbersList(nextState.serviceNumbers || []),
+      adPackagesPricing: nextState.settings.adPackagesPricing,
+      deletedRecordIds: nextState.deletedRecordIds || [],
+      senderTabId: tabId,
+      updatedAt: nowIso,
+    });
+
+    const sectionTawsilaPayload = sanitizeForFirebase({
       tawsilaRides: normalizeTawsilaList(nextState.tawsilaRides || []),
-      liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
-      chatPenalties: nextState.chatPenalties || [],
-      privateChatMessages: nextState.privateChatMessages || [],
-      privateChatStatuses: nextState.privateChatStatuses || {},
-      chatTypingMap: nextState.chatTypingMap || {},
-      userBlockedMap: nextState.userBlockedMap || {},
-      privateChatReports: nextState.privateChatReports || [],
+      deletedRecordIds: nextState.deletedRecordIds || [],
+      senderTabId: tabId,
+      updatedAt: nowIso,
+    });
+
+    const sectionSettingsUsersPayload = sanitizeForFirebase({
+      users: nextState.users || [],
       messages: nextState.messages || [],
-      utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),
-      utilityPosts: nextState.utilityPosts || [],
-      buySellPosts: nextState.buySellPosts || [],
-      communityPosts: nextState.communityPosts || [],
-      liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,
-      liveChatAutoClearMinutes: nextState.settings.liveChatAutoClearMinutes ?? 60,
-      liveChatLastClearedAt: nextState.settings.liveChatLastClearedAt,
-      utilityTypes: nextState.settings.utilityTypes || DEFAULT_UTILITY_TYPES,
       settings: nextState.settings,
       deletedRecordIds: nextState.deletedRecordIds || [],
       senderTabId: tabId,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
     });
 
-    // 1. Broadcast across browser tabs in < 1ms
+    const cleanFullPayload = sanitizeForFirebase({
+      ...nextState,
+      stores: compactCloudStores,
+      senderTabId: tabId,
+      updatedAt: nowIso,
+    });
+
+    // 1. Broadcast across same-browser tabs in < 1ms
     try {
       stateSyncChannel?.postMessage({
-        type: 'chat_fast',
-        chatPatch: fastChatPatch,
-        senderTabId: tabId,
-      });
-      stateSyncChannel?.postMessage({
         type: 'full_state',
-        state: sanitizeForFirebase(nextState),
+        state: cleanFullPayload,
         senderTabId: tabId,
       });
     } catch {
       // ignore
     }
 
-    // If currently offline, queue state in localStorage + IndexedDB for automatic sync when online
+    // If currently offline, queue state in Offline Cache for automatic sync when internet returns
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       this.markPendingOfflineSync(nextState);
       return;
     }
 
-    // 2. Broadcast via Express Real-Time SSE Server (< 15ms across all users/devices)
+    // 2. Write directly to Firebase servers first so onSnapshot/onValue listeners update all connected users immediately
+    const fb = nextState.settings.firebase;
+    const firebaseWritePromises: Promise<unknown>[] = [];
+
+    if (fb.enabled && fb.apiKey && fb.projectId) {
+      if (fb.mode === 'realtime' && this.realtimeDb) {
+        firebaseWritePromises.push(
+          set(ref(this.realtimeDb, 'fluent_portal_v3/sections/stores'), sectionStoresPayload),
+          set(ref(this.realtimeDb, 'fluent_portal_v3/sections/services'), sectionServicesPayload),
+          set(ref(this.realtimeDb, 'fluent_portal_v3/sections/community'), sectionCommunityPayload),
+          set(ref(this.realtimeDb, 'fluent_portal_v3/sections/ads'), sectionAdsPayload),
+          set(ref(this.realtimeDb, 'fluent_portal_v3/sections/tawsila'), sectionTawsilaPayload),
+          set(ref(this.realtimeDb, 'fluent_portal_v3/sections/settings_users'), sectionSettingsUsersPayload),
+          set(ref(this.realtimeDb, 'fluent_portal_v3/workspace'), cleanFullPayload)
+        );
+      } else if (this.firestoreDb) {
+        const storesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_stores');
+        const servicesDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_services');
+        const communityDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_community');
+        const adsDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_ads');
+        const tawsilaDocRef = doc(this.firestoreDb, 'fluent_portal_v3', 'section_tawsila');
+        const settingsUsersDocRef = doc(
+          this.firestoreDb,
+          'fluent_portal_v3',
+          'section_settings_users'
+        );
+        const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
+
+        firebaseWritePromises.push(
+          setDoc(storesDocRef, sectionStoresPayload),
+          setDoc(servicesDocRef, sectionServicesPayload),
+          setDoc(communityDocRef, sectionCommunityPayload),
+          setDoc(adsDocRef, sectionAdsPayload),
+          setDoc(tawsilaDocRef, sectionTawsilaPayload),
+          setDoc(settingsUsersDocRef, sectionSettingsUsersPayload),
+          setDoc(docRef, cleanFullPayload).catch(async () => {
+            const ultraCompactPayload = sanitizeForFirebase({
+              ...cleanFullPayload,
+              stores: compactCloudStores.map((st) => ({
+                ...st,
+                menuImages: (st.menuImages || []).slice(0, 1),
+              })),
+            });
+            await setDoc(docRef, ultraCompactPayload);
+          })
+        );
+      }
+    }
+
+    // 3. Also sync with Express Real-Time SSE Server in parallel
     if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
       fetch('/api/realtime/chat-fast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chatPatch: fastChatPatch,
+          chatPatch: cleanFullPayload,
           senderTabId: tabId,
         }),
       }).catch(() => {});
@@ -2703,7 +3232,7 @@ class HybridStorageEngine {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          state: sanitizeForFirebase(nextState),
+          state: cleanFullPayload,
           senderTabId: tabId,
         }),
       }).catch(() => {
@@ -2711,70 +3240,14 @@ class HybridStorageEngine {
       });
     }
 
-    // 3. Sync with Firebase Firestore / Realtime DB (Sanitized with zero undefined values!)
-    const fb = nextState.settings.firebase;
-    if (!fb.enabled || !fb.apiKey || !fb.projectId) {
-      return;
-    }
-
-    try {
-      const cleanFullPayload = sanitizeForFirebase({
-        ...nextState,
-        senderTabId: tabId,
-        updatedAt: new Date().toISOString(),
-      });
-
-      if (fb.mode === 'realtime' && this.realtimeDb) {
-        const stateRef = ref(this.realtimeDb, 'fluent_portal_v3/workspace');
-        await set(stateRef, cleanFullPayload);
-      } else if (this.firestoreDb) {
-        const fastChatDocRef = doc(
-          this.firestoreDb,
-          'fluent_portal_v3',
-          'live_chat_realtime'
-        );
-        const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
-        const archiveDocRef = doc(
-          this.firestoreDb,
-          'fluent_portal_v3',
-          'cumulative_archive'
-        );
-        const vaultSnapshot = fastBrowserCache.getCumulativeVaultSync() || nextState;
-        const cleanArchivePayload = sanitizeForFirebase({
-          ...vaultSnapshot,
-          deletedRecordIds: [],
-          updatedAt: new Date().toISOString(),
-        });
-        // Write lightweight fast chat document first for immediate snapshot trigger on all clients
-        await Promise.all([
-          setDoc(fastChatDocRef, fastChatPatch).catch(async () => {
-            // If fastChatPatch exceeds Firestore 1MB limit due to large base64 store images, write compact patch
-            const compactPatch = sanitizeForFirebase({
-              ...fastChatPatch,
-              stores: (nextState.stores || []).map((st) => ({
-                ...st,
-                menuImages: (st.menuImages || []).slice(0, 1),
-              })),
-            });
-            await setDoc(fastChatDocRef, compactPatch);
-          }),
-          setDoc(docRef, cleanFullPayload).catch(async () => {
-            const compactPayload = sanitizeForFirebase({
-              ...cleanFullPayload,
-              stores: (nextState.stores || []).map((st) => ({
-                ...st,
-                menuImages: (st.menuImages || []).slice(0, 1),
-              })),
-            });
-            await setDoc(docRef, compactPayload);
-          }),
-          setDoc(archiveDocRef, cleanArchivePayload).catch(() => {}),
-        ]);
+    if (firebaseWritePromises.length > 0) {
+      try {
+        await Promise.all(firebaseWritePromises);
+        this.clearPendingOfflineSyncFlag();
+      } catch (error) {
+        this.markPendingOfflineSync(nextState);
+        console.error('Firebase sync write error (queued for auto-sync):', error);
       }
-      this.clearPendingOfflineSyncFlag();
-    } catch (error) {
-      this.markPendingOfflineSync(nextState);
-      console.error('Firebase sync write error (queued for auto-sync):', error);
     }
   }
 
@@ -3071,14 +3544,7 @@ class HybridStorageEngine {
     this.notifyData(nextState);
 
     const ultraLightChatPatch = sanitizeForFirebase({
-      users: nextState.users || [],
-      topBanners: nextState.topBanners || [],
-      squareAds: nextState.squareAds || [],
-      popupAd: nextState.popupAd,
-      stores: normalizeStoresList(nextState.stores || []),
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
-      serviceNumbers: normalizeServiceNumbersList(nextState.serviceNumbers || []),
-      tawsilaRides: normalizeTawsilaList(nextState.tawsilaRides || []),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: (nextState.privateChatMessages || []).slice(-200),
@@ -3087,14 +3553,9 @@ class HybridStorageEngine {
       userBlockedMap: nextState.userBlockedMap || {},
       privateChatReports: nextState.privateChatReports || [],
       messages: nextState.messages || [],
-      utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),
-      utilityPosts: nextState.utilityPosts || [],
-      buySellPosts: nextState.buySellPosts || [],
-      communityPosts: nextState.communityPosts || [],
       liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,
       liveChatAutoClearMinutes: nextState.settings.liveChatAutoClearMinutes ?? 60,
       liveChatLastClearedAt: nextState.settings.liveChatLastClearedAt,
-      settings: nextState.settings,
       deletedRecordIds: nextState.deletedRecordIds || [],
       senderTabId: tabId,
       updatedAt: new Date().toISOString(),

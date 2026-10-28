@@ -214,6 +214,9 @@ export default function App() {
       setDbState((prev) => {
         const mins = prev.settings.liveChatAutoClearMinutes ?? 0;
         if (mins <= 0) return prev;
+        if (!prev.liveChatMessages || prev.liveChatMessages.length === 0) {
+          return prev;
+        }
         const lastClearedMs = prev.settings.liveChatLastClearedAt
           ? new Date(prev.settings.liveChatLastClearedAt).getTime()
           : 0;
@@ -227,7 +230,7 @@ export default function App() {
               liveChatLastClearedAt: new Date(nowMs).toISOString(),
             },
           };
-          storageEngine.persistState(nextState, currentUser?.id);
+          storageEngine.persistChatFast(nextState, currentUser?.id);
           return nextState;
         }
         return prev;
@@ -602,17 +605,28 @@ export default function App() {
 
   // --- Stage 2: Directory Stores, Likes/Dislikes, Ratings, Comments, Replies, Import ---
   const handleAddStore = (store: StoreListingItem) => {
+    const stampedStore: StoreListingItem = {
+      ...store,
+      updatedAt: Date.now(),
+    };
     updateAndPersist((prev) => ({
       ...prev,
-      stores: [store, ...prev.stores],
+      stores: [stampedStore, ...prev.stores],
+      deletedRecordIds: (prev.deletedRecordIds || []).filter(
+        (id) => id !== stampedStore.id
+      ),
     }));
   };
 
   const handleUpdateStore = (updatedStore: StoreListingItem) => {
+    const stampedStore: StoreListingItem = {
+      ...updatedStore,
+      updatedAt: Date.now(),
+    };
     updateAndPersist((prev) => ({
       ...prev,
       stores: prev.stores.map((s) =>
-        s.id === updatedStore.id ? updatedStore : s
+        s.id === stampedStore.id ? stampedStore : s
       ),
     }));
   };
@@ -621,15 +635,22 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       stores: prev.stores.map((s) =>
-        s.id === storeId ? { ...s, viewsCount: (s.viewsCount || 0) + 1 } : s
+        s.id === storeId
+          ? { ...s, viewsCount: (s.viewsCount || 0) + 1, updatedAt: Date.now() }
+          : s
       ),
     }));
   };
 
   const handleImportStoresBatch = (importedStores: StoreListingItem[]) => {
+    const nowTs = Date.now();
+    const stampedBatch = importedStores.map((st) => ({
+      ...st,
+      updatedAt: nowTs,
+    }));
     updateAndPersist((prev) => ({
       ...prev,
-      stores: [...importedStores, ...prev.stores],
+      stores: [...stampedBatch, ...prev.stores],
     }));
   };
 
@@ -652,6 +673,7 @@ export default function App() {
         const alreadyLiked = s.likes.includes(visitorId);
         return {
           ...s,
+          updatedAt: Date.now(),
           likes: alreadyLiked
             ? s.likes.filter((id) => id !== visitorId)
             : [...s.likes, visitorId],
@@ -669,6 +691,7 @@ export default function App() {
         const alreadyDisliked = s.dislikes.includes(visitorId);
         return {
           ...s,
+          updatedAt: Date.now(),
           dislikes: alreadyDisliked
             ? s.dislikes.filter((id) => id !== visitorId)
             : [...s.dislikes, visitorId],
@@ -683,7 +706,11 @@ export default function App() {
       ...prev,
       stores: prev.stores.map((s) =>
         s.id === storeId
-          ? { ...s, ratings: { ...s.ratings, [visitorId]: stars } }
+          ? {
+              ...s,
+              updatedAt: Date.now(),
+              ratings: { ...s.ratings, [visitorId]: stars },
+            }
           : s
       ),
     }));
@@ -693,7 +720,9 @@ export default function App() {
     updateAndPersist((prev) => ({
       ...prev,
       stores: prev.stores.map((s) =>
-        s.id === storeId ? { ...s, comments: [comment, ...s.comments] } : s
+        s.id === storeId
+          ? { ...s, updatedAt: Date.now(), comments: [comment, ...s.comments] }
+          : s
       ),
     }));
   };
@@ -704,7 +733,11 @@ export default function App() {
       ...prev,
       stores: prev.stores.map((s) =>
         s.id === storeId
-          ? { ...s, comments: s.comments.filter((c) => c.id !== commentId) }
+          ? {
+              ...s,
+              updatedAt: Date.now(),
+              comments: s.comments.filter((c) => c.id !== commentId),
+            }
           : s
       ),
     }));
@@ -717,6 +750,7 @@ export default function App() {
         if (s.id !== storeId) return s;
         return {
           ...s,
+          updatedAt: Date.now(),
           comments: s.comments.map((c) => {
             if (c.id !== commentId) return c;
             const liked = c.likes.includes(visitorId);
@@ -743,6 +777,7 @@ export default function App() {
         if (s.id !== storeId) return s;
         return {
           ...s,
+          updatedAt: Date.now(),
           comments: s.comments.map((c) =>
             c.id === commentId ? { ...c, replies: [...c.replies, reply] } : c
           ),
@@ -753,17 +788,28 @@ export default function App() {
 
   // --- Stage 3: Service Numbers & Tawsila Handlers ---
   const handleAddServiceNumber = (entry: ServicePhoneEntry) => {
+    const stampedEntry: ServicePhoneEntry = {
+      ...entry,
+      updatedAt: Date.now(),
+    };
     updateAndPersist((prev) => ({
       ...prev,
-      serviceNumbers: [entry, ...prev.serviceNumbers],
+      serviceNumbers: [stampedEntry, ...prev.serviceNumbers],
+      deletedRecordIds: (prev.deletedRecordIds || []).filter(
+        (id) => id !== stampedEntry.id
+      ),
     }));
   };
 
   const handleUpdateServiceNumber = (updated: ServicePhoneEntry) => {
+    const stampedEntry: ServicePhoneEntry = {
+      ...updated,
+      updatedAt: Date.now(),
+    };
     updateAndPersist((prev) => ({
       ...prev,
       serviceNumbers: prev.serviceNumbers.map((n) =>
-        n.id === updated.id ? updated : n
+        n.id === stampedEntry.id ? stampedEntry : n
       ),
     }));
   };
@@ -2795,6 +2841,7 @@ export default function App() {
   };
 
   const handleRenameStoreCategory = (oldName: string, newName: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       settings: {
@@ -2802,10 +2849,12 @@ export default function App() {
         storeCategories: prev.settings.storeCategories.map((c) =>
           c === oldName ? newName : c
         ),
-        updatedAt: Date.now(),
+        updatedAt: nowTs,
       },
       stores: prev.stores.map((s) =>
-        s.category === oldName ? { ...s, category: newName } : s
+        s.category === oldName
+          ? { ...s, category: newName, updatedAt: nowTs }
+          : s
       ),
     }));
   };

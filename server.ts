@@ -90,29 +90,45 @@ function hasRealUploadedStoreImagesServer(imgs: unknown): boolean {
   );
 }
 
+function getRealStoreImagesOnlyServer(imgs: unknown): string[] {
+  if (!Array.isArray(imgs)) return [];
+  return imgs.filter(
+    (img): img is string =>
+      typeof img === 'string' &&
+      img.trim().length > 0 &&
+      !img.trim().startsWith('data:image/svg+xml')
+  );
+}
+
 function mergeSingleStoreServer(
   prevSt: Record<string, unknown>,
   nextSt: Record<string, unknown>
 ): Record<string, unknown> {
   const prevTs = typeof prevSt.updatedAt === 'number' ? prevSt.updatedAt : 0;
   const nextTs = typeof nextSt.updatedAt === 'number' ? nextSt.updatedAt : 0;
-  const prevReal = hasRealUploadedStoreImagesServer(prevSt.menuImages);
-  const nextReal = hasRealUploadedStoreImagesServer(nextSt.menuImages);
+  const prevRealImgs = getRealStoreImagesOnlyServer(prevSt.menuImages);
+  const nextRealImgs = getRealStoreImagesOnlyServer(nextSt.menuImages);
+  const prevReal = prevRealImgs.length > 0;
+  const nextReal = nextRealImgs.length > 0;
 
-  const primary =
-    prevTs > nextTs
-      ? { ...nextSt, ...prevSt }
-      : { ...prevSt, ...nextSt };
+  // Only allow incoming store to overwrite core fields (category, name, phone, details, locationUrl)
+  // if incoming has a >= timestamp AND (nextTs > 0 or prevTs === 0)
+  const preferNext = nextTs >= prevTs;
+  const primary = preferNext
+    ? { ...prevSt, ...nextSt }
+    : { ...nextSt, ...prevSt };
 
-  let resolvedImages = primary.menuImages;
-  if (nextSt.imagesExplicitlyCleared === true && nextTs >= prevTs) {
-    resolvedImages = nextSt.menuImages;
+  let resolvedImages: unknown = primary.menuImages;
+  if (nextSt.imagesExplicitlyCleared === true && preferNext && !nextReal) {
+    resolvedImages = [];
   } else if (prevReal && !nextReal) {
-    resolvedImages = prevSt.menuImages;
+    resolvedImages = prevRealImgs;
   } else if (nextReal && !prevReal) {
-    resolvedImages = nextSt.menuImages;
+    resolvedImages = nextRealImgs;
   } else if (prevReal && nextReal) {
-    resolvedImages = nextTs >= prevTs ? nextSt.menuImages : prevSt.menuImages;
+    resolvedImages = preferNext ? nextRealImgs : prevRealImgs;
+  } else {
+    resolvedImages = [];
   }
 
   return {
@@ -132,13 +148,24 @@ function mergeStoresServer(
   const map = new Map<string, Record<string, unknown>>();
   for (const item of prev) {
     if (item && typeof item.id === 'string' && !deletedSet.has(item.id)) {
-      map.set(item.id, item);
+      map.set(item.id, {
+        ...item,
+        menuImages: getRealStoreImagesOnlyServer(item.menuImages),
+      });
     }
   }
   for (const item of next) {
     if (item && typeof item.id === 'string' && !deletedSet.has(item.id)) {
       const existing = map.get(item.id);
-      map.set(item.id, existing ? mergeSingleStoreServer(existing, item) : item);
+      map.set(
+        item.id,
+        existing
+          ? mergeSingleStoreServer(existing, item)
+          : {
+              ...item,
+              menuImages: getRealStoreImagesOnlyServer(item.menuImages),
+            }
+      );
     }
   }
   const result: Array<Record<string, unknown>> = [];
@@ -158,6 +185,15 @@ function mergeStoresServer(
   return result;
 }
 
+function parseTimestampMsServer(val: unknown): number {
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
+  if (typeof val === 'string' && val.trim()) {
+    const parsed = new Date(val).getTime();
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
+}
+
 function mergeArrayByIdServer(
   prevList: unknown,
   nextList: unknown,
@@ -173,7 +209,39 @@ function mergeArrayByIdServer(
   }
   for (const item of next) {
     if (item && typeof item.id === 'string' && !deletedSet.has(item.id)) {
-      map.set(item.id, item);
+      const existing = map.get(item.id);
+      if (!existing) {
+        map.set(item.id, item);
+      } else {
+        const prevTs = parseTimestampMsServer(existing.updatedAt);
+        const nextTs = parseTimestampMsServer(item.updatedAt);
+        const preferNext = nextTs >= prevTs;
+        const mergedItem: Record<string, unknown> = preferNext
+          ? { ...existing, ...item }
+          : { ...item, ...existing };
+        if (Array.isArray(existing.comments) || Array.isArray(item.comments)) {
+          mergedItem.comments = mergeArrayByIdServer(
+            existing.comments,
+            item.comments,
+            deletedSet
+          );
+        }
+        if (Array.isArray(existing.replies) || Array.isArray(item.replies)) {
+          mergedItem.replies = mergeArrayByIdServer(
+            existing.replies,
+            item.replies,
+            deletedSet
+          );
+        }
+        if (Array.isArray(existing.thread) || Array.isArray(item.thread)) {
+          mergedItem.thread = mergeArrayByIdServer(
+            existing.thread,
+            item.thread,
+            deletedSet
+          );
+        }
+        map.set(item.id, mergedItem);
+      }
     }
   }
   const result: Array<Record<string, unknown>> = [];

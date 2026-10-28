@@ -264,8 +264,16 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         );
         const nextList = [...cleanPrev, ...uploadedUrls];
         if (editingStoreObj && onUpdateStore) {
+          const cleanSubCat = storeSubCategory.trim();
           const updatedStore: StoreListingItem = {
             ...editingStoreObj,
+            name: storeName.trim() || editingStoreObj.name,
+            category: storeCategory || editingStoreObj.category,
+            subCategory: cleanSubCat || undefined,
+            locationUrl: storeLocationUrl.trim(),
+            phone: storePhone.trim() || editingStoreObj.phone,
+            whatsapp: (storePhone.trim() || editingStoreObj.phone).replace(/[^0-9]/g, ''),
+            details: storeDetails.trim() || editingStoreObj.details,
             menuImages: nextList,
             updatedAt: Date.now(),
             imagesExplicitlyCleared: false,
@@ -304,8 +312,6 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     const finalMenuImages =
       realUploadedImages.length > 0
         ? realUploadedImages
-        : menuImages.length > 0
-        ? menuImages
         : [createSquareAdSvg(cleanName, storeCategory, '#0284C7')];
 
     // في حالة تسجيل صيدلية أو غيره لا يُكتب "محل" إلا في حالة كتابة "محل" فقط

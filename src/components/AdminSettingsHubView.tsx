@@ -60,6 +60,7 @@ import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import {
   createBannerSvg,
   createSquareAdSvg,
+  getEffectiveOnlineDisplayCount,
   RealOnlinePresenceStats,
   storageEngine,
   uploadImageDynamic,
@@ -799,7 +800,10 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       label: 'عدد المتصلين الآن',
       subtitle: 'أسماء المتصلين الآن ومحادثة خاصة معهم',
       icon: Radio,
-      badge: onlineStats?.totalOnline || 1,
+      badge: getEffectiveOnlineDisplayCount(
+        onlineStats?.totalOnline || 1,
+        state.settings.customOnlineCount
+      ),
     },
     {
       id: 'maintenance',
@@ -1065,11 +1069,26 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     if (onlineStats?.registeredUsernames) {
       onlineStats.registeredUsernames.forEach(addByName);
     }
+    state.users.forEach((u) => {
+      if (u && u.isOnline && !u.isBanned && u.username) {
+        addByName(u.username);
+      }
+    });
     if (currentUser) {
       addByName(currentUser.username);
     }
     return result;
   }, [onlineStats?.registeredUsernames, state.users, currentUser]);
+
+  const realOnlineTotalCount = Math.max(
+    1,
+    onlineStats?.totalOnline || 0,
+    connectedOnlineUsers.length + (onlineStats?.guestsCount || 0)
+  );
+  const displayedOnlineTotalCount = getEffectiveOnlineDisplayCount(
+    realOnlineTotalCount,
+    state.settings.customOnlineCount
+  );
 
   const getDaysRemainingBadge = (expiresAt?: string) => {
     if (!expiresAt) return 'مفتوح المدة';
@@ -2897,12 +2916,12 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
              ==================================================================== */}
           {activeSubTab === 'online_users' && (
             <FluentCard className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#334155]">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-[#334155]">
                 <div>
                   <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
                     <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
                     <span>
-                      8. عدد المتصلين الآن ({onlineStats?.totalOnline || 1})
+                      8. عدد المتصلين الآن ({displayedOnlineTotalCount})
                     </span>
                   </h3>
                   <p className="text-xs text-[#94A3B8]">
@@ -2910,7 +2929,48 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                {/* بجانب سجل المحادثات: اكتب عدد المتصلين + خانة إدخال الرقم */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="flex items-center gap-2 bg-[#0A192F] border border-emerald-400/50 rounded-xl px-3 py-1.5">
+                    <label
+                      htmlFor="custom-online-count-input"
+                      className="text-xs font-extrabold text-emerald-300 whitespace-nowrap"
+                    >
+                      اكتب عدد المتصلين
+                    </label>
+                    <input
+                      id="custom-online-count-input"
+                      type="number"
+                      min={0}
+                      value={
+                        typeof state.settings.customOnlineCount === 'number' &&
+                        state.settings.customOnlineCount > 0
+                          ? state.settings.customOnlineCount
+                          : ''
+                      }
+                      onChange={(e) => {
+                        const rawVal = e.target.value.trim();
+                        if (!rawVal) {
+                          onUpdateSettings({
+                            ...state.settings,
+                            customOnlineCount: null,
+                            updatedAt: Date.now(),
+                          });
+                          return;
+                        }
+                        const parsed = parseInt(rawVal, 10);
+                        onUpdateSettings({
+                          ...state.settings,
+                          customOnlineCount:
+                            !Number.isNaN(parsed) && parsed > 0 ? parsed : null,
+                          updatedAt: Date.now(),
+                        });
+                      }}
+                      placeholder="فعلي تلقائي"
+                      className="w-24 sm:w-28 rounded-lg bg-[#112240] border border-[#334155] focus:border-emerald-400 px-2.5 py-1 text-xs sm:text-sm font-extrabold text-[#F8FAFC] font-mono-tabular outline-none text-center"
+                    />
+                  </div>
+
                   <FluentButton
                     variant="primary"
                     size="sm"
@@ -2922,21 +2982,50 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                 </div>
               </div>
 
+              {typeof state.settings.customOnlineCount === 'number' &&
+              state.settings.customOnlineCount > 0 ? (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/40 text-xs font-bold text-emerald-300 flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    وضع العدد المخصص نشط: الرقم الأساسي ({state.settings.customOnlineCount}) يظهر للجميع في &quot;المتصلين الآن&quot; ({displayedOnlineTotalCount}) ويزيد ويقل تلقائياً كل 10 دقائق. (امسح الرقم لظهور العدد الفعلي الحقيقي: {realOnlineTotalCount}).
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateSettings({
+                        ...state.settings,
+                        customOnlineCount: null,
+                        updatedAt: Date.now(),
+                      })
+                    }
+                    className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-200 text-[11px] font-extrabold cursor-pointer shrink-0"
+                  >
+                    إلغاء وتفعيل العدد الفعلي
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-400/30 text-xs font-bold text-sky-300">
+                  الوضع الفعلي نشط: يظهر الآن عدد المتصلين الفعلي والحقيقي على الموقع بدون فبركة ({realOnlineTotalCount}).
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-3.5 rounded-xl bg-[#0A192F] border border-emerald-400/40 flex items-center justify-between">
                   <span className="text-xs font-bold text-[#94A3B8]">
                     إجمالي المتصلين الآن:
                   </span>
                   <strong className="text-base font-extrabold text-emerald-400 font-mono-tabular">
-                    {onlineStats?.totalOnline || 1}
+                    {displayedOnlineTotalCount}
                   </strong>
                 </div>
                 <div className="p-3.5 rounded-xl bg-[#0A192F] border border-sky-400/40 flex items-center justify-between">
                   <span className="text-xs font-bold text-[#94A3B8]">
-                    المتصلين المسجلين:
+                    المتصلين المسجلين فعلياً:
                   </span>
                   <strong className="text-base font-extrabold text-sky-400 font-mono-tabular">
-                    {onlineStats?.registeredCount ?? connectedOnlineUsers.length}
+                    {Math.max(
+                      onlineStats?.registeredCount || 0,
+                      connectedOnlineUsers.length
+                    )}
                   </strong>
                 </div>
                 <div className="p-3.5 rounded-xl bg-[#0A192F] border border-amber-400/40 flex items-center justify-between">
@@ -2951,10 +3040,11 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
               <div className="space-y-2.5 pt-2">
                 <div className="text-xs font-extrabold text-emerald-300">
-                  أسماء المتصلين الآن (اضغط على أي اسم لفتح محادثة خاصة معه):
+                  أسماء المتصلين الآن والزوار النشطين (اضغط على أي حساب لفتح محادثة خاصة معه):
                 </div>
 
-                {connectedOnlineUsers.length === 0 ? (
+                {connectedOnlineUsers.length === 0 &&
+                (onlineStats?.guestsCount || 0) === 0 ? (
                   <p className="text-xs text-[#94A3B8] py-6 text-center">
                     لا يوجد مستخدمون مسجلون متصلون حالياً.
                   </p>
@@ -2989,6 +3079,30 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                           <span>محادثة خاصة</span>
                         </span>
                       </button>
+                    ))}
+
+                    {Array.from({
+                      length: Math.min(20, onlineStats?.guestsCount || 0),
+                    }).map((_, idx) => (
+                      <div
+                        key={`guest-live-${idx}`}
+                        className="p-3.5 rounded-xl bg-[#0A192F]/80 border border-amber-400/30 flex items-center justify-between gap-3 text-right"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                              زائر متصل الآن #{idx + 1}
+                            </div>
+                            <div className="text-[10px] text-amber-300">
+                              يتصفح الموقع الآن (بدون تسجيل دخول)
+                            </div>
+                          </div>
+                        </div>
+                        <span className="px-2 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-300 text-[10px] font-extrabold shrink-0">
+                          نشط الآن
+                        </span>
+                      </div>
                     ))}
                   </div>
                 )}

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import express from 'express';
 import fs from 'fs';
 import http from 'http';
@@ -55,6 +56,7 @@ try {
         topBanners: parsed.topBanners || [],
         squareAds: parsed.squareAds || [],
         popupAd: parsed.popupAd,
+        serviceNumbers: parsed.serviceNumbers || [],
         liveChatMessages: parsed.liveChatMessages || [],
         privateChatMessages: parsed.privateChatMessages || [],
         privateChatStatuses: parsed.privateChatStatuses || {},
@@ -274,8 +276,8 @@ function saveStateToDisk(state: Record<string, unknown>) {
   }, 400);
 }
 
-// Strictly real-time online stats based ONLY on live active heartbeats (8s TTL)
-const LIVE_PRESENCE_TTL_MS = 8000;
+// Real-time online stats based on live active heartbeats (45s TTL) + online registered users
+const LIVE_PRESENCE_TTL_MS = 45000;
 
 function computeOnlineStats() {
   const now = Date.now();
@@ -288,6 +290,17 @@ function computeOnlineStats() {
   const registeredMap = new Map<string, string>();
   const registeredVisitorIds = new Set<string>();
   const guestVisitorIds = new Set<string>();
+
+  if (authoritativeState && Array.isArray(authoritativeState.users)) {
+    for (const u of authoritativeState.users as Array<Record<string, unknown>>) {
+      if (u && u.isOnline === true && !u.isBanned && typeof u.username === 'string') {
+        const displayUsername = u.username.trim();
+        if (displayUsername) {
+          registeredMap.set(displayUsername.toLowerCase(), displayUsername);
+        }
+      }
+    }
+  }
 
   for (const sess of presenceMap.values()) {
     if (sess.isRegistered && (sess.username || sess.userId)) {
@@ -439,6 +452,7 @@ async function startServer() {
       topBanners: restoredState.topBanners || [],
       squareAds: restoredState.squareAds || [],
       popupAd: restoredState.popupAd,
+      serviceNumbers: restoredState.serviceNumbers || [],
       liveChatMessages: restoredState.liveChatMessages || [],
       privateChatMessages: restoredState.privateChatMessages || [],
       privateChatStatuses: restoredState.privateChatStatuses || {},
@@ -569,6 +583,7 @@ async function startServer() {
       topBanners: mergedState.topBanners || [],
       squareAds: mergedState.squareAds || [],
       popupAd: mergedState.popupAd,
+      serviceNumbers: mergedState.serviceNumbers || [],
       liveChatMessages: mergedState.liveChatMessages || [],
       privateChatMessages: mergedState.privateChatMessages || [],
       privateChatStatuses: mergedState.privateChatStatuses || {},
@@ -680,6 +695,16 @@ async function startServer() {
             };
           });
       }
+      const mergedServiceNumbers = chatPatch.serviceNumbers
+        ? mergeArrayByIdServer(
+            authoritativeState.serviceNumbers,
+            chatPatch.serviceNumbers,
+            deletedSet
+          )
+        : authoritativeState.serviceNumbers;
+      if (latestChatPatch && Array.isArray(mergedServiceNumbers)) {
+        latestChatPatch.serviceNumbers = mergedServiceNumbers;
+      }
       const nextState: Record<string, unknown> = {
         ...authoritativeState,
         ...chatPatch,
@@ -698,6 +723,7 @@ async function startServer() {
           deletedSet
         ),
         stores: mergedStores,
+        serviceNumbers: mergedServiceNumbers,
         settings: mergeSettingsServer(prevSettings, patchSettings),
       };
       authoritativeState = nextState;
@@ -752,6 +778,36 @@ async function startServer() {
       },
       appType: 'spa',
     });
+
+    // Serve a clean, non-failing @vite/client so cached or active clients never throw "WebSocket closed without opened."
+    app.get('/@vite/client', async (req, res, next) => {
+      try {
+        const transformed = await vite.transformRequest(req.url);
+        if (transformed && transformed.code) {
+          const safeCode = transformed.code
+            .replace(
+              /reject\(\/\*\s*@__PURE__\s*\*\/\s*new Error\("WebSocket closed without opened\."\)\)/g,
+              'resolve()'
+            )
+            .replace(
+              /reject\(new Error\("WebSocket closed without opened\."\)\)/g,
+              'resolve()'
+            )
+            .replace(
+              'transport.connect(createHMRHandler(handleMessage));',
+              '/* hmr disabled */'
+            );
+          res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          res.status(200).send(safeCode);
+          return;
+        }
+      } catch {
+        // fallback to default vite middleware
+      }
+      next();
+    });
+
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
@@ -760,6 +816,39 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Complete RFC 6455 WebSocket handshake for any cached @vite/client attempting vite-hmr upgrade
+  httpServer.on('upgrade', (req, socket) => {
+    try {
+      const key = req.headers['sec-websocket-key'];
+      if (!key || typeof key !== 'string') {
+        socket.destroy();
+        return;
+      }
+      const acceptKey = crypto
+        .createHash('sha1')
+        .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+        .digest('base64');
+      const protocol = req.headers['sec-websocket-protocol'];
+      const headers = [
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Accept: ${acceptKey}`,
+      ];
+      if (protocol) {
+        headers.push(
+          `Sec-WebSocket-Protocol: ${String(protocol).split(',')[0].trim()}`
+        );
+      }
+      socket.write(headers.join('\r\n') + '\r\n\r\n');
+      socket.on('error', () => {});
+    } catch {
+      try {
+        socket.destroy();
+      } catch {}
+    }
+  });
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Real-time server listening on http://0.0.0.0:${PORT}`);

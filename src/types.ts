@@ -124,6 +124,7 @@ export interface StoreListingItem {
   ownerUsername: string;
   name: string;
   category: string;
+  subCategory?: string; // نوع المحل (مثال: سوبر ماركت، موبيل، مطعم داخل مول دريم بلازا)
   locationUrl: string; // Google Maps URL
   phone: string;
   whatsapp?: string;
@@ -156,6 +157,10 @@ export interface ServicePhoneEntry {
   secondaryPhone?: string;
   notes?: string; // تفاصيل
   isEmergency?: boolean;
+  likes?: string[]; // User IDs who liked this service provider
+  viewsCount?: number; // عدد المشاهدات لجميع المستخدمين
+  ratings?: Record<string, number>; // Map of userId -> 1..5 stars
+  comments?: StoreCommentItem[]; // تعليقات وتقييمات العامل / مقدم الخدمة
   createdAt: string;
 }
 
@@ -342,6 +347,8 @@ export interface PlatformSettings {
   imageHostSiteName?: string; // اسم موقع رفع الصور المجاني
   googleMapsApiKey?: string;
   storeCategories: string[]; // Dynamic store categories updatable in real-time from Settings
+  serviceProfessions?: string[]; // قائمة المهن في قسم أرقام الخدمات (نجار، حداد، مبلط، كهربائي، ممرض، عامل، نظافة منزل، مدرس تأسيس، مدرس ابتدائي، مدرس إعدادي...)
+  customOnlineCount?: number | null; // عدد المتصلين المخصص في الإعدادات (يزيد ويقل كل 10 دقائق، وفي حالة عدم كتابة أي عدد يظهر المتصلون الفعليون الحقيقيون)
   utilityTypes?: string[]; // قائمة المرافق في قسم تقديمات المرافق (تقديم المياه، تقديم الكهرباء، تقديم الغاز...)
   disabledSections?: Partial<Record<MainSectionId, boolean>>; // حالة الصيانة (تعطيل / تفعيل أقسام القائمة الجانبية)
   updatedAt?: number; // طابع زمني لحفظ الإعدادات نهائياً وعدم رجوعها لما سبق عند الريفريش

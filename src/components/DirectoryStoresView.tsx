@@ -121,12 +121,35 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [storeLayoutMode, setStoreLayoutMode] = useState<'grid' | 'horizontal'>('grid');
   const [importNotice, setImportNotice] = useState<string>('');
 
+  // Ensure 'مول دريم بلازا' is always present in storeCategories
+  const allStoreCategories = Array.from(
+    new Set([...(settings.storeCategories || []), 'مول دريم بلازا'])
+  );
+
+  const STORE_SUB_TYPE_SUGGESTIONS = [
+    'سوبر ماركت',
+    'موبيل',
+    'مطعم',
+    'كافيه',
+    'صيدلية',
+    'ملابس وأحذية',
+    'إلكترونيات وكمبيوتر',
+    'أدوات منزلية',
+    'مخبز وحلواني',
+    'عطارة',
+    'مكتبة',
+    'كوافير وبيوتي سنتر',
+    'مجوهرات وإكسسوارات',
+    'بصريات ونظارات',
+  ];
+
   // Add / Edit Store Modal States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingStoreObj, setEditingStoreObj] = useState<StoreListingItem | null>(null);
   const [storeCategory, setStoreCategory] = useState<string>(
-    settings.storeCategories[0] || 'سوبر ماركت'
+    allStoreCategories[0] || 'سوبر ماركت'
   );
+  const [storeSubCategory, setStoreSubCategory] = useState<string>('');
   const [storeName, setStoreName] = useState('');
   const [storeLocationUrl, setStoreLocationUrl] = useState('');
   const [storePhone, setStorePhone] = useState('');
@@ -138,6 +161,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const openEditStoreModal = (target: StoreListingItem) => {
     setEditingStoreObj(target);
     setStoreCategory(target.category);
+    setStoreSubCategory(target.subCategory || '');
     setStoreName(target.name);
     setStoreLocationUrl(target.locationUrl || '');
     setStorePhone(target.phone);
@@ -205,11 +229,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         ? 'محل مسجل بالدليل التجاري'
         : '';
 
+    const cleanSubCat = storeSubCategory.trim();
+
     if (editingStoreObj && onUpdateStore) {
       onUpdateStore({
         ...editingStoreObj,
         name: cleanName,
         category: storeCategory,
+        subCategory: cleanSubCat || undefined,
         locationUrl: storeLocationUrl.trim(),
         phone: storePhone.trim(),
         whatsapp: storePhone.trim().replace(/[^0-9]/g, ''),
@@ -223,6 +250,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         ownerUsername: currentUser?.username || 'زائر',
         name: cleanName,
         category: storeCategory,
+        subCategory: cleanSubCat || undefined,
         locationUrl: storeLocationUrl.trim(),
         phone: storePhone.trim(),
         whatsapp: storePhone.trim().replace(/[^0-9]/g, ''),
@@ -240,6 +268,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     }
 
     setEditingStoreObj(null);
+    setStoreSubCategory('');
     setStoreName('');
     setStoreLocationUrl('');
     setStorePhone('');
@@ -334,7 +363,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     };
   };
 
-  // Filter stores by search & category
+  // Filter stores by search & category (when 'مول دريم بلازا' is selected, show strictly stores registered under 'مول دريم بلازا' and allow searching by store name or subCategory like 'سوبر ماركت' or 'موبيل')
   const filteredStores = stores.filter((s) => {
     const matchesCategory =
       selectedCategory === 'all' || s.category === selectedCategory;
@@ -342,6 +371,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     const matchesSearch =
       !q ||
       s.name.toLowerCase().includes(q) ||
+      (s.subCategory && s.subCategory.toLowerCase().includes(q)) ||
       s.category.toLowerCase().includes(q) ||
       s.details.toLowerCase().includes(q) ||
       s.phone.includes(q);
@@ -510,7 +540,12 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               size="sm"
               onClick={() => {
                 setEditingStoreObj(null);
-                setStoreCategory(settings.storeCategories[0] || 'سوبر ماركت');
+                setStoreCategory(
+                  selectedCategory !== 'all'
+                    ? selectedCategory
+                    : allStoreCategories[0] || 'سوبر ماركت'
+                );
+                setStoreSubCategory('');
                 setIsAddModalOpen(true);
               }}
               className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
@@ -587,7 +622,11 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="ابحث بالاسم أو القسم أو الرقم..."
+                placeholder={
+                  selectedCategory === 'مول دريم بلازا'
+                    ? 'ابحث في مول دريم بلازا عن محل (سوبر ماركت، موبيل، مطعم...)...'
+                    : 'ابحث بالاسم أو نوع المحل أو القسم أو الرقم...'
+                }
                 className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-9 pl-2.5 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] outline-none"
               />
             </div>
@@ -602,7 +641,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-2.5 sm:px-3.5 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] font-bold outline-none"
             >
               <option value="all">جميع الأقسام ({stores.length})</option>
-              {settings.storeCategories.map((cat) => (
+              {allStoreCategories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat} ({stores.filter((s) => s.category === cat).length})
                 </option>
@@ -745,9 +784,16 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       <h3 className="text-xs sm:text-base font-extrabold text-black line-clamp-2 break-words leading-snug">
                         {store.name}
                       </h3>
-                      <span className="px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-300 text-black text-[10px] font-extrabold shrink-0">
-                        {store.category}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1 shrink-0">
+                        <span className="px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-300 text-black text-[10px] font-extrabold">
+                          {store.category}
+                        </span>
+                        {store.subCategory && (
+                          <span className="px-2 py-0.5 rounded-lg bg-sky-50 border border-sky-300 text-sky-900 text-[10px] font-extrabold">
+                            {store.subCategory}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     {cleanDetails && (
                       <p className="text-[11px] sm:text-xs text-slate-800 font-semibold line-clamp-2 leading-relaxed">
@@ -891,6 +937,11 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     <h3 className="text-xs sm:text-base font-extrabold text-black line-clamp-2 break-words leading-snug">
                       {store.name}
                     </h3>
+                    {store.subCategory && (
+                      <span className="inline-block px-2 py-0.5 rounded-md bg-sky-50 border border-sky-300 text-sky-900 text-[10px] font-extrabold">
+                        {store.subCategory}
+                      </span>
+                    )}
                     {cleanDetails && (
                       <p className="text-[10px] sm:text-xs text-slate-800 font-semibold line-clamp-2 leading-relaxed">
                         {cleanDetails}
@@ -962,21 +1013,58 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         <form onSubmit={handleCreateStoreSubmit} className="space-y-4 text-black">
           {/* Dynamic Category Dropdown + Excel Button for Selected Category Only */}
           <div className="p-3.5 rounded-xl bg-emerald-50/70 border-2 border-emerald-300 space-y-3">
-            <div>
-              <label className="block text-xs font-extrabold text-black mb-1.5">
-                اختر القسم *
-              </label>
-              <select
-                value={storeCategory}
-                onChange={(e) => setStoreCategory(e.target.value)}
-                className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-extrabold outline-none"
-              >
-                {settings.storeCategories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-extrabold text-black mb-1.5">
+                  اختر القسم *
+                </label>
+                <select
+                  value={storeCategory}
+                  onChange={(e) => setStoreCategory(e.target.value)}
+                  className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-extrabold outline-none"
+                >
+                  {allStoreCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-extrabold text-black mb-1.5">
+                  تحديد نوع المحل (مثال: سوبر ماركت، موبيل، مطعم...)
+                </label>
+                <div className="space-y-1.5">
+                  <select
+                    value={
+                      STORE_SUB_TYPE_SUGGESTIONS.includes(storeSubCategory)
+                        ? storeSubCategory
+                        : ''
+                    }
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setStoreSubCategory(e.target.value);
+                      }
+                    }}
+                    className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3 py-2 text-xs text-black font-extrabold outline-none"
+                  >
+                    <option value="">-- اختر نوع المحل أو اكتبه بالأسفل --</option>
+                    {STORE_SUB_TYPE_SUGGESTIONS.map((sub) => (
+                      <option key={sub} value={sub}>
+                        {sub}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={storeSubCategory}
+                    onChange={(e) => setStoreSubCategory(e.target.value)}
+                    placeholder="أو اكتب نوع المحل هنا (سوبر ماركت / موبيل / ملابس...)"
+                    className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3 py-2 text-xs text-black font-bold outline-none"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
@@ -1239,7 +1327,11 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           isOpen={!!activeStore}
           onClose={() => setActiveStoreId(null)}
           title={activeStore.name}
-          subtitle={`القسم: ${activeStore.category}`}
+          subtitle={
+            activeStore.subCategory
+              ? `القسم: ${activeStore.category} • نوع المحل: ${activeStore.subCategory}`
+              : `القسم: ${activeStore.category}`
+          }
           maxWidth="4xl"
           theme="light"
         >

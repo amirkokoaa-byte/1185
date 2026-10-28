@@ -95,7 +95,52 @@
           }
         } catch (_) {}
 
-        // 4. Suppress benign WebSocket / APK WebView resource warnings so WebView never triggers an error screen after splash logo
+        // 4. Prevent Vite HMR WebSocket ("vite-hmr") from throwing "WebSocket closed without opened" in environments where HMR is disabled
+        try {
+          var NativeWebSocket = window.WebSocket;
+          if (typeof NativeWebSocket === 'function') {
+            var PatchedWebSocket = function (url, protocols) {
+              var isViteHmr =
+                protocols === 'vite-hmr' ||
+                (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) ||
+                (typeof url === 'string' && url.indexOf('token=') !== -1);
+              if (isViteHmr) {
+                return {
+                  CONNECTING: 0,
+                  OPEN: 1,
+                  CLOSING: 2,
+                  CLOSED: 3,
+                  readyState: 1,
+                  protocol: 'vite-hmr',
+                  url: String(url || ''),
+                   bufferedAmount: 0,
+                  extensions: '',
+                  binaryType: 'blob',
+                  onopen: null,
+                  onerror: null,
+                  onclose: null,
+                  onmessage: null,
+                  addEventListener: function () {},
+                  removeEventListener: function () {},
+                  dispatchEvent: function () { return true; },
+                  send: function () {},
+                  close: function () {}
+                };
+              }
+              return protocols !== undefined
+                ? new NativeWebSocket(url, protocols)
+                : new NativeWebSocket(url);
+            };
+            PatchedWebSocket.prototype = NativeWebSocket.prototype;
+            PatchedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+            PatchedWebSocket.OPEN = NativeWebSocket.OPEN;
+            PatchedWebSocket.CLOSING = NativeWebSocket.CLOSING;
+            PatchedWebSocket.CLOSED = NativeWebSocket.CLOSED;
+            window.WebSocket = PatchedWebSocket;
+          }
+        } catch (_) {}
+
+        // 5. Suppress benign WebSocket / APK WebView resource warnings so WebView never triggers an error screen after splash logo
         window.addEventListener(
           'unhandledrejection',
           function (event) {

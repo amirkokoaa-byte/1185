@@ -60,6 +60,20 @@ export const DEFAULT_STORE_CATEGORIES: string[] = [
   'محل هواتف وصيانة موبايل',
   'محل إكسسوارات أو زينة',
   'مخبز سياحي أو بلدي',
+  'مول دريم بلازا',
+];
+
+export const DEFAULT_SERVICE_PROFESSIONS: string[] = [
+  'نجار',
+  'حداد',
+  'مبلط',
+  'كهربائي',
+  'ممرض',
+  'عامل',
+  'نظافة منزل',
+  'مدرس تأسيس',
+  'مدرس ابتدائي',
+  'مدرس إعدادي',
 ];
 
 export const DEFAULT_UTILITY_TYPES: string[] = [
@@ -204,6 +218,8 @@ export const INITIAL_SETTINGS: PlatformSettings = {
   imgbbApiKey: '',
   googleMapsApiKey: '',
   storeCategories: DEFAULT_STORE_CATEGORIES,
+  serviceProfessions: DEFAULT_SERVICE_PROFESSIONS,
+  customOnlineCount: null,
   utilityTypes: DEFAULT_UTILITY_TYPES,
   liveChatCooldownSeconds: 5,
   liveChatAutoClearMinutes: 60,
@@ -283,6 +299,7 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
 
     return {
       ...s,
+      subCategory: s.subCategory ? s.subCategory.trim() : undefined,
       locationUrl: s.locationUrl || 'https://maps.google.com',
       details: s.details || (s as unknown as { description?: string }).description || '',
       menuImages: upgradedImages,
@@ -300,7 +317,22 @@ function normalizeServiceNumbersList(rawList: ServicePhoneEntry[]): ServicePhone
   return rawList.map((n) => ({
     ...n,
     locationUrl: n.locationUrl || 'https://maps.google.com',
-    category: n.category || 'خدمات عامة',
+    category: n.category || n.profession || 'خدمات عامة',
+    likes: Array.isArray(n.likes) ? n.likes : [],
+    viewsCount: typeof n.viewsCount === 'number' ? n.viewsCount : 0,
+    ratings: n.ratings && typeof n.ratings === 'object' ? n.ratings : {},
+    comments: Array.isArray(n.comments)
+      ? n.comments.map((c, idx) => ({
+          id: c.id || `srv-cmt-${idx}`,
+          authorId: c.authorId || 'guest',
+          authorUsername: c.authorUsername || 'زائر',
+          rating: typeof c.rating === 'number' ? c.rating : 0,
+          text: c.text || '',
+          likes: Array.isArray(c.likes) ? c.likes : [],
+          replies: Array.isArray(c.replies) ? c.replies : [],
+          createdAt: c.createdAt || new Date().toISOString(),
+        }))
+      : [],
   }));
 }
 
@@ -494,12 +526,64 @@ function mergePopupAdCampaign(
   return incomingPopup;
 }
 
+function ensureStoreCategoriesWithDreamPlaza(cats?: string[]): string[] {
+  const baseList =
+    Array.isArray(cats) && cats.length > 0 ? cats : DEFAULT_STORE_CATEGORIES;
+  const cleaned = baseList.map((c) => String(c || '').trim()).filter(Boolean);
+  if (!cleaned.includes('مول دريم بلازا')) {
+    cleaned.push('مول دريم بلازا');
+  }
+  return Array.from(new Set(cleaned));
+}
+
+export function ensureServiceProfessionsList(profs?: string[]): string[] {
+  const incoming = Array.isArray(profs)
+    ? profs.map((p) => String(p || '').trim()).filter(Boolean)
+    : [];
+  return Array.from(new Set([...DEFAULT_SERVICE_PROFESSIONS, ...incoming]));
+}
+
+function mergeServiceNumbersWithInteractions(
+  baseList: ServicePhoneEntry[] | undefined,
+  incomingList: ServicePhoneEntry[] | undefined,
+  deletedIds: string[] = []
+): ServicePhoneEntry[] {
+  const merged = mergeCollectionById(baseList, incomingList, deletedIds);
+  return normalizeServiceNumbersList(
+    merged.map((srv) => {
+      const prevSrv = (baseList || []).find((x) => x && x.id === srv.id);
+      const incSrv = (incomingList || []).find((x) => x && x.id === srv.id);
+      if (!prevSrv || !incSrv) return srv;
+      const prevLikes = Array.isArray(prevSrv.likes) ? prevSrv.likes : [];
+      const incLikes = Array.isArray(incSrv.likes) ? incSrv.likes : [];
+      // For likes toggle, prefer incoming if incoming exists, otherwise merge
+      const resolvedLikes = Array.isArray(incSrv.likes) ? incLikes : prevLikes;
+      return {
+        ...prevSrv,
+        ...incSrv,
+        likes: resolvedLikes,
+        viewsCount: Math.max(prevSrv.viewsCount || 0, incSrv.viewsCount || 0),
+        ratings: { ...(prevSrv.ratings || {}), ...(incSrv.ratings || {}) },
+        comments: mergeCollectionById(
+          prevSrv.comments || [],
+          incSrv.comments || [],
+          deletedIds
+        ),
+      };
+    })
+  );
+}
+
 function mergePlatformSettings(
   baseSettings: PlatformSettings,
   incomingSettings?: Partial<PlatformSettings>
 ): PlatformSettings {
   if (!incomingSettings || typeof incomingSettings !== 'object') {
-    return baseSettings;
+    return {
+      ...baseSettings,
+      storeCategories: ensureStoreCategoriesWithDreamPlaza(baseSettings.storeCategories),
+      serviceProfessions: ensureServiceProfessionsList(baseSettings.serviceProfessions),
+    };
   }
   const baseUpdatedAt = typeof baseSettings.updatedAt === 'number' ? baseSettings.updatedAt : 0;
   const incomingUpdatedAt =
@@ -528,15 +612,27 @@ function mergePlatformSettings(
       (preferIncoming ? incomingSettings.marqueeText : baseSettings.marqueeText) ||
       baseSettings.marqueeText ||
       INITIAL_SETTINGS.marqueeText,
-    storeCategories:
+    storeCategories: ensureStoreCategoriesWithDreamPlaza(
       preferIncoming &&
-      Array.isArray(incomingSettings.storeCategories) &&
-      incomingSettings.storeCategories.length > 0
+        Array.isArray(incomingSettings.storeCategories) &&
+        incomingSettings.storeCategories.length > 0
         ? incomingSettings.storeCategories
         : Array.isArray(baseSettings.storeCategories) &&
           baseSettings.storeCategories.length > 0
         ? baseSettings.storeCategories
-        : DEFAULT_STORE_CATEGORIES,
+        : DEFAULT_STORE_CATEGORIES
+    ),
+    serviceProfessions: ensureServiceProfessionsList([
+      ...(baseSettings.serviceProfessions || []),
+      ...(incomingSettings.serviceProfessions || []),
+    ]),
+    customOnlineCount: preferIncoming
+      ? incomingSettings.customOnlineCount !== undefined
+        ? incomingSettings.customOnlineCount
+        : baseSettings.customOnlineCount ?? null
+      : baseSettings.customOnlineCount !== undefined
+      ? baseSettings.customOnlineCount
+      : incomingSettings.customOnlineCount ?? null,
     utilityTypes:
       preferIncoming &&
       Array.isArray(incomingSettings.utilityTypes) &&
@@ -741,8 +837,10 @@ function combineStatesIntoCumulativeVault(
     popupAd: (inc.popupAd as PopupAdConfig) || (b.popupAd as PopupAdConfig) || INITIAL_POPUP_AD,
     messages: mergedMessages,
     stores: normalizeStoresList(mergedStoresRaw),
-    serviceNumbers: normalizeServiceNumbersList(
-      mergeCollectionById(b.serviceNumbers || [], inc.serviceNumbers || [], [])
+    serviceNumbers: mergeServiceNumbersWithInteractions(
+      b.serviceNumbers || [],
+      inc.serviceNumbers || [],
+      []
     ),
     tawsilaRides: normalizeTawsilaList(
       mergeCollectionById(b.tawsilaRides || [], inc.tawsilaRides || [], [])
@@ -1213,11 +1311,21 @@ class HybridStorageEngine {
         ...INITIAL_SETTINGS,
         ...parsedSettings,
         siteName: parsedSettings.siteName || 'موقع خدمات التخيل 1185',
-        storeCategories:
+        storeCategories: ensureStoreCategoriesWithDreamPlaza(
           Array.isArray(parsedSettings.storeCategories) &&
-          parsedSettings.storeCategories.length > 0
+            parsedSettings.storeCategories.length > 0
             ? parsedSettings.storeCategories
-            : DEFAULT_STORE_CATEGORIES,
+            : DEFAULT_STORE_CATEGORIES
+        ),
+        serviceProfessions: ensureServiceProfessionsList(
+          parsedSettings.serviceProfessions
+        ),
+        customOnlineCount:
+          typeof parsedSettings.customOnlineCount === 'number' &&
+          Number.isFinite(parsedSettings.customOnlineCount) &&
+          parsedSettings.customOnlineCount > 0
+            ? parsedSettings.customOnlineCount
+            : null,
         utilityTypes:
           Array.isArray(parsedSettings.utilityTypes) &&
           parsedSettings.utilityTypes.length > 0
@@ -1644,7 +1752,7 @@ class HybridStorageEngine {
         : undefined,
       mergedDeletedIds
     );
-    const mergedServicesRaw = mergeCollectionById(
+    const mergedServicesRaw = mergeServiceNumbersWithInteractions(
       base.serviceNumbers,
       Array.isArray(remoteData.serviceNumbers)
         ? (remoteData.serviceNumbers as ServicePhoneEntry[])
@@ -1848,6 +1956,15 @@ class HybridStorageEngine {
         chatPatch.popupAd as PopupAdConfig | undefined
       ),
       stores: mergedStores,
+      serviceNumbers: Array.isArray(chatPatch.serviceNumbers)
+        ? mergeServiceNumbersWithInteractions(
+            base.serviceNumbers || [],
+            chatPatch.serviceNumbers as ServicePhoneEntry[],
+            mergedDeletedIds
+          )
+        : (base.serviceNumbers || []).filter(
+            (srv) => !mergedDeletedIds.includes(srv.id)
+          ),
       liveChatMessages: Array.isArray(chatPatch.liveChatMessages)
         ? normalizeLiveChatList(chatPatch.liveChatMessages as LiveChatMessageItem[])
         : base.liveChatMessages || [],
@@ -2241,6 +2358,7 @@ class HybridStorageEngine {
       squareAds: nextState.squareAds || [],
       popupAd: nextState.popupAd,
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
+      serviceNumbers: normalizeServiceNumbersList(nextState.serviceNumbers || []),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: nextState.privateChatMessages || [],
@@ -2654,6 +2772,7 @@ class HybridStorageEngine {
       squareAds: nextState.squareAds || [],
       popupAd: nextState.popupAd,
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
+      serviceNumbers: normalizeServiceNumbersList(nextState.serviceNumbers || []),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: (nextState.privateChatMessages || []).slice(-200),
@@ -2752,7 +2871,38 @@ interface StoredPresenceSession {
 const TAB_SESSION_STORAGE_KEY = 'nakhil_1185_real_tab_session_id';
 const GUEST_VISITOR_STORAGE_KEY = 'nakhil_1185_unique_visitor_id_v1';
 const REAL_PRESENCE_MAP_KEY = 'nakhil_1185_real_presence_v4';
-const LIVE_PRESENCE_TTL_MS = 8000;
+const LIVE_PRESENCE_TTL_MS = 45000;
+
+/**
+ * Computes the effective displayed online count:
+ * - When customOnlineCount is empty/null/<= 0: returns the 100% real, actual live online count without fabrication.
+ * - When customOnlineCount > 0: displays that base number and makes it fluctuate (increase and decrease) automatically every 10 minutes.
+ */
+export function getEffectiveOnlineDisplayCount(
+  realTotalOnline: number,
+  customOnlineCount?: number | null,
+  nowMs: number = Date.now()
+): number {
+  const realCount = Math.max(1, Math.round(realTotalOnline || 1));
+  if (
+    typeof customOnlineCount !== 'number' ||
+    !Number.isFinite(customOnlineCount) ||
+    customOnlineCount <= 0
+  ) {
+    return realCount;
+  }
+
+  const baseTarget = Math.max(1, Math.round(customOnlineCount));
+  const tenMinuteSlot = Math.floor(nowMs / (10 * 60 * 1000));
+  // Deterministic 10-minute wave cycle: starts at 0, then increases & decreases every 10 minutes
+  const wavePattern = [0, 2, -1, 3, -2, 1, 4, -2, 2, -1];
+  const stepUnit = Math.max(1, Math.round(baseTarget * 0.05));
+  const rawStep = wavePattern[Math.abs(tenMinuteSlot) % wavePattern.length];
+  const delta =
+    baseTarget <= 15 ? rawStep : Math.round((rawStep / 2) * stepUnit);
+
+  return Math.max(1, baseTarget + delta);
+}
 
 function getOrCreateTabSessionId(): string {
   try {
@@ -2883,7 +3033,7 @@ export function removeCurrentTabPresence(): void {
 
 /**
  * 100% Real Live Online Presence Tracker ("عدد المتصلين الآن: المتصلين المسجلين وعدد الزائرين")
- * Strictly tracks ONLY live open browser heartbeats (8s TTL) with zero fake or stale static user flags.
+ * Tracks live open browser heartbeats (45s TTL) across server + tabs + synced online accounts.
  */
 export function syncRealOnlinePresence(
   currentUser: UserAccount | null,
@@ -2929,7 +3079,7 @@ export function syncRealOnlinePresence(
       lastActiveAt: now,
     };
 
-    // Prune stale sessions (> 8 seconds without heartbeat) for instant real-time accuracy
+    // Prune stale sessions (> 45 seconds without heartbeat)
     Object.keys(map).forEach((k) => {
       if (!map[k] || now - map[k].lastActiveAt > LIVE_PRESENCE_TTL_MS) {
         delete map[k];
@@ -2947,13 +3097,20 @@ export function syncRealOnlinePresence(
       notifyAllPresenceListeners();
     }
 
-    // If authoritative server presence stats are fresh (within last 8s), use them directly
+    const stateOnlineUsernames = storageEngine.getLatestOnlineUsernames();
+
+    // If authoritative server presence stats are fresh, merge them with local & synced online accounts
     if (
       latestServerOnlineStats &&
       now - latestServerOnlineStatsAt <= LIVE_PRESENCE_TTL_MS
     ) {
       const serverRegMap = new Map<string, string>();
       (latestServerOnlineStats.registeredUsernames || []).forEach((uname) => {
+        if (uname && uname.trim()) {
+          serverRegMap.set(uname.trim().toLowerCase(), uname.trim());
+        }
+      });
+      stateOnlineUsernames.forEach((uname) => {
         if (uname && uname.trim()) {
           serverRegMap.set(uname.trim().toLowerCase(), uname.trim());
         }
@@ -2968,7 +3125,10 @@ export function syncRealOnlinePresence(
       const gCount =
         regCount === 0 && latestServerOnlineStats.guestsCount === 0
           ? 1
-          : latestServerOnlineStats.guestsCount;
+          : Math.max(
+              isRegistered ? 0 : 1,
+              latestServerOnlineStats.guestsCount || 0
+            );
       return {
         totalOnline: Math.max(1, regCount + gCount),
         registeredCount: regCount,
@@ -2982,6 +3142,12 @@ export function syncRealOnlinePresence(
     const registeredMap = new Map<string, string>();
     const registeredVisitorIds = new Set<string>();
     const guestVisitorIds = new Set<string>();
+
+    stateOnlineUsernames.forEach((uname) => {
+      if (uname && uname.trim()) {
+        registeredMap.set(uname.trim().toLowerCase(), uname.trim());
+      }
+    });
 
     activeSessions.forEach((sess) => {
       if (sess.isRegistered && sess.username) {
@@ -3002,7 +3168,10 @@ export function syncRealOnlinePresence(
     });
 
     const mergedRegCount = registeredMap.size;
-    const mergedGuestsCount = guestVisitorIds.size;
+    const mergedGuestsCount =
+      mergedRegCount === 0 && guestVisitorIds.size === 0
+        ? 1
+        : guestVisitorIds.size;
     const mergedTotal = Math.max(1, mergedRegCount + mergedGuestsCount);
 
     return {

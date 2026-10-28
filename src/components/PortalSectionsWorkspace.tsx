@@ -570,6 +570,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onAddServiceNumber={onAddServiceNumber}
         onUpdateServiceNumber={onUpdateServiceNumber}
         onDeleteServiceNumber={onDeleteServiceNumber}
+        onUpdateSettings={onUpdateSettings}
       />
     );
   }

@@ -45,6 +45,7 @@ import {
   UtilitySubmissionItem,
 } from './types';
 import {
+  getEffectiveOnlineDisplayCount,
   getOrCreateVisitorId,
   RealOnlinePresenceStats,
   removeCurrentTabPresence,
@@ -131,6 +132,10 @@ export default function App() {
   // 100% Real Live Online Presence Counter (Registered Users + Guest Visitors)
   const [onlineStats, setOnlineStats] = useState<RealOnlinePresenceStats>(() =>
     syncRealOnlinePresence(currentUser)
+  );
+  const effectiveOnlineCount = getEffectiveOnlineDisplayCount(
+    onlineStats.totalOnline,
+    dbState.settings.customOnlineCount
   );
 
   useEffect(() => {
@@ -3111,7 +3116,7 @@ export default function App() {
                   </span>
                 </div>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-mono-tabular font-extrabold">
-                  {onlineStats.totalOnline}
+                  {effectiveOnlineCount}
                 </span>
               </div>
 
@@ -3230,7 +3235,7 @@ export default function App() {
                       </span>
                     </div>
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-mono-tabular font-extrabold">
-                      {onlineStats.totalOnline}
+                      {effectiveOnlineCount}
                     </span>
                   </div>
 
@@ -3315,7 +3320,7 @@ export default function App() {
             activeSection={activeSection}
             state={dbState}
             currentUser={currentUser}
-            onlineCount={onlineStats.totalOnline}
+            onlineCount={effectiveOnlineCount}
             onlineStats={onlineStats}
             connStatus={connStatus}
             connMessage={connMessage}
@@ -3463,7 +3468,7 @@ export default function App() {
             <CommunityHubView
               posts={dbState.buySellPosts || []}
               liveChatMessages={dbState.liveChatMessages || []}
-              onlineCount={onlineStats.totalOnline}
+              onlineCount={effectiveOnlineCount}
               onlineStats={onlineStats}
               currentUser={currentUser}
               users={dbState.users}
@@ -3569,7 +3574,7 @@ export default function App() {
       <FooterAndContactModal
         settings={dbState.settings}
         currentUser={currentUser}
-        onlineCount={onlineStats.totalOnline}
+        onlineCount={effectiveOnlineCount}
         onSendMessageToAdmin={handleSendMessageToAdmin}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />

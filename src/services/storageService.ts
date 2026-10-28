@@ -46,8 +46,10 @@ const USER_BROWSER_CACHE_PREFIX = 'nakhil_1185_user_cache_';
 const OFFLINE_PENDING_SYNC_KEY = 'nakhil_1185_offline_pending_sync_v1';
 
 const AD_CAMPAIGNS_STORAGE_KEY = 'nakhil_1185_ad_campaigns_v1';
+const STORE_IMAGES_VAULT_KEY = 'nakhil_1185_store_images_vault_v1';
 
 export const DEFAULT_STORE_CATEGORIES: string[] = [
+  'مول دريم بلازا',
   'سوبر ماركت',
   'مطعم',
   'صيدلية',
@@ -60,7 +62,6 @@ export const DEFAULT_STORE_CATEGORIES: string[] = [
   'محل هواتف وصيانة موبايل',
   'محل إكسسوارات أو زينة',
   'مخبز سياحي أو بلدي',
-  'مول دريم بلازا',
 ];
 
 export const DEFAULT_SERVICE_PROFESSIONS: string[] = [
@@ -224,6 +225,12 @@ export const INITIAL_SETTINGS: PlatformSettings = {
   liveChatCooldownSeconds: 5,
   liveChatAutoClearMinutes: 60,
   liveChatLastClearedAt: new Date().toISOString(),
+  adPackagesPricing: {
+    pkg1DailyPrice: 15,
+    pkg2DailyPrice: 25,
+    pkg3DailyPrice: 100,
+    tenDaysDiscountPercent: 20,
+  },
   firebase: HIDDEN_DEFAULT_FIREBASE_CONFIG,
 };
 
@@ -272,13 +279,158 @@ export const INITIAL_MESSAGES: AdminMessage[] = [];
 
 export const INITIAL_LIVE_CHAT: LiveChatMessageItem[] = [];
 
+export function hasRealUploadedStoreImages(images?: string[]): boolean {
+  if (!Array.isArray(images) || images.length === 0) return false;
+  return images.some(
+    (img) =>
+      typeof img === 'string' &&
+      img.trim().length > 0 &&
+      !img.startsWith('data:image/svg+xml')
+  );
+}
+
+let inMemoryStoreImagesVault: Record<string, string[]> = {};
+
+function loadStoreImagesVault(): Record<string, string[]> {
+  if (typeof window === 'undefined') return inMemoryStoreImagesVault;
+  try {
+    const raw = localStorage.getItem(STORE_IMAGES_VAULT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        inMemoryStoreImagesVault = { ...inMemoryStoreImagesVault, ...parsed };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return inMemoryStoreImagesVault;
+}
+
+function saveStoreImagesVault(stores: StoreListingItem[]) {
+  if (!Array.isArray(stores)) return;
+  const vault = { ...loadStoreImagesVault() };
+  let changed = false;
+  for (const st of stores) {
+    if (!st || !st.id) continue;
+    const realImgs = (st.menuImages || []).filter(
+      (img) =>
+        typeof img === 'string' &&
+        img.trim().length > 0 &&
+        !img.startsWith('data:image/svg+xml')
+    );
+    if (realImgs.length > 0) {
+      vault[st.id] = realImgs;
+      changed = true;
+    } else if (st.imagesExplicitlyCleared && vault[st.id]) {
+      delete vault[st.id];
+      changed = true;
+    }
+  }
+  inMemoryStoreImagesVault = vault;
+  if (changed && typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORE_IMAGES_VAULT_KEY, JSON.stringify(vault));
+    } catch {
+      // If localStorage is full, keep in memory & IndexedDB
+    }
+  }
+}
+
+export function mergeStoresWithImages(
+  baseList: StoreListingItem[] | undefined,
+  incomingList: StoreListingItem[] | undefined,
+  deletedIds?: string[]
+): StoreListingItem[] {
+  const merged = mergeCollectionById(baseList, incomingList, deletedIds);
+  const vault = loadStoreImagesVault();
+  return normalizeStoresList(
+    merged.map((st) => {
+      const prevSt = (baseList || []).find((x) => x && x.id === st.id);
+      const incSt = (incomingList || []).find((x) => x && x.id === st.id);
+      if (!prevSt && !incSt) return st;
+
+      const prevImgs = prevSt?.menuImages || [];
+      const incImgs = incSt?.menuImages || [];
+      const vaultImgs = vault[st.id] || [];
+
+      const prevHasReal = hasRealUploadedStoreImages(prevImgs);
+      const incHasReal = hasRealUploadedStoreImages(incImgs);
+      const vaultHasReal = hasRealUploadedStoreImages(vaultImgs);
+
+      const prevUpdated = typeof prevSt?.updatedAt === 'number' ? prevSt.updatedAt : 0;
+      const incUpdated = typeof incSt?.updatedAt === 'number' ? incSt.updatedAt : 0;
+      const preferIncoming = incUpdated >= prevUpdated;
+
+      let resolvedImages: string[];
+      const explicitlyCleared = preferIncoming
+        ? Boolean(incSt?.imagesExplicitlyCleared)
+        : Boolean(prevSt?.imagesExplicitlyCleared);
+
+      if (explicitlyCleared && !incHasReal && !prevHasReal) {
+        resolvedImages = incImgs.length > 0 ? incImgs : prevImgs;
+      } else if (incHasReal && prevHasReal) {
+        resolvedImages = preferIncoming ? incImgs : prevImgs;
+      } else if (incHasReal) {
+        resolvedImages = incImgs;
+      } else if (prevHasReal) {
+        resolvedImages = prevImgs;
+      } else if (vaultHasReal && !explicitlyCleared) {
+        resolvedImages = vaultImgs;
+      } else {
+        resolvedImages = incImgs.length > 0 ? incImgs : prevImgs;
+      }
+
+      const baseMerged = preferIncoming
+        ? { ...(prevSt || {}), ...(incSt || {}) }
+        : { ...(incSt || {}), ...(prevSt || {}) };
+
+      return {
+        ...st,
+        ...baseMerged,
+        menuImages: resolvedImages,
+        updatedAt: Math.max(prevUpdated, incUpdated) || st.updatedAt,
+        imagesExplicitlyCleared: explicitlyCleared && !hasRealUploadedStoreImages(resolvedImages),
+        likes: Array.isArray(incSt?.likes)
+          ? incSt!.likes
+          : Array.isArray(prevSt?.likes)
+          ? prevSt!.likes
+          : [],
+        dislikes: Array.isArray(incSt?.dislikes)
+          ? incSt!.dislikes
+          : Array.isArray(prevSt?.dislikes)
+          ? prevSt!.dislikes
+          : [],
+        ratings: { ...(prevSt?.ratings || {}), ...(incSt?.ratings || {}) },
+        viewsCount: Math.max(prevSt?.viewsCount || 0, incSt?.viewsCount || 0),
+        comments: mergeCollectionById(
+          prevSt?.comments || [],
+          incSt?.comments || [],
+          deletedIds
+        ),
+      };
+    })
+  );
+}
+
 function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] {
+  const vault = loadStoreImagesVault();
   return rawStores.map((s) => {
-    const rawImages =
+    const candidateImages =
       Array.isArray(s.menuImages) && s.menuImages.length > 0
         ? s.menuImages
         : Array.isArray((s as unknown as { images?: string[] }).images)
         ? (s as unknown as { images: string[] }).images
+        : [];
+
+    const vaultImgs = vault[s.id] || [];
+    const rawImages =
+      hasRealUploadedStoreImages(candidateImages)
+        ? candidateImages
+        : !s.imagesExplicitlyCleared && hasRealUploadedStoreImages(vaultImgs)
+        ? vaultImgs
+        : candidateImages.length > 0
+        ? candidateImages
         : [createSquareAdSvg(s.name, s.category, '#0284C7')];
 
     const upgradedImages = rawImages.map((img, idx) =>
@@ -286,6 +438,15 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
         ? createSquareAdSvg(s.name, s.category, '#0284C7')
         : img
     );
+
+    if (hasRealUploadedStoreImages(upgradedImages) && s.id) {
+      inMemoryStoreImagesVault[s.id] = upgradedImages.filter(
+        (img) =>
+          typeof img === 'string' &&
+          img.trim().length > 0 &&
+          !img.startsWith('data:image/svg+xml')
+      );
+    }
 
     const hasResetV2 = Boolean(s.ratingsResetV2);
     const cleanRatings =
@@ -529,11 +690,10 @@ function mergePopupAdCampaign(
 function ensureStoreCategoriesWithDreamPlaza(cats?: string[]): string[] {
   const baseList =
     Array.isArray(cats) && cats.length > 0 ? cats : DEFAULT_STORE_CATEGORIES;
-  const cleaned = baseList.map((c) => String(c || '').trim()).filter(Boolean);
-  if (!cleaned.includes('مول دريم بلازا')) {
-    cleaned.push('مول دريم بلازا');
-  }
-  return Array.from(new Set(cleaned));
+  const cleaned = baseList
+    .map((c) => String(c || '').trim())
+    .filter((c) => Boolean(c) && c !== 'مول دريم بلازا');
+  return ['مول دريم بلازا', ...Array.from(new Set(cleaned))];
 }
 
 export function ensureServiceProfessionsList(profs?: string[]): string[] {
@@ -692,6 +852,36 @@ function mergePlatformSettings(
       : baseSettings.appExternalLinkUrl !== undefined
       ? baseSettings.appExternalLinkUrl
       : incomingSettings.appExternalLinkUrl ?? '',
+    adPackagesPricing: {
+      pkg1DailyPrice:
+        (preferIncoming
+          ? incomingSettings.adPackagesPricing?.pkg1DailyPrice
+          : baseSettings.adPackagesPricing?.pkg1DailyPrice) ??
+        baseSettings.adPackagesPricing?.pkg1DailyPrice ??
+        incomingSettings.adPackagesPricing?.pkg1DailyPrice ??
+        15,
+      pkg2DailyPrice:
+        (preferIncoming
+          ? incomingSettings.adPackagesPricing?.pkg2DailyPrice
+          : baseSettings.adPackagesPricing?.pkg2DailyPrice) ??
+        baseSettings.adPackagesPricing?.pkg2DailyPrice ??
+        incomingSettings.adPackagesPricing?.pkg2DailyPrice ??
+        25,
+      pkg3DailyPrice:
+        (preferIncoming
+          ? incomingSettings.adPackagesPricing?.pkg3DailyPrice
+          : baseSettings.adPackagesPricing?.pkg3DailyPrice) ??
+        baseSettings.adPackagesPricing?.pkg3DailyPrice ??
+        incomingSettings.adPackagesPricing?.pkg3DailyPrice ??
+        100,
+      tenDaysDiscountPercent:
+        (preferIncoming
+          ? incomingSettings.adPackagesPricing?.tenDaysDiscountPercent
+          : baseSettings.adPackagesPricing?.tenDaysDiscountPercent) ??
+        baseSettings.adPackagesPricing?.tenDaysDiscountPercent ??
+        incomingSettings.adPackagesPricing?.tenDaysDiscountPercent ??
+        20,
+    },
     updatedAt: Math.max(baseUpdatedAt, incomingUpdatedAt),
     firebase: baseSettings.firebase || HIDDEN_DEFAULT_FIREBASE_CONFIG,
   };
@@ -750,27 +940,11 @@ function combineStatesIntoCumulativeVault(
   const b = baseVault || {};
   const inc = incoming || {};
 
-  const mergedStoresRaw = mergeCollectionById(
+  const mergedStoresRaw = mergeStoresWithImages(
     Array.isArray(b.stores) ? b.stores : [],
     Array.isArray(inc.stores) ? inc.stores : [],
     []
-  ).map((st) => {
-    const prevSt = Array.isArray(b.stores)
-      ? b.stores.find((x) => x && x.id === st.id)
-      : undefined;
-    const incSt = Array.isArray(inc.stores)
-      ? inc.stores.find((x) => x && x.id === st.id)
-      : undefined;
-    if (!prevSt || !incSt) return st;
-    return {
-      ...prevSt,
-      ...incSt,
-      comments: mergeCollectionById(prevSt.comments || [], incSt.comments || [], []),
-      likes: Array.from(new Set([...(prevSt.likes || []), ...(incSt.likes || [])])),
-      ratings: { ...(prevSt.ratings || {}), ...(incSt.ratings || {}) },
-      viewsCount: Math.max(prevSt.viewsCount || 0, incSt.viewsCount || 0),
-    };
-  });
+  );
 
   const mergePostsWithComments = (
     prevPosts?: CommunityPostItem[],
@@ -1136,20 +1310,62 @@ class HybridStorageEngine {
       // 3. Instant IndexedDB hydration on startup (< 5ms)
       this.hydrateFromIndexedDBInstant();
 
-      // 4. Auto-Sync offline additions/edits/deletions with Firebase & Server as soon as internet reconnects
+      // 4. Auto-Sync offline additions/edits/deletions with Firebase & Server as soon as internet reconnects or app gains focus
       window.addEventListener('online', () => {
         this.flushOfflinePendingSync();
+        this.pullLatestDeltaNow();
       });
+      window.addEventListener('focus', () => {
+        this.pullLatestDeltaNow();
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          this.pullLatestDeltaNow();
+        }
+      });
+    }
+  }
+
+  public async pullLatestDeltaNow() {
+    if (typeof window === 'undefined' || typeof fetch === 'undefined') return;
+    try {
+      const res = await fetch(
+        `/api/realtime/chat-fast?since=${this.lastChatVersion}&t=${Date.now()}`,
+        { cache: 'no-store' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.version === 'number') {
+          this.lastChatVersion = data.version;
+        }
+        if (data && data.onlineStats && typeof data.onlineStats.totalOnline === 'number') {
+          updateLatestServerOnlineStats(data.onlineStats);
+        }
+        if (data && data.changed && data.chatPatch) {
+          this.applyIncomingFastChatPatch(data.chatPatch);
+        }
+      }
+    } catch {
+      // ignore
     }
   }
 
   private async hydrateFromIndexedDBInstant() {
     try {
-      const pendingOffline = await fastBrowserCache.getSnapshotByKeyFromIDB(
-        'pending_offline_state'
-      );
-      const latestIdb = await fastBrowserCache.getSnapshotByKeyFromIDB('latest_state');
-      const idbCandidate = pendingOffline || latestIdb;
+      const [pendingOffline, latestIdb, cumulativeIdb] = await Promise.all([
+        fastBrowserCache.getSnapshotByKeyFromIDB('pending_offline_state'),
+        fastBrowserCache.getSnapshotByKeyFromIDB('latest_state'),
+        fastBrowserCache.getSnapshotByKeyFromIDB('cumulative_vault_all_time'),
+      ]);
+
+      // Populate store images vault from any historical IndexedDB snapshot so store photos never vanish on refresh
+      for (const snap of [cumulativeIdb, latestIdb, pendingOffline]) {
+        if (snap && Array.isArray(snap.stores)) {
+          saveStoreImagesVault(snap.stores);
+        }
+      }
+
+      const idbCandidate = pendingOffline || latestIdb || cumulativeIdb;
       if (!idbCandidate) return;
 
       const current = this.latestState || this.loadLocalState();
@@ -1160,6 +1376,51 @@ class HybridStorageEngine {
         ])
       );
 
+      const mergedStores = mergeStoresWithImages(
+        current.stores,
+        idbCandidate.stores,
+        mergedDeletedIds
+      );
+      const mergedServices = mergeServiceNumbersWithInteractions(
+        current.serviceNumbers,
+        idbCandidate.serviceNumbers,
+        mergedDeletedIds
+      );
+      const mergedTawsila = normalizeTawsilaList(
+        mergeCollectionById(
+          current.tawsilaRides,
+          idbCandidate.tawsilaRides,
+          mergedDeletedIds
+        )
+      );
+      const mergedCommunity = normalizeCommunityPostsList(
+        mergeCollectionById(
+          current.communityPosts,
+          idbCandidate.communityPosts,
+          mergedDeletedIds
+        )
+      );
+      const mergedBuySell = normalizeCommunityPostsList(
+        mergeCollectionById(
+          current.buySellPosts || [],
+          idbCandidate.buySellPosts || [],
+          mergedDeletedIds
+        )
+      );
+      const mergedUtilityPosts = normalizeCommunityPostsList(
+        mergeCollectionById(
+          current.utilityPosts || [],
+          idbCandidate.utilityPosts || [],
+          mergedDeletedIds
+        )
+      );
+      const mergedUtilitySubs = normalizeUtilitySubmissionsList(
+        mergeCollectionById(
+          current.utilitySubmissions || [],
+          idbCandidate.utilitySubmissions || [],
+          mergedDeletedIds
+        )
+      );
       const mergedTopBanners = mergeAdCampaignsById(
         current.topBanners,
         idbCandidate.topBanners,
@@ -1174,52 +1435,32 @@ class HybridStorageEngine {
         current.popupAd,
         idbCandidate.popupAd
       );
+      const mergedMessages = mergeCollectionById(
+        current.messages,
+        idbCandidate.messages,
+        mergedDeletedIds
+      );
 
-      const needsAdHydration =
-        mergedTopBanners.length !== (current.topBanners || []).length ||
-        mergedSquareAds.length !== (current.squareAds || []).length ||
-        mergedPopupAd.imageUrl !== current.popupAd?.imageUrl ||
-        Boolean(
-          idbCandidate.settings?.appUploadedFileUrl &&
-            !current.settings.appUploadedFileUrl
-        );
+      const enriched: PlatformDatabaseState = {
+        ...current,
+        users: mergeUsersLists(current.users, idbCandidate.users, mergedDeletedIds),
+        stores: mergedStores,
+        serviceNumbers: mergedServices,
+        tawsilaRides: mergedTawsila,
+        communityPosts: mergedCommunity,
+        buySellPosts: mergedBuySell,
+        utilityPosts: mergedUtilityPosts,
+        utilitySubmissions: mergedUtilitySubs,
+        topBanners: mergedTopBanners,
+        squareAds: mergedSquareAds,
+        popupAd: mergedPopupAd,
+        messages: mergedMessages,
+        deletedRecordIds: mergedDeletedIds,
+        settings: mergePlatformSettings(current.settings, idbCandidate.settings),
+      };
 
-      if (
-        pendingOffline &&
-        (pendingOffline.settings?.updatedAt || 0) > (current.settings?.updatedAt || 0)
-      ) {
-        const restoredOffline: PlatformDatabaseState = {
-          ...pendingOffline,
-          topBanners: mergedTopBanners,
-          squareAds: mergedSquareAds,
-          popupAd: mergedPopupAd,
-          deletedRecordIds: mergedDeletedIds,
-        };
-        this.saveLocalState(restoredOffline);
-        this.notifyData(restoredOffline);
-      } else if (needsAdHydration) {
-        const enriched: PlatformDatabaseState = {
-          ...current,
-          topBanners: mergedTopBanners,
-          squareAds: mergedSquareAds,
-          popupAd: mergedPopupAd,
-          deletedRecordIds: mergedDeletedIds,
-          settings: {
-            ...current.settings,
-            appUploadedFileUrl:
-              current.settings.appUploadedFileUrl ||
-              idbCandidate.settings?.appUploadedFileUrl ||
-              '',
-            appUploadedFileName:
-              current.settings.appUploadedFileName ||
-              idbCandidate.settings?.appUploadedFileName ||
-              '',
-          },
-        };
-        this.latestState = enriched;
-        fastBrowserCache.setMemoryAndDiskCache(enriched);
-        this.notifyData(enriched);
-      }
+      this.saveLocalState(enriched);
+      this.notifyData(enriched);
     } catch {
       // ignore
     }
@@ -1354,6 +1595,24 @@ class HybridStorageEngine {
             : 60,
         liveChatLastClearedAt:
           parsedSettings.liveChatLastClearedAt || new Date().toISOString(),
+        adPackagesPricing: {
+          pkg1DailyPrice:
+            typeof parsedSettings.adPackagesPricing?.pkg1DailyPrice === 'number'
+              ? parsedSettings.adPackagesPricing.pkg1DailyPrice
+              : 15,
+          pkg2DailyPrice:
+            typeof parsedSettings.adPackagesPricing?.pkg2DailyPrice === 'number'
+              ? parsedSettings.adPackagesPricing.pkg2DailyPrice
+              : 25,
+          pkg3DailyPrice:
+            typeof parsedSettings.adPackagesPricing?.pkg3DailyPrice === 'number'
+              ? parsedSettings.adPackagesPricing.pkg3DailyPrice
+              : 100,
+          tenDaysDiscountPercent:
+            typeof parsedSettings.adPackagesPricing?.tenDaysDiscountPercent === 'number'
+              ? parsedSettings.adPackagesPricing.tenDaysDiscountPercent
+              : 20,
+        },
         firebase: mergedFirebase,
       };
 
@@ -1520,6 +1779,9 @@ class HybridStorageEngine {
 
   public saveLocalState(state: PlatformDatabaseState, activeUserId?: string) {
     this.latestState = state;
+    if (Array.isArray(state.stores)) {
+      saveStoreImagesVault(state.stores);
+    }
     fastBrowserCache.setMemoryAndDiskCache(state, activeUserId);
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(state.settings));
@@ -1745,7 +2007,7 @@ class HybridStorageEngine {
       new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
     );
 
-    const mergedStoresRaw = mergeCollectionById(
+    const mergedStoresRaw = mergeStoresWithImages(
       base.stores,
       Array.isArray(remoteData.stores)
         ? (remoteData.stores as StoreListingItem[])
@@ -1894,9 +2156,15 @@ class HybridStorageEngine {
       new Set([...(base.deletedRecordIds || []), ...patchDeleted])
     );
 
-    let mergedStores = base.stores.filter(
-      (st) => !mergedDeletedIds.includes(st.id)
-    );
+    let mergedStores = Array.isArray(chatPatch.stores)
+      ? mergeStoresWithImages(
+          base.stores,
+          chatPatch.stores as StoreListingItem[],
+          mergedDeletedIds
+        )
+      : normalizeStoresList(
+          base.stores.filter((st) => !mergedDeletedIds.includes(st.id))
+        );
     if (
       chatPatch.storeInteractionsMap &&
       typeof chatPatch.storeInteractionsMap === 'object'
@@ -1928,6 +2196,17 @@ class HybridStorageEngine {
         };
       });
     }
+    const mergedTawsila = Array.isArray(chatPatch.tawsilaRides)
+      ? normalizeTawsilaList(
+          mergeCollectionById(
+            base.tawsilaRides || [],
+            chatPatch.tawsilaRides as TawsilaRideItem[],
+            mergedDeletedIds
+          )
+        )
+      : (base.tawsilaRides || []).filter(
+          (r) => !mergedDeletedIds.includes(r.id)
+        );
     const mergedState: PlatformDatabaseState = {
       ...base,
       users: mergeUsersLists(
@@ -1956,6 +2235,7 @@ class HybridStorageEngine {
         chatPatch.popupAd as PopupAdConfig | undefined
       ),
       stores: mergedStores,
+      tawsilaRides: mergedTawsila,
       serviceNumbers: Array.isArray(chatPatch.serviceNumbers)
         ? mergeServiceNumbersWithInteractions(
             base.serviceNumbers || [],
@@ -2075,7 +2355,10 @@ class HybridStorageEngine {
       this.fastChatPollTimer = null;
     }
 
-    // High-speed 220ms delta poll on /api/realtime/chat-fast to bypass any reverse-proxy SSE buffering
+    // Immediate delta check on startup so desktop & mobile apps sync right away
+    this.pullLatestDeltaNow();
+
+    // High-speed 120ms delta poll on /api/realtime/chat-fast to bypass any reverse-proxy SSE buffering
     this.fastChatPollTimer = setInterval(async () => {
       if (this.isFastChatPolling) return;
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
@@ -2357,8 +2640,10 @@ class HybridStorageEngine {
       topBanners: nextState.topBanners || [],
       squareAds: nextState.squareAds || [],
       popupAd: nextState.popupAd,
+      stores: normalizeStoresList(nextState.stores || []),
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       serviceNumbers: normalizeServiceNumbersList(nextState.serviceNumbers || []),
+      tawsilaRides: normalizeTawsilaList(nextState.tawsilaRides || []),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: nextState.privateChatMessages || [],
@@ -2462,8 +2747,27 @@ class HybridStorageEngine {
         });
         // Write lightweight fast chat document first for immediate snapshot trigger on all clients
         await Promise.all([
-          setDoc(fastChatDocRef, fastChatPatch),
-          setDoc(docRef, cleanFullPayload),
+          setDoc(fastChatDocRef, fastChatPatch).catch(async () => {
+            // If fastChatPatch exceeds Firestore 1MB limit due to large base64 store images, write compact patch
+            const compactPatch = sanitizeForFirebase({
+              ...fastChatPatch,
+              stores: (nextState.stores || []).map((st) => ({
+                ...st,
+                menuImages: (st.menuImages || []).slice(0, 1),
+              })),
+            });
+            await setDoc(fastChatDocRef, compactPatch);
+          }),
+          setDoc(docRef, cleanFullPayload).catch(async () => {
+            const compactPayload = sanitizeForFirebase({
+              ...cleanFullPayload,
+              stores: (nextState.stores || []).map((st) => ({
+                ...st,
+                menuImages: (st.menuImages || []).slice(0, 1),
+              })),
+            });
+            await setDoc(docRef, compactPayload);
+          }),
           setDoc(archiveDocRef, cleanArchivePayload).catch(() => {}),
         ]);
       }
@@ -2771,8 +3075,10 @@ class HybridStorageEngine {
       topBanners: nextState.topBanners || [],
       squareAds: nextState.squareAds || [],
       popupAd: nextState.popupAd,
+      stores: normalizeStoresList(nextState.stores || []),
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
       serviceNumbers: normalizeServiceNumbersList(nextState.serviceNumbers || []),
+      tawsilaRides: normalizeTawsilaList(nextState.tawsilaRides || []),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: (nextState.privateChatMessages || []).slice(-200),
@@ -2781,6 +3087,8 @@ class HybridStorageEngine {
       userBlockedMap: nextState.userBlockedMap || {},
       privateChatReports: nextState.privateChatReports || [],
       messages: nextState.messages || [],
+      utilitySubmissions: normalizeUtilitySubmissionsList(nextState.utilitySubmissions),
+      utilityPosts: nextState.utilityPosts || [],
       buySellPosts: nextState.buySellPosts || [],
       communityPosts: nextState.communityPosts || [],
       liveChatCooldownSeconds: nextState.settings.liveChatCooldownSeconds ?? 5,

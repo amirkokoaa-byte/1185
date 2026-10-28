@@ -145,6 +145,8 @@ export interface StoreListingItem {
   featuredInMarquee?: boolean;
   hiddenFromMarquee?: boolean;
   approved: boolean;
+  updatedAt?: number;
+  imagesExplicitlyCleared?: boolean;
   createdAt: string;
 }
 
@@ -364,7 +366,15 @@ export interface PlatformSettings {
   appUploadedFileUrl?: string; // ملف التطبيق المرفوع (زر ارفع التطبيق)
   appUploadedFileName?: string; // اسم ملف التطبيق المرفوع
   appExternalLinkUrl?: string; // لينك التطبيق في موقع خارجي (زر لينك التطبيق)
+  adPackagesPricing?: AdPackagesPricingConfig; // أسعار باقات الإعلانات الـ 3 ونسبة خصم عرض الـ 10 أيام
   firebase: FirebaseConfigSettings;
+}
+
+export interface AdPackagesPricingConfig {
+  pkg1DailyPrice: number; // سعر اليوم في الباقة الأولى (القائمة المتحركة)
+  pkg2DailyPrice: number; // سعر اليوم في الباقة الثانية (البانر العلوي)
+  pkg3DailyPrice: number; // سعر اليوم في الباقة الثالثة (الشاشة المنبثقة)
+  tenDaysDiscountPercent: number; // نسبة الخصم في عرض الـ 10 أيام (%)
 }
 
 export interface PlatformDatabaseState {

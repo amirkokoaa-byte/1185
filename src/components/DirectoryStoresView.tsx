@@ -153,10 +153,17 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     });
   };
 
-  // Ensure 'مول دريم بلازا' is always present in storeCategories
-  const allStoreCategories = Array.from(
-    new Set([...(settings.storeCategories || []), 'مول دريم بلازا'])
-  );
+  // Ensure 'مول دريم بلازا' is always FIRST in storeCategories
+  const allStoreCategories = [
+    'مول دريم بلازا',
+    ...Array.from(
+      new Set(
+        (settings.storeCategories || []).filter(
+          (c) => Boolean(c) && c !== 'مول دريم بلازا'
+        )
+      )
+    ),
+  ];
 
   const STORE_SUB_TYPE_SUGGESTIONS = [
     'سوبر ماركت',
@@ -251,8 +258,24 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         const res = await uploadImageDynamic(fileList[i], settings.imgbbApiKey);
         uploadedUrls.push(res.url);
       }
-      setMenuImages((prev) => [...prev, ...uploadedUrls]);
-      setUploadStatusMsg(`تم رفع ${uploadedUrls.length} صورة بنجاح!`);
+      setMenuImages((prev) => {
+        const cleanPrev = prev.filter(
+          (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
+        );
+        const nextList = [...cleanPrev, ...uploadedUrls];
+        if (editingStoreObj && onUpdateStore) {
+          const updatedStore: StoreListingItem = {
+            ...editingStoreObj,
+            menuImages: nextList,
+            updatedAt: Date.now(),
+            imagesExplicitlyCleared: false,
+          };
+          setEditingStoreObj(updatedStore);
+          onUpdateStore(updatedStore);
+        }
+        return nextList;
+      });
+      setUploadStatusMsg(`تم رفع وحفظ ${uploadedUrls.length} صورة بنجاح!`);
     } catch {
       setUploadStatusMsg('تعذر رفع بعض الصور، يرجى المحاولة مجدداً.');
     } finally {
@@ -275,8 +298,13 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     }
 
     const cleanName = storeName.trim();
+    const realUploadedImages = menuImages.filter(
+      (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
+    );
     const finalMenuImages =
-      menuImages.length > 0
+      realUploadedImages.length > 0
+        ? realUploadedImages
+        : menuImages.length > 0
         ? menuImages
         : [createSquareAdSvg(cleanName, storeCategory, '#0284C7')];
 
@@ -299,6 +327,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         whatsapp: storePhone.trim().replace(/[^0-9]/g, ''),
         details: storeDetails.trim() || fallbackDetails,
         menuImages: finalMenuImages,
+        updatedAt: Date.now(),
+        imagesExplicitlyCleared: realUploadedImages.length === 0,
       });
     } else {
       const newStore: StoreListingItem = {
@@ -320,6 +350,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         comments: [],
         approved: true,
         createdAt: new Date().toISOString(),
+        updatedAt: Date.now(),
+        imagesExplicitlyCleared: realUploadedImages.length === 0,
       };
       onAddStore(newStore);
     }

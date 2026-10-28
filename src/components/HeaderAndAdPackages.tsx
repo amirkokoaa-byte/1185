@@ -263,14 +263,41 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
     now.getMinutes()
   ).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')} ${periodLabel}`;
 
-  // Pricing Calculations
-  const pkg1OriginalPrice = pkg1Days * 15;
-  const pkg1FinalPrice = pkg1Days === 10 ? 120 : pkg1OriginalPrice;
+  // Pricing Calculations (Dynamic from settings.adPackagesPricing)
+  const pkg1DailyPrice =
+    typeof settings.adPackagesPricing?.pkg1DailyPrice === 'number'
+      ? settings.adPackagesPricing.pkg1DailyPrice
+      : 15;
+  const pkg2DailyPrice =
+    typeof settings.adPackagesPricing?.pkg2DailyPrice === 'number'
+      ? settings.adPackagesPricing.pkg2DailyPrice
+      : 25;
+  const pkg3DailyPrice =
+    typeof settings.adPackagesPricing?.pkg3DailyPrice === 'number'
+      ? settings.adPackagesPricing.pkg3DailyPrice
+      : 100;
+  const tenDaysDiscountPercent =
+    typeof settings.adPackagesPricing?.tenDaysDiscountPercent === 'number'
+      ? settings.adPackagesPricing.tenDaysDiscountPercent
+      : 20;
 
-  const pkg2OriginalPrice = pkg2Days * 25;
-  const pkg2FinalPrice = pkg2Days === 10 ? 200 : pkg2OriginalPrice;
+  const pkg1OriginalPrice = pkg1Days * pkg1DailyPrice;
+  const pkg1FinalPrice =
+    pkg1Days === 10
+      ? Math.round(pkg1OriginalPrice * (1 - tenDaysDiscountPercent / 100))
+      : pkg1OriginalPrice;
 
-  const pkg3FinalPrice = pkg3Days * 100;
+  const pkg2OriginalPrice = pkg2Days * pkg2DailyPrice;
+  const pkg2FinalPrice =
+    pkg2Days === 10
+      ? Math.round(pkg2OriginalPrice * (1 - tenDaysDiscountPercent / 100))
+      : pkg2OriginalPrice;
+
+  const pkg3OriginalPrice = pkg3Days * pkg3DailyPrice;
+  const pkg3FinalPrice =
+    pkg3Days === 10
+      ? Math.round(pkg3OriginalPrice * (1 - tenDaysDiscountPercent / 100))
+      : pkg3OriginalPrice;
 
   const handleSubscribeWhatsapp = (
     pkgTitle: string,
@@ -280,7 +307,9 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
   ) => {
     const cleanPhone = settings.adminWhatsapp.replace(/[^0-9]/g, '') || '201000000000';
     const userLabel = currentUser ? `المستخدم: ${currentUser.username}` : 'زائر بالموقع';
-    const discountNote = hasDiscount ? ' (شامل خصم 20% لباقة الـ 10 أيام)' : '';
+    const discountNote = hasDiscount
+      ? ` (شامل خصم ${tenDaysDiscountPercent}% لباقة الـ 10 أيام)`
+      : '';
     const message = `مرحباً إدارة "${settings.siteName}"،\nأرغب في الاشتراك في:\n*${pkgTitle}*\nالمدة المطلوبة: ${days} ${
       days === 1 ? 'يوم' : 'أيام'
     }\nإجمالي التكلفة: ${price} جنيه${discountNote}\n(${userLabel})`;
@@ -657,7 +686,7 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-sky-400">الباقة الأولى</span>
                 <span className="text-xs font-mono-tabular text-[#94A3B8]">
-                  15 جنيه / اليوم
+                  {pkg1DailyPrice} جنيه / اليوم
                 </span>
               </div>
               <h4 className="text-lg font-extrabold text-[#F8FAFC]">
@@ -680,7 +709,9 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                   {Array.from({ length: 10 }, (_, idx) => idx + 1).map((d) => (
                     <option key={d} value={d}>
                       {d} {d === 1 ? 'يوم' : d === 2 ? 'يومين' : 'أيام'}
-                      {d === 10 ? ' (خصم 20% 🔥)' : ''}
+                      {d === 10 && tenDaysDiscountPercent > 0
+                        ? ` (خصم ${tenDaysDiscountPercent}% 🔥)`
+                        : ''}
                     </option>
                   ))}
                 </select>
@@ -689,16 +720,16 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
               <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-1">
                 <div className="flex items-center justify-between text-xs text-[#94A3B8]">
                   <span>سعر اليوم:</span>
-                  <span className="font-mono-tabular">15 جنيه</span>
+                  <span className="font-mono-tabular">{pkg1DailyPrice} جنيه</span>
                 </div>
-                {pkg1Days === 10 && (
+                {pkg1Days === 10 && tenDaysDiscountPercent > 0 && (
                   <div className="flex items-center justify-between text-xs text-emerald-400 font-semibold">
                     <span className="flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      خصم 20% لباقة 10 أيام:
+                      خصم {tenDaysDiscountPercent}% لباقة 10 أيام:
                     </span>
                     <span className="line-through text-rose-400 font-mono-tabular">
-                      150 جنيه
+                      {pkg1OriginalPrice} جنيه
                     </span>
                   </div>
                 )}
@@ -720,7 +751,7 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                   'الباقة الأولى (القائمة المتحركة)',
                   pkg1Days,
                   pkg1FinalPrice,
-                  pkg1Days === 10
+                  pkg1Days === 10 && tenDaysDiscountPercent > 0
                 )
               }
             >
@@ -735,7 +766,7 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-amber-400">الباقة الثانية · الأكثر طلباً</span>
                 <span className="text-xs font-mono-tabular text-[#94A3B8]">
-                  25 جنيه / اليوم
+                  {pkg2DailyPrice} جنيه / اليوم
                 </span>
               </div>
               <h4 className="text-lg font-extrabold text-[#F8FAFC]">
@@ -758,7 +789,9 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                   {Array.from({ length: 10 }, (_, idx) => idx + 1).map((d) => (
                     <option key={d} value={d}>
                       {d} {d === 1 ? 'يوم' : d === 2 ? 'يومين' : 'أيام'}
-                      {d === 10 ? ' (خصم 20% 🔥)' : ''}
+                      {d === 10 && tenDaysDiscountPercent > 0
+                        ? ` (خصم ${tenDaysDiscountPercent}% 🔥)`
+                        : ''}
                     </option>
                   ))}
                 </select>
@@ -767,16 +800,16 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
               <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-1">
                 <div className="flex items-center justify-between text-xs text-[#94A3B8]">
                   <span>سعر اليوم:</span>
-                  <span className="font-mono-tabular">25 جنيه</span>
+                  <span className="font-mono-tabular">{pkg2DailyPrice} جنيه</span>
                 </div>
-                {pkg2Days === 10 && (
+                {pkg2Days === 10 && tenDaysDiscountPercent > 0 && (
                   <div className="flex items-center justify-between text-xs text-emerald-400 font-semibold">
                     <span className="flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      خصم 20% لباقة 10 أيام:
+                      خصم {tenDaysDiscountPercent}% لباقة 10 أيام:
                     </span>
                     <span className="line-through text-rose-400 font-mono-tabular">
-                      250 جنيه
+                      {pkg2OriginalPrice} جنيه
                     </span>
                   </div>
                 )}
@@ -798,7 +831,7 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                   'الباقة الثانية (بانر علوي يظهر لجميع المستخدمين)',
                   pkg2Days,
                   pkg2FinalPrice,
-                  pkg2Days === 10
+                  pkg2Days === 10 && tenDaysDiscountPercent > 0
                 )
               }
             >
@@ -813,7 +846,7 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-indigo-400">الباقة الثالثة · VIP</span>
                 <span className="text-xs font-mono-tabular text-[#94A3B8]">
-                  100 جنيه / اليوم
+                  {pkg3DailyPrice} جنيه / اليوم
                 </span>
               </div>
               <h4 className="text-lg font-extrabold text-[#F8FAFC]">
@@ -833,16 +866,16 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
                   onChange={(e) => setPkg3Days(Number(e.target.value))}
                   className="w-full rounded-lg bg-[#0A192F] border border-[#334155] focus:border-indigo-400 px-3 py-2.5 text-[#F8FAFC] outline-none"
                 >
-                  <option value={1}>يوم واحد (100 جنيه)</option>
-                  <option value={2}>يومين (200 جنيه)</option>
-                  <option value={3}>3 أيام (300 جنيه)</option>
+                  <option value={1}>يوم واحد ({pkg3DailyPrice} جنيه)</option>
+                  <option value={2}>يومين ({pkg3DailyPrice * 2} جنيه)</option>
+                  <option value={3}>3 أيام ({pkg3DailyPrice * 3} جنيه)</option>
                 </select>
               </div>
 
               <div className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-1">
                 <div className="flex items-center justify-between text-xs text-[#94A3B8]">
                   <span>سعر اليوم:</span>
-                  <span className="font-mono-tabular">100 جنيه</span>
+                  <span className="font-mono-tabular">{pkg3DailyPrice} جنيه</span>
                 </div>
                 <div className="pt-2 border-t border-[#334155] flex items-center justify-between">
                   <span className="text-xs font-bold text-[#F8FAFC]">الإجمالي المطلوب:</span>

@@ -391,6 +391,15 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   const handleSaveEditedStore = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStore || !stName.trim() || !stPhone.trim()) return;
+    const realUploaded = stMenuImages.filter(
+      (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
+    );
+    const finalImgs =
+      realUploaded.length > 0
+        ? realUploaded
+        : stMenuImages.length > 0
+        ? stMenuImages
+        : [createSquareAdSvg(stName.trim(), stCategory, '#38BDF8')];
     onUpdateStore({
       ...editingStore,
       name: stName.trim(),
@@ -398,18 +407,62 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       phone: stPhone.trim(),
       locationUrl: stLocationUrl.trim(),
       details: stDetails.trim(),
-      menuImages:
-        stMenuImages.length > 0
-          ? stMenuImages
-          : [createSquareAdSvg(stName.trim(), stCategory, '#38BDF8')],
+      menuImages: finalImgs,
+      updatedAt: Date.now(),
+      imagesExplicitlyCleared: realUploaded.length === 0,
     });
     setEditingStore(null);
     showToast(`تم حفظ تعديلات محل "${stName.trim()}" بنجاح.`);
   };
 
   // ============================================================================
-  // 4. باقات الإعلانات (Ad Packages Unified Admin Form & List)
+  // 4. باقات الإعلانات (Ad Packages Unified Admin Form & List + Edit Prices Modal)
   // ============================================================================
+  const [isEditAdPricesModalOpen, setIsEditAdPricesModalOpen] = useState(false);
+  const [pricePkg1Draft, setPricePkg1Draft] = useState<string>(
+    String(state.settings.adPackagesPricing?.pkg1DailyPrice ?? 15)
+  );
+  const [pricePkg2Draft, setPricePkg2Draft] = useState<string>(
+    String(state.settings.adPackagesPricing?.pkg2DailyPrice ?? 25)
+  );
+  const [pricePkg3Draft, setPricePkg3Draft] = useState<string>(
+    String(state.settings.adPackagesPricing?.pkg3DailyPrice ?? 100)
+  );
+  const [discount10DaysDraft, setDiscount10DaysDraft] = useState<string>(
+    String(state.settings.adPackagesPricing?.tenDaysDiscountPercent ?? 20)
+  );
+
+  const openEditAdPricesModal = () => {
+    setPricePkg1Draft(String(state.settings.adPackagesPricing?.pkg1DailyPrice ?? 15));
+    setPricePkg2Draft(String(state.settings.adPackagesPricing?.pkg2DailyPrice ?? 25));
+    setPricePkg3Draft(String(state.settings.adPackagesPricing?.pkg3DailyPrice ?? 100));
+    setDiscount10DaysDraft(
+      String(state.settings.adPackagesPricing?.tenDaysDiscountPercent ?? 20)
+    );
+    setIsEditAdPricesModalOpen(true);
+  };
+
+  const handleSaveAdPrices = (e: React.FormEvent) => {
+    e.preventDefault();
+    const p1 = Math.max(1, Number(pricePkg1Draft) || 15);
+    const p2 = Math.max(1, Number(pricePkg2Draft) || 25);
+    const p3 = Math.max(1, Number(pricePkg3Draft) || 100);
+    const disc = Math.min(100, Math.max(0, Number(discount10DaysDraft) || 0));
+
+    onUpdateSettings({
+      ...state.settings,
+      adPackagesPricing: {
+        pkg1DailyPrice: p1,
+        pkg2DailyPrice: p2,
+        pkg3DailyPrice: p3,
+        tenDaysDiscountPercent: disc,
+      },
+      updatedAt: Date.now(),
+    });
+    setIsEditAdPricesModalOpen(false);
+    showToast('تم حفظ وتحديث أسعار باقات الإعلانات ونسبة الخصم لحظياً لجميع المستخدمين!');
+  };
+
   const [activeAdPackageTab, setActiveAdPackageTab] = useState<
     'moving_square' | 'top_banner' | 'popup_entry'
   >('moving_square');
@@ -487,16 +540,34 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   };
 
   const handleUploadAdMainFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setUploadingAdMain(true);
     try {
-      const res = await uploadImageDynamic(file, state.settings.imgbbApiKey);
-      if (adMainImage.trim()) {
-        setAdMenuImages((prev) => [adMainImage.trim(), ...prev]);
+      const uploaded: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const res = await uploadImageDynamic(files[i], state.settings.imgbbApiKey);
+        uploaded.push(res.url);
       }
-      setAdMainImage(res.url);
-      showToast('تم رفع الصورة وتحديدها كصورة رئيسية (#1) للإعلان بنجاح!');
+      if (uploaded.length === 0) return;
+      const prevMain = adMainImage.trim();
+      const prevMainIsReal = prevMain && !prevMain.startsWith('data:image/svg+xml');
+      setAdMainImage(uploaded[0]);
+      setAdMenuImages((prev) => {
+        const cleanPrev = prev.filter(
+          (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
+        );
+        return [
+          ...uploaded.slice(1),
+          ...(prevMainIsReal ? [prevMain] : []),
+          ...cleanPrev,
+        ];
+      });
+      showToast(
+        uploaded.length > 1
+          ? `تم رفع ${uploaded.length} صور للإعلان بنجاح!`
+          : 'تم رفع الصورة وتحديدها كصورة رئيسية (#1) للإعلان بنجاح!'
+      );
     } finally {
       setUploadingAdMain(false);
     }
@@ -512,11 +583,23 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         const res = await uploadImageDynamic(files[i], state.settings.imgbbApiKey);
         uploaded.push(res.url);
       }
-      if (!adMainImage.trim() && uploaded.length > 0) {
+      const prevMain = adMainImage.trim();
+      const prevMainIsReal = prevMain && !prevMain.startsWith('data:image/svg+xml');
+      if (!prevMainIsReal && uploaded.length > 0) {
         setAdMainImage(uploaded[0]);
-        setAdMenuImages((prev) => [...prev, ...uploaded.slice(1)]);
+        setAdMenuImages((prev) => [
+          ...prev.filter(
+            (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
+          ),
+          ...uploaded.slice(1),
+        ]);
       } else {
-        setAdMenuImages((prev) => [...prev, ...uploaded]);
+        setAdMenuImages((prev) => [
+          ...prev.filter(
+            (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
+          ),
+          ...uploaded,
+        ]);
       }
       showToast(`تم رفع ${uploaded.length} صورة للإعلان بنجاح!`);
     } finally {
@@ -1671,14 +1754,54 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
             <div className="space-y-5">
               {/* Package Type Switcher */}
               <FluentCard className="space-y-4">
-                <div className="pb-3 border-b border-[#334155]">
-                  <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
-                    <Crown className="w-5 h-5 text-amber-400" />
-                    <span>4. التحكم الكامل في باقات الإعلانات الـ 3</span>
-                  </h3>
-                  <p className="text-xs text-[#94A3B8]">
-                    بمجرد انتهاء مدة الإعلان المحددة بالأيام يختفي الإعلان تلقائياً ولا يظهر للعامة.
-                  </p>
+                <div className="pb-3 border-b border-[#334155] flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                      <Crown className="w-5 h-5 text-amber-400" />
+                      <span>4. التحكم الكامل في باقات الإعلانات الـ 3</span>
+                    </h3>
+                    <p className="text-xs text-[#94A3B8]">
+                      بمجرد انتهاء مدة الإعلان المحددة بالأيام يختفي الإعلان تلقائياً ولا يظهر للعامة.
+                    </p>
+                  </div>
+
+                  <FluentButton
+                    type="button"
+                    variant="emerald"
+                    size="sm"
+                    onClick={openEditAdPricesModal}
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    <span>تعديل الأسعار</span>
+                  </FluentButton>
+                </div>
+
+                {/* شريط عرض الأسعار الحالية ونسبة خصم الـ 10 أيام */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded-xl bg-[#0A192F] border border-[#334155] text-xs">
+                  <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-[#112240]">
+                    <span className="text-[#94A3B8]">الباقة 1:</span>
+                    <span className="font-extrabold text-sky-400 font-mono-tabular">
+                      {state.settings.adPackagesPricing?.pkg1DailyPrice ?? 15} ج/يوم
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-[#112240]">
+                    <span className="text-[#94A3B8]">الباقة 2:</span>
+                    <span className="font-extrabold text-amber-400 font-mono-tabular">
+                      {state.settings.adPackagesPricing?.pkg2DailyPrice ?? 25} ج/يوم
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-[#112240]">
+                    <span className="text-[#94A3B8]">الباقة 3:</span>
+                    <span className="font-extrabold text-indigo-400 font-mono-tabular">
+                      {state.settings.adPackagesPricing?.pkg3DailyPrice ?? 100} ج/يوم
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-[#112240]">
+                    <span className="text-[#94A3B8]">خصم 10 أيام:</span>
+                    <span className="font-extrabold text-emerald-400 font-mono-tabular">
+                      {state.settings.adPackagesPricing?.tenDaysDiscountPercent ?? 20}%
+                    </span>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -2018,6 +2141,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             <input
                               type="file"
                               accept="image/*"
+                              multiple
                               onChange={handleUploadAdMainFile}
                               className="hidden"
                             />
@@ -4332,7 +4456,26 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                           );
                           urls.push(res.url);
                         }
-                        setStMenuImages((prev) => [...prev, ...urls]);
+                        setStMenuImages((prev) => {
+                          const cleanPrev = prev.filter(
+                            (img) =>
+                              typeof img === 'string' &&
+                              !img.startsWith('data:image/svg+xml')
+                          );
+                          const nextImgs = [...cleanPrev, ...urls];
+                          if (editingStore) {
+                            const updatedStore: StoreListingItem = {
+                              ...editingStore,
+                              menuImages: nextImgs,
+                              updatedAt: Date.now(),
+                              imagesExplicitlyCleared: false,
+                            };
+                            setEditingStore(updatedStore);
+                            onUpdateStore(updatedStore);
+                          }
+                          return nextImgs;
+                        });
+                        showToast(`تم رفع وحفظ ${urls.length} صورة للمحل بنجاح!`);
                       } finally {
                         setUploadingStoreMenu(false);
                       }
@@ -4511,6 +4654,88 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
             </div>
           </div>
         )}
+      </FluentModal>
+
+      {/* Edit Ad Packages Prices & 10-Day Discount Modal */}
+      <FluentModal
+        isOpen={isEditAdPricesModalOpen}
+        onClose={() => setIsEditAdPricesModalOpen(false)}
+        title="تعديل أسعار باقات الإعلانات ونسبة الخصم"
+        subtitle="التعديلات تظهر لحظياً لجميع المستخدمين في نافذة باقات الإعلانات"
+        maxWidth="md"
+      >
+        <form onSubmit={handleSaveAdPrices} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-sky-400 mb-1">
+              سعر اليوم في الباقة الأولى — القائمة المتحركة (جنيه / اليوم)
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={pricePkg1Draft}
+              onChange={(e) => setPricePkg1Draft(e.target.value)}
+              required
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3.5 py-2.5 text-sm text-[#F8FAFC] font-mono-tabular outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-amber-400 mb-1">
+              سعر اليوم في الباقة الثانية — البانر العلوي (جنيه / اليوم)
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={pricePkg2Draft}
+              onChange={(e) => setPricePkg2Draft(e.target.value)}
+              required
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-amber-400 px-3.5 py-2.5 text-sm text-[#F8FAFC] font-mono-tabular outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-indigo-400 mb-1">
+              سعر اليوم في الباقة الثالثة — الشاشة المنبثقة VIP (جنيه / اليوم)
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={pricePkg3Draft}
+              onChange={(e) => setPricePkg3Draft(e.target.value)}
+              required
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-indigo-400 px-3.5 py-2.5 text-sm text-[#F8FAFC] font-mono-tabular outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-emerald-400 mb-1">
+              نسبة الخصم في عرض الـ 10 أيام (%)
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={discount10DaysDraft}
+              onChange={(e) => setDiscount10DaysDraft(e.target.value)}
+              required
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-emerald-400 px-3.5 py-2.5 text-sm text-[#F8FAFC] font-mono-tabular outline-none"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#334155]">
+            <FluentButton
+              type="button"
+              variant="secondary"
+              onClick={() => setIsEditAdPricesModalOpen(false)}
+            >
+              إلغاء
+            </FluentButton>
+            <FluentButton type="submit" variant="emerald">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>حفظ وتطبيق الأسعار لحظياً</span>
+            </FluentButton>
+          </div>
+        </form>
       </FluentModal>
     </div>
   );

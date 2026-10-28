@@ -56,7 +56,9 @@ try {
         topBanners: parsed.topBanners || [],
         squareAds: parsed.squareAds || [],
         popupAd: parsed.popupAd,
+        stores: parsed.stores || [],
         serviceNumbers: parsed.serviceNumbers || [],
+        tawsilaRides: parsed.tawsilaRides || [],
         liveChatMessages: parsed.liveChatMessages || [],
         privateChatMessages: parsed.privateChatMessages || [],
         privateChatStatuses: parsed.privateChatStatuses || {},
@@ -65,6 +67,8 @@ try {
         userBlockedMap: parsed.userBlockedMap || {},
         privateChatReports: parsed.privateChatReports || [],
         messages: parsed.messages || [],
+        utilitySubmissions: parsed.utilitySubmissions || [],
+        utilityPosts: parsed.utilityPosts || [],
         buySellPosts: parsed.buySellPosts || [],
         communityPosts: parsed.communityPosts || [],
         settings: parsed.settings || {},
@@ -74,6 +78,84 @@ try {
   }
 } catch {
   authoritativeState = null;
+}
+
+function hasRealUploadedStoreImagesServer(imgs: unknown): boolean {
+  if (!Array.isArray(imgs)) return false;
+  return imgs.some(
+    (img) =>
+      typeof img === 'string' &&
+      img.trim().length > 0 &&
+      !img.trim().startsWith('data:image/svg+xml')
+  );
+}
+
+function mergeSingleStoreServer(
+  prevSt: Record<string, unknown>,
+  nextSt: Record<string, unknown>
+): Record<string, unknown> {
+  const prevTs = typeof prevSt.updatedAt === 'number' ? prevSt.updatedAt : 0;
+  const nextTs = typeof nextSt.updatedAt === 'number' ? nextSt.updatedAt : 0;
+  const prevReal = hasRealUploadedStoreImagesServer(prevSt.menuImages);
+  const nextReal = hasRealUploadedStoreImagesServer(nextSt.menuImages);
+
+  const primary =
+    prevTs > nextTs
+      ? { ...nextSt, ...prevSt }
+      : { ...prevSt, ...nextSt };
+
+  let resolvedImages = primary.menuImages;
+  if (nextSt.imagesExplicitlyCleared === true && nextTs >= prevTs) {
+    resolvedImages = nextSt.menuImages;
+  } else if (prevReal && !nextReal) {
+    resolvedImages = prevSt.menuImages;
+  } else if (nextReal && !prevReal) {
+    resolvedImages = nextSt.menuImages;
+  } else if (prevReal && nextReal) {
+    resolvedImages = nextTs >= prevTs ? nextSt.menuImages : prevSt.menuImages;
+  }
+
+  return {
+    ...primary,
+    menuImages: resolvedImages,
+    updatedAt: Math.max(prevTs, nextTs),
+  };
+}
+
+function mergeStoresServer(
+  prevList: unknown,
+  nextList: unknown,
+  deletedSet: Set<string>
+): Array<Record<string, unknown>> {
+  const prev = Array.isArray(prevList) ? (prevList as Array<Record<string, unknown>>) : [];
+  const next = Array.isArray(nextList) ? (nextList as Array<Record<string, unknown>>) : [];
+  const map = new Map<string, Record<string, unknown>>();
+  for (const item of prev) {
+    if (item && typeof item.id === 'string' && !deletedSet.has(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+  for (const item of next) {
+    if (item && typeof item.id === 'string' && !deletedSet.has(item.id)) {
+      const existing = map.get(item.id);
+      map.set(item.id, existing ? mergeSingleStoreServer(existing, item) : item);
+    }
+  }
+  const result: Array<Record<string, unknown>> = [];
+  const added = new Set<string>();
+  for (const item of next) {
+    if (item && typeof item.id === 'string' && map.has(item.id) && !added.has(item.id)) {
+      result.push(map.get(item.id)!);
+      added.add(item.id);
+    }
+  }
+  for (const item of prev) {
+    if (item && typeof item.id === 'string' && map.has(item.id) && !added.has(item.id)) {
+      result.push(map.get(item.id)!);
+      added.add(item.id);
+    }
+  }
+  return result;
 }
 
 function mergeArrayByIdServer(
@@ -192,7 +274,7 @@ function mergeIntoCumulativeArchive(incoming: Record<string, unknown>) {
     ...incoming,
     deletedRecordIds: [],
     users: mergeUsersServer(base.users, incoming.users, emptyDeleted),
-    stores: mergeArrayByIdServer(base.stores, incoming.stores, emptyDeleted),
+    stores: mergeStoresServer(base.stores, incoming.stores, emptyDeleted),
     serviceNumbers: mergeArrayByIdServer(
       base.serviceNumbers,
       incoming.serviceNumbers,
@@ -396,6 +478,7 @@ async function startServer() {
 
   // 2. Get current authoritative state
   app.get('/api/realtime/state', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.json({
       version: stateVersion,
       state: authoritativeState,
@@ -405,7 +488,7 @@ async function startServer() {
 
   // 2B. Get permanent cumulative archive state (all inputs since site creation up to today)
   app.get('/api/realtime/archive', (_req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.json({
       archive: cumulativeArchiveState || authoritativeState,
       activeState: authoritativeState,
@@ -452,7 +535,9 @@ async function startServer() {
       topBanners: restoredState.topBanners || [],
       squareAds: restoredState.squareAds || [],
       popupAd: restoredState.popupAd,
+      stores: restoredState.stores || [],
       serviceNumbers: restoredState.serviceNumbers || [],
+      tawsilaRides: restoredState.tawsilaRides || [],
       liveChatMessages: restoredState.liveChatMessages || [],
       privateChatMessages: restoredState.privateChatMessages || [],
       privateChatStatuses: restoredState.privateChatStatuses || {},
@@ -461,6 +546,8 @@ async function startServer() {
       userBlockedMap: restoredState.userBlockedMap || {},
       privateChatReports: restoredState.privateChatReports || [],
       messages: restoredState.messages || [],
+      utilitySubmissions: restoredState.utilitySubmissions || [],
+      utilityPosts: restoredState.utilityPosts || [],
       buySellPosts: restoredState.buySellPosts || [],
       communityPosts: restoredState.communityPosts || [],
       settings: restoredState.settings || {},
@@ -501,7 +588,7 @@ async function startServer() {
           ...state,
           deletedRecordIds,
           users: mergeUsersServer(authoritativeState.users, state.users, deletedSet),
-          stores: mergeArrayByIdServer(authoritativeState.stores, state.stores, deletedSet),
+          stores: mergeStoresServer(authoritativeState.stores, state.stores, deletedSet),
           serviceNumbers: mergeArrayByIdServer(
             authoritativeState.serviceNumbers,
             state.serviceNumbers,
@@ -583,7 +670,9 @@ async function startServer() {
       topBanners: mergedState.topBanners || [],
       squareAds: mergedState.squareAds || [],
       popupAd: mergedState.popupAd,
+      stores: mergedState.stores || [],
       serviceNumbers: mergedState.serviceNumbers || [],
+      tawsilaRides: mergedState.tawsilaRides || [],
       liveChatMessages: mergedState.liveChatMessages || [],
       privateChatMessages: mergedState.privateChatMessages || [],
       privateChatStatuses: mergedState.privateChatStatuses || {},
@@ -592,6 +681,8 @@ async function startServer() {
       userBlockedMap: mergedState.userBlockedMap || {},
       privateChatReports: mergedState.privateChatReports || [],
       messages: mergedState.messages || [],
+      utilitySubmissions: mergedState.utilitySubmissions || [],
+      utilityPosts: mergedState.utilityPosts || [],
       buySellPosts: mergedState.buySellPosts || [],
       communityPosts: mergedState.communityPosts || [],
       settings: mergedState.settings || {},
@@ -604,8 +695,15 @@ async function startServer() {
       state: authoritativeState,
       senderTabId: senderTabId || null,
     });
+    broadcastSseEvent('chat_fast_update', {
+      version: chatVersion,
+      chatPatch: latestChatPatch,
+      senderTabId: senderTabId || null,
+      onlineStats: computeOnlineStats(),
+    });
 
     saveStateToDisk(mergedState);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.json({ ok: true, version: stateVersion });
   });
 
@@ -613,7 +711,7 @@ async function startServer() {
   app.get('/api/realtime/chat-fast', (req, res) => {
     const since = Number(req.query.since || 0);
     const onlineStats = computeOnlineStats();
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     if (since > 0 && since === chatVersion) {
       res.json({ changed: false, version: chatVersion, onlineStats });
       return;
@@ -646,28 +744,23 @@ async function startServer() {
     chatVersion = Date.now();
     stateVersion = chatVersion;
     lastChatSenderTabId = senderTabId || null;
-    latestChatPatch = {
-      ...(latestChatPatch || {}),
-      ...chatPatch,
-      deletedRecordIds,
-    };
-
-    // Broadcast to SSE clients FIRST before any disk work for 0ms latency
-    broadcastSseEvent('chat_fast_update', {
-      version: chatVersion,
-      chatPatch: latestChatPatch,
-      senderTabId: senderTabId || null,
-      onlineStats: computeOnlineStats(),
-    });
 
     if (authoritativeState) {
       const prevSettings =
         (authoritativeState.settings as Record<string, unknown>) || {};
       const patchSettings =
         (chatPatch.settings as Record<string, unknown>) || undefined;
-      let mergedStores = authoritativeState.stores;
+
+      let mergedStores = chatPatch.stores
+        ? mergeStoresServer(authoritativeState.stores, chatPatch.stores, deletedSet)
+        : Array.isArray(authoritativeState.stores)
+        ? (authoritativeState.stores as Array<Record<string, unknown>>).filter(
+            (st) => !(st && typeof st.id === 'string' && deletedSet.has(st.id))
+          )
+        : [];
+
       if (
-        Array.isArray(authoritativeState.stores) &&
+        Array.isArray(mergedStores) &&
         chatPatch.storeInteractionsMap &&
         typeof chatPatch.storeInteractionsMap === 'object'
       ) {
@@ -675,26 +768,25 @@ async function startServer() {
           string,
           Record<string, unknown>
         >;
-        mergedStores = (authoritativeState.stores as Array<Record<string, unknown>>)
-          .filter((st) => !(st && typeof st.id === 'string' && deletedSet.has(st.id)))
-          .map((st) => {
-            const id = typeof st.id === 'string' ? st.id : '';
-            const delta = id ? map[id] : undefined;
-            if (!delta) return st;
-            return {
-              ...st,
-              likes: Array.isArray(delta.likes) ? delta.likes : st.likes,
-              dislikes: Array.isArray(delta.dislikes) ? delta.dislikes : st.dislikes,
-              ratings:
-                delta.ratings && typeof delta.ratings === 'object'
-                  ? delta.ratings
-                  : st.ratings,
-              viewsCount:
-                typeof delta.viewsCount === 'number' ? delta.viewsCount : st.viewsCount,
-              comments: Array.isArray(delta.comments) ? delta.comments : st.comments,
-            };
-          });
+        mergedStores = mergedStores.map((st) => {
+          const id = typeof st.id === 'string' ? st.id : '';
+          const delta = id ? map[id] : undefined;
+          if (!delta) return st;
+          return {
+            ...st,
+            likes: Array.isArray(delta.likes) ? delta.likes : st.likes,
+            dislikes: Array.isArray(delta.dislikes) ? delta.dislikes : st.dislikes,
+            ratings:
+              delta.ratings && typeof delta.ratings === 'object'
+                ? delta.ratings
+                : st.ratings,
+            viewsCount:
+              typeof delta.viewsCount === 'number' ? delta.viewsCount : st.viewsCount,
+            comments: Array.isArray(delta.comments) ? delta.comments : st.comments,
+          };
+        });
       }
+
       const mergedServiceNumbers = chatPatch.serviceNumbers
         ? mergeArrayByIdServer(
             authoritativeState.serviceNumbers,
@@ -702,9 +794,42 @@ async function startServer() {
             deletedSet
           )
         : authoritativeState.serviceNumbers;
-      if (latestChatPatch && Array.isArray(mergedServiceNumbers)) {
-        latestChatPatch.serviceNumbers = mergedServiceNumbers;
-      }
+      const mergedTawsilaRides = chatPatch.tawsilaRides
+        ? mergeArrayByIdServer(
+            authoritativeState.tawsilaRides,
+            chatPatch.tawsilaRides,
+            deletedSet
+          )
+        : authoritativeState.tawsilaRides;
+      const mergedCommunityPosts = chatPatch.communityPosts
+        ? mergeArrayByIdServer(
+            authoritativeState.communityPosts,
+            chatPatch.communityPosts,
+            deletedSet
+          )
+        : authoritativeState.communityPosts;
+      const mergedBuySellPosts = chatPatch.buySellPosts
+        ? mergeArrayByIdServer(
+            authoritativeState.buySellPosts,
+            chatPatch.buySellPosts,
+            deletedSet
+          )
+        : authoritativeState.buySellPosts;
+      const mergedUtilityPosts = chatPatch.utilityPosts
+        ? mergeArrayByIdServer(
+            authoritativeState.utilityPosts,
+            chatPatch.utilityPosts,
+            deletedSet
+          )
+        : authoritativeState.utilityPosts;
+      const mergedUtilitySubmissions = chatPatch.utilitySubmissions
+        ? mergeArrayByIdServer(
+            authoritativeState.utilitySubmissions,
+            chatPatch.utilitySubmissions,
+            deletedSet
+          )
+        : authoritativeState.utilitySubmissions;
+
       const nextState: Record<string, unknown> = {
         ...authoritativeState,
         ...chatPatch,
@@ -724,12 +849,45 @@ async function startServer() {
         ),
         stores: mergedStores,
         serviceNumbers: mergedServiceNumbers,
+        tawsilaRides: mergedTawsilaRides,
+        communityPosts: mergedCommunityPosts,
+        buySellPosts: mergedBuySellPosts,
+        utilityPosts: mergedUtilityPosts,
+        utilitySubmissions: mergedUtilitySubmissions,
         settings: mergeSettingsServer(prevSettings, patchSettings),
       };
       authoritativeState = nextState;
+      latestChatPatch = {
+        ...(latestChatPatch || {}),
+        ...chatPatch,
+        stores: mergedStores,
+        serviceNumbers: mergedServiceNumbers,
+        tawsilaRides: mergedTawsilaRides,
+        communityPosts: mergedCommunityPosts,
+        buySellPosts: mergedBuySellPosts,
+        utilityPosts: mergedUtilityPosts,
+        utilitySubmissions: mergedUtilitySubmissions,
+        settings: nextState.settings,
+        deletedRecordIds,
+      };
       saveStateToDisk(nextState);
+    } else {
+      latestChatPatch = {
+        ...(latestChatPatch || {}),
+        ...chatPatch,
+        deletedRecordIds,
+      };
     }
 
+    // Broadcast to SSE clients immediately for 0ms latency
+    broadcastSseEvent('chat_fast_update', {
+      version: chatVersion,
+      chatPatch: latestChatPatch,
+      senderTabId: senderTabId || null,
+      onlineStats: computeOnlineStats(),
+    });
+
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.json({ ok: true, version: chatVersion, onlineStats: computeOnlineStats() });
   });
 

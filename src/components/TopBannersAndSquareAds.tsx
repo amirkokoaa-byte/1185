@@ -99,6 +99,24 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     setConfirmingBulkDelete(false);
   };
 
+  const popupAdImagesList = useMemo(() => {
+    const mainImg = (popupAd?.imageUrl || '').trim();
+    const extraImgs = Array.isArray(popupAd?.menuImages)
+      ? popupAd.menuImages.map((img) => String(img || '').trim()).filter(Boolean)
+      : [];
+    const mainIsDefaultSvg = mainImg.startsWith('data:image/svg+xml');
+    const hasRealExtras = extraImgs.some((img) => !img.startsWith('data:image/svg+xml'));
+    const combined: string[] = [];
+    if (mainImg && !(mainIsDefaultSvg && hasRealExtras)) {
+      combined.push(mainImg);
+    }
+    extraImgs.forEach((img, idx) => {
+      if (idx === 0 && img === mainImg) return;
+      combined.push(img);
+    });
+    return combined;
+  }, [popupAd?.imageUrl, popupAd?.menuImages]);
+
   // Entry Pop-up Ad state (opens automatically on entry if active and not expired)
   const [showEntryPopup, setShowEntryPopup] = useState<boolean>(() => {
     if (!popupAd || !popupAd.active) return false;
@@ -107,9 +125,25 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     }
     return true;
   });
+  const [currentPopupImageIndex, setCurrentPopupImageIndex] = useState<number>(0);
+
+  // Reset sequential popup index and re-open when popup campaign images/id change
+  useEffect(() => {
+    if (!popupAd || !popupAd.active) return;
+    if (popupAd.expiresAt && new Date(popupAd.expiresAt).getTime() <= Date.now()) {
+      return;
+    }
+    setCurrentPopupImageIndex(0);
+    setShowEntryPopup(true);
+  }, [popupAd?.id, popupAd?.imageUrl, popupAd?.menuImages?.length, popupAd?.active]);
 
   const handleCloseEntryPopup = () => {
+    if (currentPopupImageIndex + 1 < popupAdImagesList.length) {
+      setCurrentPopupImageIndex((prev) => prev + 1);
+      return;
+    }
     setShowEntryPopup(false);
+    setCurrentPopupImageIndex(0);
     if (onEntryPopupClosed) {
       onEntryPopupClosed();
     }
@@ -826,7 +860,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         </FluentModal>
       )}
 
-      {/* 3. Entry Pop-up Ad Modal (Appears automatically on site entry; closing it opens Auth Modal) */}
+      {/* 3. Entry Pop-up Ad Modal (Each uploaded image appears as a separate sequential popup with an X close button on the left) */}
       <FluentModal
         isOpen={
           showEntryPopup &&
@@ -835,20 +869,38 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         }
         onClose={handleCloseEntryPopup}
         title={popupAd.title || 'مرحباً بكم في موقع خدمات التخيل 1185'}
-        subtitle="إعلان الشاشة المنبثقة الترحيبي"
+        subtitle={
+          popupAdImagesList.length > 1
+            ? `إعلان الشاشة المنبثقة (${currentPopupImageIndex + 1} من ${popupAdImagesList.length})`
+            : 'إعلان الشاشة المنبثقة الترحيبي'
+        }
         maxWidth="lg"
       >
-        <div className="space-y-4">
-          {popupAd.imageUrl && (
-            <div
-              onClick={() => setFullImagePreviewUrl(popupAd.imageUrl)}
-              className="w-full rounded-xl overflow-hidden bg-[#0A192F] border border-sky-400/40 flex items-center justify-center p-2 cursor-zoom-in"
-            >
+        <div key={`popup-seq-${currentPopupImageIndex}`} className="space-y-4">
+          {popupAdImagesList[currentPopupImageIndex] && (
+            <div className="relative w-full rounded-xl overflow-hidden bg-[#0A192F] border border-sky-400/40 flex items-center justify-center p-2">
+              {/* زر إغلاق X بارز على اليسار لكل صورة منبثقة */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCloseEntryPopup();
+                }}
+                aria-label="إغلاق الإعلان"
+                title="إغلاق الإعلان"
+                className="absolute top-3 left-3 z-20 w-9 h-9 rounded-full bg-rose-600 hover:bg-rose-500 text-white border-2 border-white/80 flex items-center justify-center shadow-xl cursor-pointer transition-transform hover:scale-105"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
               <img
-                src={popupAd.imageUrl}
-                alt={popupAd.title}
+                src={popupAdImagesList[currentPopupImageIndex]}
+                alt={`${popupAd.title || 'إعلان'} - ${currentPopupImageIndex + 1}`}
                 referrerPolicy="no-referrer"
-                className="w-full max-h-[60vh] object-contain"
+                onClick={() =>
+                  setFullImagePreviewUrl(popupAdImagesList[currentPopupImageIndex])
+                }
+                className="w-full max-h-[60vh] object-contain cursor-zoom-in"
               />
             </div>
           )}
@@ -912,24 +964,6 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
               </div>
             );
           })()}
-
-          {popupAd.menuImages && popupAd.menuImages.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {popupAd.menuImages.map((img, i) => (
-                <div
-                  key={i}
-                  onClick={() => setFullImagePreviewUrl(img)}
-                  className="w-full rounded-lg bg-[#0A192F] border border-[#334155] p-1 flex items-center justify-center cursor-zoom-in"
-                >
-                  <img
-                    src={img}
-                    alt={`Popup Menu ${i + 1}`}
-                    className="w-full max-h-56 object-contain rounded"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </FluentModal>
 

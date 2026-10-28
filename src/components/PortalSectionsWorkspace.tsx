@@ -153,6 +153,9 @@ interface PortalSectionsWorkspaceProps {
     targetUserId: string,
     targetUsername: string
   ) => void;
+  onDeletePrivateChatMessage?: (msgId: string) => void;
+  onDeletePrivateConversation?: (partnerUsername: string) => void;
+  onTogglePinPrivateChatMessage?: (msgId: string) => void;
   onUpdateSettings: (settings: PlatformSettings) => void;
   onUpdateUserAccount: (user: UserAccount) => void;
   onDeleteUserAccount: (id: string) => void;
@@ -326,6 +329,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onReportUserInPrivateChat,
   onDismissPrivateChatReport,
   onDeleteUserAccountFromChat,
+  onDeletePrivateChatMessage,
+  onDeletePrivateConversation,
+  onTogglePinPrivateChatMessage,
   onUpdateSettings,
   onUpdateUserAccount,
   onDeleteUserAccount,
@@ -650,6 +656,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onReportUserInPrivateChat={onReportUserInPrivateChat}
         onDismissPrivateChatReport={onDismissPrivateChatReport}
         onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
+        onDeletePrivateChatMessage={onDeletePrivateChatMessage}
+        onDeletePrivateConversation={onDeletePrivateConversation}
+        onTogglePinPrivateChatMessage={onTogglePinPrivateChatMessage}
       />
     );
   }
@@ -792,6 +801,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onReportUserInPrivateChat={onReportUserInPrivateChat}
         onDismissPrivateChatReport={onDismissPrivateChatReport}
         onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
+        onDeletePrivateChatMessage={onDeletePrivateChatMessage}
+        onDeletePrivateConversation={onDeletePrivateConversation}
+        onTogglePinPrivateChatMessage={onTogglePinPrivateChatMessage}
       />
     );
   }

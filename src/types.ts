@@ -81,6 +81,7 @@ export interface AdminMessageThreadEntry {
   senderName: string;
   text: string;
   createdAt: string;
+  isPinned?: boolean;
   isReadByAdmin?: boolean;
   isReadByUser?: boolean;
 }
@@ -92,6 +93,7 @@ export interface AdminMessage {
   senderPhone?: string;
   content: string;
   isRead: boolean;
+  isPinned?: boolean;
   unreadForUserCount?: number;
   thread?: AdminMessageThreadEntry[];
   updatedAt?: string;
@@ -279,6 +281,7 @@ export interface PrivateChatMessageItem {
   receiverUsername: string;
   text: string;
   textColor?: string;
+  isPinned?: boolean;
   isRead?: boolean;
   readAt?: string;
   likes?: string[];

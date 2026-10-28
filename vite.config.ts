@@ -17,6 +17,10 @@ export default defineConfig(() => {
           ) {
             return code
               .replace(
+                'const socket = options.createConnection();',
+                'const socket = { OPEN: 1, readyState: 1, addEventListener() {}, removeEventListener() {}, send() {}, close() {} };'
+              )
+              .replace(
                 /reject\(\/\*\s*@__PURE__\s*\*\/\s*new Error\("WebSocket closed without opened\."\)\)/g,
                 'resolve()'
               )
@@ -25,8 +29,12 @@ export default defineConfig(() => {
                 'resolve()'
               )
               .replace(
-                'transport.connect(createHMRHandler(handleMessage));',
-                '/* hmr transport disabled */'
+                /throw new SendBeforeConnectError\([^)]*\);/g,
+                'return;'
+              )
+              .replace(
+                'ws.send(JSON.stringify(data));',
+                'ws?.send?.(JSON.stringify(data));'
               );
           }
           return null;

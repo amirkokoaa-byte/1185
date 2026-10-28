@@ -33,6 +33,9 @@ import {
   Eye,
   EyeOff,
   MessageSquareOff,
+  Share2,
+  Copy,
+  MessageCircle,
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
@@ -194,6 +197,9 @@ interface CommunityHubViewProps {
     targetUserId: string,
     targetUsername: string
   ) => void;
+  onDeletePrivateChatMessage?: (msgId: string) => void;
+  onDeletePrivateConversation?: (partnerUsername: string) => void;
+  onTogglePinPrivateChatMessage?: (msgId: string) => void;
 }
 
 const REPORT_REASONS: CommunityReportReason[] = [
@@ -360,6 +366,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   onReportUserInPrivateChat,
   onDismissPrivateChatReport,
   onDeleteUserAccountFromChat,
+  onDeletePrivateChatMessage,
+  onDeletePrivateConversation,
+  onTogglePinPrivateChatMessage,
 }) => {
   const isStrictAdmin = currentUser?.role === 'admin';
   const isAdmin =
@@ -490,6 +499,39 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   );
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [reportFeedbackBanner, setReportFeedbackBanner] = useState<string>('');
+  const [openShareMenuPostId, setOpenShareMenuPostId] = useState<string | null>(null);
+  const [copiedSharePostId, setCopiedSharePostId] = useState<string | null>(null);
+  const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
+
+  const handleJumpToPost = (postId: string) => {
+    setIsSavedPostsModalOpen(false);
+    setIsAdminManagementView(false);
+    setSelectedPostTypeFilter('الكل');
+    setVisiblePostCount(Math.max(posts.length, 50));
+    setHighlightedPostId(postId);
+    setTimeout(() => {
+      const el = document.getElementById(`post-card-${postId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+    setTimeout(() => {
+      setHighlightedPostId((prev) => (prev === postId ? null : prev));
+    }, 4000);
+  };
+
+  useEffect(() => {
+    if (chatOnlyOverlayMode) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetPostId = params.get('postId');
+      if (targetPostId && posts.some((p) => p.id === targetPostId)) {
+        handleJumpToPost(targetPostId);
+      }
+    } catch {
+      // ignore
+    }
+  }, [posts.length, chatOnlyOverlayMode]);
 
   // Close "المزيد" menu when clicking anywhere outside
   useEffect(() => {
@@ -631,6 +673,135 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
   const [isChatHistoryModalOpen, setIsChatHistoryModalOpen] = useState<boolean>(false);
   const [isBlockedUsersModalOpen, setIsBlockedUsersModalOpen] = useState<boolean>(false);
+  const [expandedHistoryPartnerNorm, setExpandedHistoryPartnerNorm] = useState<string | null>(null);
+
+  const pinnedHistoryPartnersStorageKey = `nakhil_1185_pinned_history_partners_v1_${visitorId}`;
+  const pinnedHistoryMsgsStorageKey = `nakhil_1185_pinned_history_msgs_v1_${visitorId}`;
+  const deletedHistoryPartnersStorageKey = `nakhil_1185_deleted_history_partners_v1_${visitorId}`;
+  const deletedHistoryMsgsStorageKey = `nakhil_1185_deleted_history_msgs_v1_${visitorId}`;
+
+  const [pinnedHistoryPartners, setPinnedHistoryPartners] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(pinnedHistoryPartnersStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  const [pinnedHistoryMsgIds, setPinnedHistoryMsgIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(pinnedHistoryMsgsStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  const [deletedHistoryPartners, setDeletedHistoryPartners] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(deletedHistoryPartnersStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  const [deletedHistoryMsgIds, setDeletedHistoryMsgIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(deletedHistoryMsgsStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  const togglePinHistoryPartner = (partnerUsername: string) => {
+    const norm = partnerUsername.trim().toLowerCase();
+    if (!norm) return;
+    setPinnedHistoryPartners((prev) => {
+      const exists = prev.includes(norm);
+      const next = exists ? prev.filter((item) => item !== norm) : [norm, ...prev];
+      try {
+        localStorage.setItem(pinnedHistoryPartnersStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const togglePinHistoryMessage = (msgId: string) => {
+    if (!msgId) return;
+    onTogglePinPrivateChatMessage?.(msgId);
+    setPinnedHistoryMsgIds((prev) => {
+      const exists = prev.includes(msgId);
+      const next = exists ? prev.filter((id) => id !== msgId) : [msgId, ...prev];
+      try {
+        localStorage.setItem(pinnedHistoryMsgsStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const deleteHistoryMessage = (msgId: string) => {
+    if (!msgId) return;
+    onDeletePrivateChatMessage?.(msgId);
+    setDeletedHistoryMsgIds((prev) => {
+      const next = Array.from(new Set([...prev, msgId]));
+      try {
+        localStorage.setItem(deletedHistoryMsgsStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const deleteHistoryConversation = (partnerUsername: string) => {
+    const norm = partnerUsername.trim().toLowerCase();
+    if (!norm) return;
+    onDeletePrivateConversation?.(partnerUsername);
+    setSavedHistoryPartners((prev) => {
+      const next = prev.filter(
+        (item) => item.partnerUsername.trim().toLowerCase() !== norm
+      );
+      try {
+        localStorage.setItem(chatHistoryPartnersStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+    setDeletedHistoryPartners((prev) => {
+      const next = Array.from(new Set([...prev, norm]));
+      try {
+        localStorage.setItem(deletedHistoryPartnersStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   const [bottomLeftChatDraft, setBottomLeftChatDraft] = useState<string>('');
   const [openChatHeaderReportMenu, setOpenChatHeaderReportMenu] = useState<boolean>(false);
   const [openPrivateMsgReportId, setOpenPrivateMsgReportId] = useState<string | null>(null);
@@ -700,8 +871,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const recordPartnerInHistory = (partnerId: string, partnerUsername: string) => {
     const cleanName = partnerUsername.trim();
     if (!cleanName) return;
+    const norm = cleanName.toLowerCase();
+    setDeletedHistoryPartners((prev) => {
+      if (!prev.includes(norm)) return prev;
+      const next = prev.filter((item) => item !== norm);
+      try {
+        localStorage.setItem(deletedHistoryPartnersStorageKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
     setSavedHistoryPartners((prev) => {
-      const norm = cleanName.toLowerCase();
       const filtered = prev.filter(
         (item) => item.partnerUsername.trim().toLowerCase() !== norm
       );
@@ -877,22 +1058,30 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   }, [privateChatMessages, visitorId, myNormName, enableBuySellPrivateChat]);
 
   const previousConversationsList = useMemo(() => {
+    const deletedPartnerSet = new Set(deletedHistoryPartners);
+    const deletedMsgSet = new Set(deletedHistoryMsgIds);
+    const pinnedPartnerSet = new Set(pinnedHistoryPartners);
+    const pinnedMsgSet = new Set(pinnedHistoryMsgIds);
+
     const map = new Map<
       string,
       {
         partnerId: string;
         partnerUsername: string;
+        lastMessageId?: string;
         lastMessageText: string;
         lastMessageAt: string;
         unreadCount: number;
         totalMessages: number;
+        isPinned: boolean;
+        messages: PrivateChatMessageItem[];
       }
     >();
 
     // 1. Seed from saved history partners
     savedHistoryPartners.forEach((p) => {
       const norm = p.partnerUsername.trim().toLowerCase();
-      if (!norm) return;
+      if (!norm || deletedPartnerSet.has(norm)) return;
       map.set(norm, {
         partnerId: p.partnerId,
         partnerUsername: p.partnerUsername,
@@ -900,11 +1089,14 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         lastMessageAt: p.updatedAt,
         unreadCount: 0,
         totalMessages: 0,
+        isPinned: pinnedPartnerSet.has(norm),
+        messages: [],
       });
     });
 
     // 2. Merge actual privateChatMessages involving current user
     (privateChatMessages || []).forEach((msg) => {
+      if (deletedMsgSet.has(msg.id)) return;
       const sNorm = msg.senderUsername.trim().toLowerCase();
       const rNorm = msg.receiverUsername.trim().toLowerCase();
       const isMeSender = msg.senderId === visitorId || sNorm === myNormName;
@@ -916,25 +1108,49 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         : msg.senderUsername;
       const partnerId = isMeSender ? msg.receiverId : msg.senderId;
       const partnerNorm = partnerUsername.trim().toLowerCase();
-      if (!partnerNorm) return;
+      if (!partnerNorm || deletedPartnerSet.has(partnerNorm)) return;
 
       const existing = map.get(partnerNorm);
       const unreadIncrement = isMeReceiver && !msg.isRead ? 1 : 0;
+      const msgIsPinned = Boolean(msg.isPinned || pinnedMsgSet.has(msg.id));
+      const nextMessages = [
+        ...(existing?.messages || []),
+        { ...msg, isPinned: msgIsPinned },
+      ];
       map.set(partnerNorm, {
         partnerId: partnerId || existing?.partnerId || partnerUsername,
         partnerUsername: existing?.partnerUsername || partnerUsername,
+        lastMessageId: msg.id,
         lastMessageText: msg.text,
         lastMessageAt: msg.createdAt,
         unreadCount: (existing?.unreadCount || 0) + unreadIncrement,
         totalMessages: (existing?.totalMessages || 0) + 1,
+        isPinned:
+          pinnedPartnerSet.has(partnerNorm) ||
+          Boolean(existing?.isPinned) ||
+          msgIsPinned,
+        messages: nextMessages,
       });
     });
 
-    return Array.from(map.values()).sort(
-      (a, b) =>
+    return Array.from(map.values()).sort((a, b) => {
+      if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
+        return a.isPinned ? -1 : 1;
+      }
+      return (
         new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
-    );
-  }, [savedHistoryPartners, privateChatMessages, visitorId, myNormName]);
+      );
+    });
+  }, [
+    savedHistoryPartners,
+    privateChatMessages,
+    visitorId,
+    myNormName,
+    deletedHistoryPartners,
+    deletedHistoryMsgIds,
+    pinnedHistoryPartners,
+    pinnedHistoryMsgIds,
+  ]);
 
   // Messages for the currently active tab in the bottom-left square chat popup
   const activeBottomLeftMessages = useMemo(() => {
@@ -2146,13 +2362,17 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             : [];
 
           return (
-            <FluentCard
-              key={post.id}
-              noPadding
-              className={`p-3 sm:p-3.5 space-y-2 border-[#334155] hover:border-sky-400/60 overflow-visible ${
-                isMoreMenuOpen ? 'z-40 relative' : 'relative'
-              }`}
-            >
+            <div key={post.id} id={`post-card-${post.id}`}>
+              <FluentCard
+                noPadding
+                className={`p-3 sm:p-3.5 space-y-2 border-[#334155] hover:border-sky-400/60 overflow-visible transition-all ${
+                  isMoreMenuOpen ? 'z-40 relative' : 'relative'
+                } ${
+                  highlightedPostId === post.id
+                    ? 'ring-2 ring-amber-400 border-amber-400 shadow-[0_0_25px_rgba(251,191,36,0.45)]'
+                    : ''
+                }`}
+              >
               {/* السطر الأول: الاسم في سطر واحد على اليمين (وبجانبه محادثة خاصة في بيع واشتري) | وعلى أقصى اليسار نوع المنشور + زر المزيد */}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -2558,6 +2778,25 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       </>
                     )}
                   </button>
+
+                  {/* 4. زر "مشاركة" (نسخ الرابط، واتساب، ماسنجر، تليجرام) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenShareMenuPostId((prev) =>
+                        prev === post.id ? null : post.id
+                      );
+                      setCopiedSharePostId(null);
+                    }}
+                    className={`fluent-reveal px-2.5 py-1 rounded-lg border text-[11px] sm:text-xs font-extrabold flex items-center gap-1 whitespace-nowrap cursor-pointer transition-all ${
+                      openShareMenuPostId === post.id
+                        ? 'bg-sky-600 text-white border-sky-400 shadow-[0_0_10px_rgba(2,132,199,0.5)]'
+                        : 'bg-[#0A192F] hover:bg-[#1E293B] text-emerald-300 border-[#334155]'
+                    }`}
+                  >
+                    <Share2 className="w-3 h-3 shrink-0" />
+                    <span>مشاركة</span>
+                  </button>
                 </div>
 
                 {visibleForViewerComments.length > 1 && (
@@ -2577,6 +2816,98 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   </button>
                 )}
               </div>
+
+              {/* قائمة خيارات مشاركة المنشور (نسخ الرابط / واتس اب / ماسنجر / تليجرام) */}
+              {openShareMenuPostId === post.id &&
+                (() => {
+                  const targetSec = enableBuySellPrivateChat
+                    ? 'buy_sell'
+                    : 'community';
+                  const shareUrl = `${window.location.origin}/?section=${targetSec}&postId=${encodeURIComponent(
+                    post.id
+                  )}`;
+                  const shareSnippet = `${post.authorUsername} (${
+                    post.postType
+                  }): ${post.content.slice(0, 120)}${
+                    post.content.length > 120 ? '...' : ''
+                  }`;
+                  const fullShareText = `${shareSnippet}\n${shareUrl}`;
+                  const isCopied = copiedSharePostId === post.id;
+
+                  return (
+                    <div className="p-2.5 rounded-xl bg-[#0A192F] border border-sky-400/60 space-y-2 shadow-lg">
+                      <div className="flex items-center justify-between text-[11px] font-extrabold text-sky-300">
+                        <span>مشاركة المنشور عبر:</span>
+                        {isCopied && (
+                          <span className="text-emerald-400">
+                            تم نسخ الرابط بنجاح ✓
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard
+                              ?.writeText(shareUrl)
+                              .catch(() => {});
+                            setCopiedSharePostId(post.id);
+                            setTimeout(() => {
+                              setCopiedSharePostId((prev) =>
+                                prev === post.id ? null : prev
+                              );
+                            }, 2500);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#112240] hover:bg-[#1E293B] border border-[#334155] text-[#F8FAFC] text-[11px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <span>{isCopied ? 'تم النسخ ✓' : 'نسخ الرابط'}</span>
+                        </button>
+
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(
+                            fullShareText
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>واتس اب</span>
+                        </a>
+
+                        <a
+                          href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+                            shareUrl
+                          )}&quote=${encodeURIComponent(shareSnippet)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            navigator.clipboard
+                              ?.writeText(fullShareText)
+                              .catch(() => {});
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#0084FF] hover:bg-[#0073E6] text-white text-[11px] font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <Send className="w-3.5 h-3.5 shrink-0" />
+                          <span>ماسنجر</span>
+                        </a>
+
+                        <a
+                          href={`https://t.me/share/url?url=${encodeURIComponent(
+                            shareUrl
+                          )}&text=${encodeURIComponent(shareSnippet)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1.5 rounded-lg bg-[#229ED9] hover:bg-[#1E8CC2] text-white text-[11px] font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <Send className="w-3.5 h-3.5 shrink-0" />
+                          <span>تليجرام</span>
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               {/* Add Comment Input Row (Reply to Post) — Blocked when commentsDisabled is true */}
               {!post.commentsDisabled && openCommentInputForPost[post.id] && (
@@ -2946,7 +3277,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   })}
                 </div>
               )}
-            </FluentCard>
+              </FluentCard>
+            </div>
           );
         })}
 
@@ -2979,13 +3311,13 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         </div>
       </div>
 
-      {/* شاشة المنشورات المحفوظة ("عند الضغط عليها يظهر شاشة بها المنشورات التي تم حفظها") */}
+      {/* شاشة المنشورات المحفوظة ("عند الضغط على أي منشور محفوظ يتم التوجه إلى المنشور المختار مباشرة") */}
       {isSavedPostsModalOpen && (
         <FluentModal
           isOpen={isSavedPostsModalOpen}
           onClose={() => setIsSavedPostsModalOpen(false)}
           title="المنشورات المحفوظة"
-          subtitle={`المنشورات التي قمت بحفظها للرجوع إليها (${savedPostsList.length} منشور)`}
+          subtitle={`المنشورات التي قمت بحفظها للرجوع إليها (${savedPostsList.length} منشور) — اضغط على أي منشور للتوجه إليه مباشرة`}
           maxWidth="2xl"
         >
           {savedPostsList.length === 0 ? (
@@ -3003,13 +3335,22 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               {savedPostsList.map((savedPost) => (
                 <div
                   key={savedPost.id}
-                  className="p-3.5 rounded-xl bg-[#0A192F] border border-[#334155] space-y-2"
+                  onClick={() => handleJumpToPost(savedPost.id)}
+                  className="fluent-reveal p-3.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] hover:border-sky-400 space-y-2 cursor-pointer transition-all"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
-                      {savedPost.authorUsername}
-                    </span>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                        {savedPost.authorUsername}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-extrabold shrink-0">
+                        التوجه للمنشور ↵
+                      </span>
+                    </div>
+                    <div
+                      className="flex items-center gap-1.5 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <span
                         className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${getPostTypeBadgeStyle(
                           savedPost.postType
@@ -3019,7 +3360,10 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       </span>
                       <button
                         type="button"
-                        onClick={() => toggleSavePost(savedPost.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSavePost(savedPost.id);
+                        }}
                         className="px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[11px] font-bold cursor-pointer"
                       >
                         إزالة من المحفوظات
@@ -3048,13 +3392,13 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         </>
       )}
 
-      {/* شاشة سجل المحادثات السابقة ("زر باسم سجل المحادثات يوجد به المحادثات السابقه") */}
+      {/* شاشة سجل المحادثات السابقة ("في سجل المحادثات في الشاشه المنبثقه يمكن حذف اي رساله من السجل ويمكن تثبيت رساله ايضا تكون بالاعلي") */}
       {enableBuySellPrivateChat && isChatHistoryModalOpen && (
         <FluentModal
           isOpen={isChatHistoryModalOpen}
           onClose={() => setIsChatHistoryModalOpen(false)}
           title="سجل المحادثات"
-          subtitle={`جميع المحادثات السابقة في قسم بيع واشتري (${previousConversationsList.length} محادثة)`}
+          subtitle={`جميع المحادثات والرسائل السابقة (${previousConversationsList.length} محادثة) — يمكنك تثبيت أي رسالة بالأعلى أو حذفها من السجل`}
           maxWidth="lg"
         >
           {previousConversationsList.length === 0 ? (
@@ -3068,47 +3412,200 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="space-y-2.5 max-h-[65vh] overflow-y-auto pr-1">
-              {previousConversationsList.map((conv) => (
-                <div
-                  key={conv.partnerUsername}
-                  onClick={() => {
-                    openBottomLeftPrivateChat(conv.partnerId, conv.partnerUsername);
-                    setIsChatHistoryModalOpen(false);
-                  }}
-                  className="fluent-reveal p-3.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] hover:border-emerald-400/60 flex items-center justify-between gap-3 cursor-pointer transition-all"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-300 font-extrabold text-sm shrink-0">
-                      {conv.partnerUsername.slice(0, 1)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
-                          {conv.partnerUsername}
-                        </span>
-                        {conv.unreadCount > 0 && (
-                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-mono-tabular font-extrabold">
-                            {conv.unreadCount} جديد
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-[#94A3B8] truncate mt-0.5">
-                        {conv.lastMessageText}
-                      </p>
-                    </div>
-                  </div>
+            <div className="space-y-2.5 max-h-[68vh] overflow-y-auto pr-1">
+              {previousConversationsList.map((conv) => {
+                const partnerNorm = conv.partnerUsername.trim().toLowerCase();
+                const isExpanded = expandedHistoryPartnerNorm === partnerNorm;
+                const sortedConvMessages = [...conv.messages].sort((a, b) => {
+                  if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
+                    return a.isPinned ? -1 : 1;
+                  }
+                  return (
+                    new Date(b.createdAt).getTime() -
+                    new Date(a.createdAt).getTime()
+                  );
+                });
 
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span className="text-[10px] text-sky-300 font-bold">
-                      {formatTextualArabicElapsedTime(conv.lastMessageAt, liveTimeTick)}
-                    </span>
-                    <span className="px-2.5 py-1 rounded-lg bg-emerald-600/25 border border-emerald-400/50 text-emerald-300 text-[10px] font-extrabold">
-                      فتح المحادثة
-                    </span>
+                return (
+                  <div
+                    key={conv.partnerUsername}
+                    className={`rounded-xl bg-[#0A192F] border transition-all overflow-hidden ${
+                      conv.isPinned
+                        ? 'border-amber-400/80 shadow-[0_0_15px_rgba(251,191,36,0.2)]'
+                        : 'border-[#334155] hover:border-emerald-400/60'
+                    }`}
+                  >
+                    <div
+                      onClick={() => {
+                        openBottomLeftPrivateChat(
+                          conv.partnerId,
+                          conv.partnerUsername
+                        );
+                        setIsChatHistoryModalOpen(false);
+                      }}
+                      className="p-3.5 hover:bg-[#1E293B]/60 flex items-center justify-between gap-2.5 cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-300 font-extrabold text-sm shrink-0">
+                          {conv.partnerUsername.slice(0, 1)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                              {conv.partnerUsername}
+                            </span>
+                            {conv.isPinned && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[10px] font-extrabold">
+                                <Pin className="w-2.5 h-2.5 shrink-0" />
+                                <span>مثبت بالأعلى</span>
+                              </span>
+                            )}
+                            {conv.unreadCount > 0 && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-mono-tabular font-extrabold">
+                                {conv.unreadCount} جديد
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[#94A3B8] truncate mt-0.5">
+                            {conv.lastMessageText}
+                          </p>
+                          <span className="text-[10px] text-sky-300 font-bold block mt-0.5">
+                            {formatTextualArabicElapsedTime(
+                              conv.lastMessageAt,
+                              liveTimeTick
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* أزرار التثبيت بالأعلى + عرض/إدارة رسائل المحادثة + حذف من السجل */}
+                      <div
+                        className="flex flex-wrap items-center justify-end gap-1.5 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            togglePinHistoryPartner(conv.partnerUsername)
+                          }
+                          title={
+                            conv.isPinned
+                              ? 'إلغاء تثبيت المحادثة/الرسالة'
+                              : 'تثبيت الرسالة/المحادثة بالأعلى'
+                          }
+                          className={`px-2 py-1 rounded-lg border text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors ${
+                            conv.isPinned
+                              ? 'bg-amber-500 text-[#0A192F] border-amber-400'
+                              : 'bg-[#112240] hover:bg-amber-500/20 text-amber-300 border-amber-400/40'
+                          }`}
+                        >
+                          <Pin className="w-3 h-3 shrink-0" />
+                          <span>{conv.isPinned ? 'مثبت' : 'تثبيت'}</span>
+                        </button>
+
+                        {conv.messages.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedHistoryPartnerNorm(
+                                isExpanded ? null : partnerNorm
+                              )
+                            }
+                            className="px-2 py-1 rounded-lg bg-[#112240] hover:bg-sky-600/25 border border-sky-400/40 text-sky-300 text-[10px] font-extrabold cursor-pointer"
+                          >
+                            {isExpanded
+                              ? 'إخفاء الرسائل'
+                              : `الرسائل (${conv.messages.length})`}
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            deleteHistoryConversation(conv.partnerUsername)
+                          }
+                          title="حذف من السجل"
+                          className="px-2 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3 shrink-0" />
+                          <span>حذف</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* قائمة رسائل السجل لهذه المحادثة مع إمكانية تثبيت أو حذف أي رسالة مفردة */}
+                    {isExpanded && sortedConvMessages.length > 0 && (
+                      <div className="px-3.5 pb-3 pt-2 bg-[#112240]/70 border-t border-[#334155] space-y-2 max-h-56 overflow-y-auto">
+                        {sortedConvMessages.map((msgItem) => {
+                          const isMsgPinned = Boolean(
+                            msgItem.isPinned ||
+                              pinnedHistoryMsgIds.includes(msgItem.id)
+                          );
+                          return (
+                            <div
+                              key={msgItem.id}
+                              className={`p-2.5 rounded-lg border text-xs flex items-start justify-between gap-2 ${
+                                isMsgPinned
+                                  ? 'bg-amber-500/15 border-amber-400/60'
+                                  : 'bg-[#0A192F] border-[#334155]'
+                              }`}
+                            >
+                              <div className="min-w-0 flex-1 space-y-0.5">
+                                <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                                  <span className="font-extrabold text-sky-300">
+                                    {msgItem.senderUsername}
+                                  </span>
+                                  {isMsgPinned && (
+                                    <span className="px-1.5 py-0.2 rounded bg-amber-500/25 text-amber-300 font-extrabold">
+                                      مثبتة بالأعلى 📌
+                                    </span>
+                                  )}
+                                  <span className="text-[#94A3B8]">
+                                    {formatTextualArabicElapsedTime(
+                                      msgItem.createdAt,
+                                      liveTimeTick
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="text-[#F8FAFC] font-bold break-words whitespace-pre-wrap">
+                                  {msgItem.text}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    togglePinHistoryMessage(msgItem.id)
+                                  }
+                                  className={`px-2 py-1 rounded text-[10px] font-extrabold flex items-center gap-1 cursor-pointer border ${
+                                    isMsgPinned
+                                      ? 'bg-amber-500 text-[#0A192F] border-amber-400'
+                                      : 'bg-[#112240] text-amber-300 border-amber-400/40 hover:bg-amber-500/20'
+                                  }`}
+                                  title="تثبيت هذه الرسالة بالأعلى"
+                                >
+                                  <Pin className="w-2.5 h-2.5" />
+                                  <span>{isMsgPinned ? 'مثبتة' : 'تثبيت'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteHistoryMessage(msgItem.id)}
+                                  className="px-2 py-1 rounded bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                                  title="حذف هذه الرسالة من السجل"
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                  <span>حذف</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </FluentModal>

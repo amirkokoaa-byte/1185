@@ -187,6 +187,52 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     Record<string, boolean>
   >({});
   const [isMessagesHistoryModalOpen, setIsMessagesHistoryModalOpen] = useState(false);
+  const [storePendingDelete, setStorePendingDelete] = useState<StoreListingItem | null>(
+    null
+  );
+  const [pinnedHistoryIds, setPinnedHistoryIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('nakhil_admin_pinned_history_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [deletedHistoryEntryIds, setDeletedHistoryEntryIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('nakhil_admin_deleted_entries_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const togglePinHistoryItem = (itemId: string) => {
+    setPinnedHistoryIds((prev) => {
+      const next = prev.includes(itemId)
+        ? prev.filter((x) => x !== itemId)
+        : [itemId, ...prev];
+      try {
+        localStorage.setItem('nakhil_admin_pinned_history_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const deleteHistoryEntryItem = (entryId: string) => {
+    setDeletedHistoryEntryIds((prev) => {
+      const next = prev.includes(entryId) ? prev : [...prev, entryId];
+      try {
+        localStorage.setItem('nakhil_admin_deleted_entries_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+    showToast('تم حذف الرسالة من السجل بنجاح.');
+  };
 
   const handleSaveGeneralTopFields = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1036,12 +1082,16 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         });
       }
     }
-    return Array.from(map.values()).sort(
-      (a, b) =>
+    return Array.from(map.values()).sort((a, b) => {
+      const aPinned = pinnedHistoryIds.includes(a.id) || Boolean(a.isPinned);
+      const bPinned = pinnedHistoryIds.includes(b.id) || Boolean(b.isPinned);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      return (
         new Date(b.updatedAt || b.createdAt).getTime() -
         new Date(a.updatedAt || a.createdAt).getTime()
-    );
-  }, [state.messages]);
+      );
+    });
+  }, [state.messages, pinnedHistoryIds]);
 
   // Connected online usernames list for section 8 (عدد المتصلين الآن) - Strictly real live active sessions only
   const connectedOnlineUsers = React.useMemo(() => {
@@ -1601,10 +1651,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                         <FluentButton
                           variant="danger"
                           size="sm"
-                          onClick={() => {
-                            onDeleteStore(st.id);
-                            showToast(`تم حذف محل "${st.name}" بنجاح.`);
-                          }}
+                          onClick={() => setStorePendingDelete(st)}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>حذف</span>
@@ -3641,7 +3688,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           isOpen={isMessagesHistoryModalOpen}
           onClose={() => setIsMessagesHistoryModalOpen(false)}
           title="سجل المراسلات السابقة"
-          subtitle="جميع المراسلات السابقة مع إمكانية كتابة رد وإرساله ليظهر في أيقونة الجرس لدى المستخدم"
+          subtitle="جميع المراسلات السابقة مع إمكانية تثبيت الرسائل بالأعلى أو حذف أي رسالة من السجل"
           maxWidth="2xl"
         >
           {unifiedMessages.length === 0 ? (
@@ -3651,7 +3698,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           ) : (
             <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
               {unifiedMessages.map((msg) => {
-                const threadItems =
+                const rawThreadItems =
                   msg.thread && msg.thread.length > 0
                     ? msg.thread
                     : [
@@ -3663,12 +3710,31 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                           createdAt: msg.createdAt,
                         },
                       ];
+                const filteredThreadItems = rawThreadItems
+                  .filter((e) => !deletedHistoryEntryIds.includes(e.id))
+                  .sort((a, b) => {
+                    const aPin = pinnedHistoryIds.includes(a.id) || Boolean(a.isPinned);
+                    const bPin = pinnedHistoryIds.includes(b.id) || Boolean(b.isPinned);
+                    if (aPin !== bPin) return aPin ? -1 : 1;
+                    return (
+                      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                    );
+                  });
+
+                if (filteredThreadItems.length === 0) return null;
+
+                const isThreadPinned =
+                  pinnedHistoryIds.includes(msg.id) || Boolean(msg.isPinned);
                 const draftText = replyDrafts[`modal_${msg.id}`] || '';
                 const isModalCollapsed = Boolean(collapsedModalMessagesMap[msg.id]);
                 return (
                   <div
                     key={msg.id}
-                    className="p-4 rounded-xl bg-[#0A192F] border border-sky-400/40 space-y-3"
+                    className={`p-4 rounded-xl bg-[#0A192F] border space-y-3 ${
+                      isThreadPinned
+                        ? 'border-amber-400/80 ring-1 ring-amber-400/30'
+                        : 'border-sky-400/40'
+                    }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs pb-2 border-b border-[#334155]">
                       <div
@@ -3688,16 +3754,51 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                         <span className="font-extrabold text-sky-400 text-sm">
                           الحساب: {msg.senderUsername}
                         </span>
+                        {isThreadPinned && (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[10px] font-extrabold inline-flex items-center gap-1">
+                            <Pin className="w-3 h-3" />
+                            <span>مثبت بالأعلى</span>
+                          </span>
+                        )}
                         <span className="px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-bold">
-                          ({threadItems.length} رسائل)
+                          ({filteredThreadItems.length} رسائل)
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-[#94A3B8] font-mono-tabular">
                           {new Date(
                             msg.updatedAt || msg.createdAt
                           ).toLocaleString('ar-EG')}
                         </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePinHistoryItem(msg.id);
+                          }}
+                          className={`px-2 py-1 rounded-lg border text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors ${
+                            isThreadPinned
+                              ? 'bg-amber-500 text-[#0A192F] border-amber-400'
+                              : 'bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border-amber-400/40'
+                          }`}
+                          title={isThreadPinned ? 'إلغاء تثبيت المحادثة' : 'تثبيت المحادثة بالأعلى'}
+                        >
+                          <Pin className="w-3 h-3" />
+                          <span>{isThreadPinned ? 'مثبتة' : 'تثبيت'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteMessage(msg.id);
+                            showToast(`تم حذف سجل محادثة "${msg.senderUsername}" بالكامل.`);
+                          }}
+                          className="px-2 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                          title="حذف المحادثة بالكامل"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>حذف السجل</span>
+                        </button>
                         {!isModalCollapsed ? (
                           <button
                             type="button"
@@ -3708,10 +3809,10 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                 [msg.id]: true,
                               }));
                             }}
-                            className="px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-slate-700/40 hover:bg-slate-700 text-slate-200 border border-slate-500/40 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
                           >
                             <X className="w-3.5 h-3.5" />
-                            <span>إغلاق</span>
+                            <span>طي</span>
                           </button>
                         ) : (
                           <button
@@ -3735,32 +3836,74 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     {!isModalCollapsed && (
                       <>
                         <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                          {threadItems.map((entry) => {
+                          {filteredThreadItems.map((entry) => {
                             const isAdminEntry = entry.sender === 'admin';
+                            const isEntryPinned =
+                              pinnedHistoryIds.includes(entry.id) ||
+                              Boolean(entry.isPinned);
                             return (
                               <div
                                 key={entry.id}
                                 className={`p-2.5 rounded-xl border text-xs space-y-1 ${
-                                  isAdminEntry
+                                  isEntryPinned
+                                    ? 'bg-amber-950/30 border-amber-400/80 text-amber-100 ring-1 ring-amber-400/30'
+                                    : isAdminEntry
                                     ? 'bg-emerald-950/35 border-emerald-400/50 text-emerald-100 mr-4'
                                     : 'bg-[#112240] border-[#334155] text-[#F8FAFC] ml-4'
                                 }`}
                               >
-                                <div className="flex items-center justify-between text-[10px]">
-                                  <span
-                                    className={`font-extrabold ${
-                                      isAdminEntry
-                                        ? 'text-emerald-400'
-                                        : 'text-sky-400'
-                                    }`}
-                                  >
-                                    {isAdminEntry ? 'رد الإدارة' : entry.senderName}
-                                  </span>
-                                  <span className="text-[#94A3B8] font-mono-tabular">
-                                    {new Date(entry.createdAt).toLocaleString(
-                                      'ar-EG'
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className={`font-extrabold ${
+                                        isAdminEntry
+                                          ? 'text-emerald-400'
+                                          : 'text-sky-400'
+                                      }`}
+                                    >
+                                      {isAdminEntry ? 'رد الإدارة' : entry.senderName}
+                                    </span>
+                                    {isEntryPinned && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/50 text-amber-300 font-extrabold inline-flex items-center gap-0.5">
+                                        <Pin className="w-2.5 h-2.5" />
+                                        <span>مثبتة بالأعلى</span>
+                                      </span>
                                     )}
-                                  </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[#94A3B8] font-mono-tabular">
+                                      {new Date(entry.createdAt).toLocaleString(
+                                        'ar-EG'
+                                      )}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => togglePinHistoryItem(entry.id)}
+                                      className={`px-1.5 py-0.5 rounded-md border font-extrabold inline-flex items-center gap-0.5 cursor-pointer transition-colors ${
+                                        isEntryPinned
+                                          ? 'bg-amber-500 text-[#0A192F] border-amber-400'
+                                          : 'bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border-amber-400/40'
+                                      }`}
+                                      title={isEntryPinned ? 'إلغاء تثبيت الرسالة' : 'تثبيت الرسالة بالأعلى'}
+                                    >
+                                      <Pin className="w-2.5 h-2.5" />
+                                      <span>{isEntryPinned ? 'مثبتة' : 'تثبيت'}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (rawThreadItems.length <= 1) {
+                                          onDeleteMessage(msg.id);
+                                        }
+                                        deleteHistoryEntryItem(entry.id);
+                                      }}
+                                      className="px-1.5 py-0.5 rounded-md bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 font-extrabold inline-flex items-center gap-0.5 cursor-pointer transition-colors"
+                                      title="حذف هذه الرسالة من السجل"
+                                    >
+                                      <Trash2 className="w-2.5 h-2.5" />
+                                      <span>حذف</span>
+                                    </button>
+                                  </div>
                                 </div>
                                 <p className="whitespace-pre-line leading-relaxed">
                                   {entry.text}
@@ -4321,6 +4464,54 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           </form>
         </FluentModal>
       )}
+
+      {/* Store Delete Confirmation Modal */}
+      <FluentModal
+        isOpen={Boolean(storePendingDelete)}
+        onClose={() => setStorePendingDelete(null)}
+        title="تأكيد حذف المحل"
+        subtitle="هل أنت متأكد من رغبتك في حذف هذا المحل نهائياً من الدليل؟"
+        maxWidth="md"
+      >
+        {storePendingDelete && (
+          <div className="space-y-4">
+            <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-500/40 text-xs sm:text-sm text-rose-200 space-y-1.5">
+              <p className="font-extrabold text-white text-sm">
+                المحل المراد حذفه: <span className="text-rose-300">{storePendingDelete.name}</span>
+              </p>
+              <p className="text-xs text-rose-300/90">
+                القسم: {storePendingDelete.category} — رقم التواصل: {storePendingDelete.phone}
+              </p>
+              <p className="text-[11px] text-rose-300/80 pt-1">
+                سيتم حذف هذا المحل وجميع بياناته وصوره نهائياً ولا يمكن التراجع عن هذا الإجراء.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <FluentButton
+                type="button"
+                variant="secondary"
+                onClick={() => setStorePendingDelete(null)}
+              >
+                إلغاء
+              </FluentButton>
+              <FluentButton
+                type="button"
+                variant="danger"
+                onClick={() => {
+                  const target = storePendingDelete;
+                  setStorePendingDelete(null);
+                  onDeleteStore(target.id);
+                  showToast(`تم حذف محل "${target.name}" بنجاح.`);
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>تأكيد الحذف النهائي</span>
+              </FluentButton>
+            </div>
+          </div>
+        )}
+      </FluentModal>
     </div>
   );
 };

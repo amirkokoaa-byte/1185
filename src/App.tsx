@@ -77,6 +77,22 @@ export default function App() {
 
   const [activeSection, setActiveSection] = useState<MainSectionId>(() => {
     try {
+      const params = new URLSearchParams(window.location.search);
+      const urlSection = params.get('section');
+      if (
+        urlSection === 'directory' ||
+        urlSection === 'services_numbers' ||
+        urlSection === 'tawsila' ||
+        urlSection === 'community' ||
+        urlSection === 'utilities' ||
+        urlSection === 'buy_sell' ||
+        urlSection === 'settings'
+      ) {
+        return urlSection;
+      }
+      if (params.get('storeId')) {
+        return 'directory';
+      }
       const saved = sessionStorage.getItem('nakhil_1185_active_section_v1');
       if (
         saved === 'directory' ||
@@ -1344,6 +1360,57 @@ export default function App() {
         };
       }
     });
+  };
+
+  const handleDeletePrivateChatMessage = (msgId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      privateChatMessages: (prev.privateChatMessages || []).filter(
+        (m) => m.id !== msgId
+      ),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), msgId])
+      ),
+    }));
+  };
+
+  const handleDeletePrivateConversation = (partnerUsername: string) => {
+    const myName = (currentUser?.username || 'زائر').trim().toLowerCase();
+    const partnerNorm = partnerUsername.trim().toLowerCase();
+    updateAndPersist((prev) => {
+      const toRemoveIds: string[] = [];
+      const remaining = (prev.privateChatMessages || []).filter((m) => {
+        const sName = m.senderUsername.trim().toLowerCase();
+        const rName = m.receiverUsername.trim().toLowerCase();
+        const involvesMe =
+          m.senderId === visitorId ||
+          m.receiverId === visitorId ||
+          sName === myName ||
+          rName === myName;
+        const involvesPartner = sName === partnerNorm || rName === partnerNorm;
+        if (involvesMe && involvesPartner) {
+          toRemoveIds.push(m.id);
+          return false;
+        }
+        return true;
+      });
+      return {
+        ...prev,
+        privateChatMessages: remaining,
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), ...toRemoveIds])
+        ),
+      };
+    });
+  };
+
+  const handleTogglePinPrivateChatMessage = (msgId: string) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      privateChatMessages: (prev.privateChatMessages || []).map((m) =>
+        m.id === msgId ? { ...m, isPinned: !m.isPinned } : m
+      ),
+    }));
   };
 
   const handleApplyChatPenalty = (
@@ -3386,6 +3453,9 @@ export default function App() {
             onReportUserInPrivateChat={handleReportUserInPrivateChat}
             onDismissPrivateChatReport={handleDismissPrivateChatReport}
             onDeleteUserAccountFromChat={handleDeleteUserAccountFromChat}
+            onDeletePrivateChatMessage={handleDeletePrivateChatMessage}
+            onDeletePrivateConversation={handleDeletePrivateConversation}
+            onTogglePinPrivateChatMessage={handleTogglePinPrivateChatMessage}
             onUpdateSettings={handleUpdateSettings}
             onUpdateUserAccount={handleUpdateUserAccount}
             onDeleteUserAccount={handleDeleteUserAccount}
@@ -3525,6 +3595,9 @@ export default function App() {
               onReportUserInPrivateChat={handleReportUserInPrivateChat}
               onDismissPrivateChatReport={handleDismissPrivateChatReport}
               onDeleteUserAccountFromChat={handleDeleteUserAccountFromChat}
+              onDeletePrivateChatMessage={handleDeletePrivateChatMessage}
+              onDeletePrivateConversation={handleDeletePrivateConversation}
+              onTogglePinPrivateChatMessage={handleTogglePinPrivateChatMessage}
             />
           )}
         </main>

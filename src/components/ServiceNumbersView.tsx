@@ -60,10 +60,12 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
   onDeleteServiceNumber,
   onUpdateSettings,
 }) => {
-  // Moderator has all Admin privileges EXCEPT permanent deletion
-  const isStrictAdmin = currentUser?.role === 'admin';
+  // Moderator has all Admin privileges EXCEPT permanent deletion & admin-only table
+  const isStrictAdmin =
+    currentUser?.role === 'admin' ||
+    Boolean(currentUser?.username && currentUser.username.trim().toLowerCase() === 'admin');
   const isAdmin =
-    currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+    isStrictAdmin || currentUser?.role === 'moderator';
 
   const visitorKey = getOrCreateVisitorId(currentUser);
 
@@ -400,56 +402,62 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
 
         {/* Right/Bottom Toolbar: Row 1 = "أضف خدمة" + "الكل | بطاقات | جدول" in 1 line; Row 2 below it = Excel & PDF buttons */}
         <div className="flex flex-col gap-2 w-full lg:w-auto">
-          {/* السطر الأول: زر أضف خدمة + الكل / بطاقات / جدول في سطر واحد بدون مسطرة تحريك */}
-          <div className="flex items-center justify-between sm:justify-start gap-1.5 sm:gap-2 flex-nowrap w-full">
-            <FluentButton
-              variant="primary"
-              size="sm"
-              onClick={openAddModal}
-              className="shrink-0 whitespace-nowrap px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm"
-            >
-              <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span>أضف خدمة</span>
-            </FluentButton>
+          {/* السطر الأول: زر أضف خدمة (لـ admin أو مشرف فقط) + الكل / بطاقات / جدول (لـ admin فقط) */}
+          {(isAdmin || isStrictAdmin) && (
+            <div className="flex items-center justify-between sm:justify-start gap-1.5 sm:gap-2 flex-nowrap w-full">
+              {isAdmin && (
+                <FluentButton
+                  variant="primary"
+                  size="sm"
+                  onClick={openAddModal}
+                  className="shrink-0 whitespace-nowrap px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm"
+                >
+                  <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <span>أضف خدمة</span>
+                </FluentButton>
+              )}
 
-            <div className="flex items-center rounded-xl bg-[#0A192F] border border-[#334155] p-1 shrink-0">
-              <button
-                type="button"
-                onClick={() => setViewMode('both')}
-                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold cursor-pointer transition-colors whitespace-nowrap ${
-                  viewMode === 'both'
-                    ? 'bg-sky-600 text-white'
-                    : 'text-[#94A3B8] hover:text-white'
-                }`}
-              >
-                الكل
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('cards')}
-                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
-                  viewMode === 'cards'
-                    ? 'bg-sky-600 text-white'
-                    : 'text-[#94A3B8] hover:text-white'
-                }`}
-              >
-                <LayoutGrid className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
-                <span>بطاقات</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('table')}
-                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
-                  viewMode === 'table'
-                    ? 'bg-sky-600 text-white'
-                    : 'text-[#94A3B8] hover:text-white'
-                }`}
-              >
-                <TableIcon className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
-                <span>جدول</span>
-              </button>
+              {isStrictAdmin && (
+                <div className="flex items-center rounded-xl bg-[#0A192F] border border-[#334155] p-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('both')}
+                    className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold cursor-pointer transition-colors whitespace-nowrap ${
+                      viewMode === 'both'
+                        ? 'bg-sky-600 text-white'
+                        : 'text-[#94A3B8] hover:text-white'
+                    }`}
+                  >
+                    الكل
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('cards')}
+                    className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+                      viewMode === 'cards'
+                        ? 'bg-sky-600 text-white'
+                        : 'text-[#94A3B8] hover:text-white'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                    <span>بطاقات</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('table')}
+                    className={`px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+                      viewMode === 'table'
+                        ? 'bg-sky-600 text-white'
+                        : 'text-[#94A3B8] hover:text-white'
+                    }`}
+                  >
+                    <TableIcon className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                    <span>جدول</span>
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           {/* السطر الثاني أسفلها: أزرار إكسيل و PDF */}
           {isAdmin && (
@@ -511,7 +519,7 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
       ) : (
         <>
           {/* 1. Cards View */}
-          {(viewMode === 'both' || viewMode === 'cards') && (
+          {(!isStrictAdmin || viewMode === 'both' || viewMode === 'cards') && (
             <div className="flex flex-col space-y-2.5 w-full">
               {filteredServices.map((srv) => {
                 const showLocationBtn = hasValidLocation(srv.locationUrl);
@@ -672,8 +680,8 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
             </div>
           )}
 
-          {/* 2. Formatted Table View (White background & black text without horizontal scroll bar on mobile) */}
-          {(viewMode === 'both' || viewMode === 'table') && (
+          {/* 2. Formatted Table View (White background & black text without horizontal scroll bar on mobile - Admin Only) */}
+          {isStrictAdmin && (viewMode === 'both' || viewMode === 'table') && (
             <div className="bg-white text-black border-2 border-slate-300 rounded-2xl overflow-hidden shadow-lg w-full">
               <div className="px-4 py-3 bg-slate-100 border-b border-slate-300 flex items-center justify-between">
                 <h3 className="text-xs sm:text-sm font-extrabold text-black">

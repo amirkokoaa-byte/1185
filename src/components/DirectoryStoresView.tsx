@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Store,
   Plus,
@@ -26,6 +26,9 @@ import {
   ChevronRight,
   ChevronLeft,
   RotateCcw,
+  Share2,
+  Copy,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   PlatformSettings,
@@ -120,6 +123,35 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [storeLayoutMode, setStoreLayoutMode] = useState<'grid' | 'horizontal'>('grid');
   const [importNotice, setImportNotice] = useState<string>('');
+  const [importRejectNotice, setImportRejectNotice] = useState<string>('');
+  const [storePendingDelete, setStorePendingDelete] = useState<StoreListingItem | null>(null);
+  const [isStoreShareMenuOpen, setIsStoreShareMenuOpen] = useState<boolean>(false);
+  const [storeShareCopied, setStoreShareCopied] = useState<boolean>(false);
+
+  const normalizeStoreNameForComparison = (raw: string): string => {
+    return (raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .replace(/\s+/g, ' ');
+  };
+
+  const findSimilarRegisteredStore = (
+    candidateName: string,
+    excludeStoreId?: string
+  ): StoreListingItem | undefined => {
+    const normCandidate = normalizeStoreNameForComparison(candidateName);
+    if (!normCandidate) return undefined;
+    return stores.find((s) => {
+      if (excludeStoreId && s.id === excludeStoreId) return false;
+      const normExisting = normalizeStoreNameForComparison(s.name);
+      if (!normExisting) return false;
+      return normExisting === normCandidate;
+    });
+  };
 
   // Ensure 'مول دريم بلازا' is always present in storeCategories
   const allStoreCategories = Array.from(
@@ -189,6 +221,23 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [profanityWarning, setProfanityWarning] = useState<string>('');
 
   const activeStore = stores.find((s) => s.id === activeStoreId) || null;
+  const duplicateExistingStore = findSimilarRegisteredStore(
+    storeName,
+    editingStoreObj?.id
+  );
+
+  // Open store automatically if shared link contains ?storeId=...
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetStoreId = params.get('storeId');
+      if (targetStoreId && stores.some((s) => s.id === targetStoreId)) {
+        setActiveStoreId(targetStoreId);
+      }
+    } catch {
+      // ignore
+    }
+  }, [stores.length]);
 
   // Upload multiple menu images via ImgBB API (or compressed fallback)
   const handleMenuFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -216,6 +265,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     e.preventDefault();
     if (!editingStoreObj && !isStrictAdmin) return;
     if (!storeName.trim() || !storePhone.trim()) return;
+
+    const existingDuplicate = findSimilarRegisteredStore(
+      storeName,
+      editingStoreObj?.id
+    );
+    if (existingDuplicate) {
+      return;
+    }
 
     const cleanName = storeName.trim();
     const finalMenuImages =
@@ -297,16 +354,47 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         forcedCat
       );
       if (imported.length > 0) {
-        onImportStoresBatch(imported);
-        setImportNotice(
-          forcedCat
-            ? `تم إدخال ${imported.length} عنصر من ملف الإكسيل في قسم (${forcedCat}) فقط بنجاح!`
-            : `تم استيراد وتسجيل ${imported.length} عنصر من ملف الإكسيل بنجاح!`
+        const existingNormSet = new Set(
+          stores
+            .map((s) => normalizeStoreNameForComparison(s.name))
+            .filter(Boolean)
         );
-        setTimeout(() => setImportNotice(''), 4500);
-        if (targetCategoryOnly) {
-          setIsAddModalOpen(false);
-          setSelectedCategory(targetCategoryOnly);
+        const acceptedStores: StoreListingItem[] = [];
+        const rejectedDuplicateNames: string[] = [];
+
+        imported.forEach((item) => {
+          const norm = normalizeStoreNameForComparison(item.name);
+          if (!norm) return;
+          if (existingNormSet.has(norm)) {
+            rejectedDuplicateNames.push(item.name.trim());
+          } else {
+            existingNormSet.add(norm);
+            acceptedStores.push(item);
+          }
+        });
+
+        if (acceptedStores.length > 0) {
+          onImportStoresBatch(acceptedStores);
+          setImportNotice(
+            forcedCat
+              ? `تم إدخال ${acceptedStores.length} عنصر من ملف الإكسيل في قسم (${forcedCat}) فقط بنجاح!`
+              : `تم استيراد وتسجيل ${acceptedStores.length} عنصر من ملف الإكسيل بنجاح!`
+          );
+          setTimeout(() => setImportNotice(''), 6000);
+          if (targetCategoryOnly && rejectedDuplicateNames.length === 0) {
+            setIsAddModalOpen(false);
+            setSelectedCategory(targetCategoryOnly);
+          } else if (targetCategoryOnly) {
+            setSelectedCategory(targetCategoryOnly);
+          }
+        }
+
+        if (rejectedDuplicateNames.length > 0) {
+          setImportRejectNotice(
+            `تم رفض محل (${rejectedDuplicateNames.join(' و ')}) لأنه مضاف من قبل`
+          );
+        } else {
+          setImportRejectNotice('');
         }
       }
     } catch {
@@ -328,9 +416,35 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         forcedCat
       );
       if (imported.length > 0) {
-        onImportStoresBatch(imported);
-        setImportNotice(`تم استخراج وتسجيل ${imported.length} عنصر من ملف PDF بنجاح!`);
-        setTimeout(() => setImportNotice(''), 4500);
+        const existingNormSet = new Set(
+          stores
+            .map((s) => normalizeStoreNameForComparison(s.name))
+            .filter(Boolean)
+        );
+        const acceptedStores: StoreListingItem[] = [];
+        const rejectedDuplicateNames: string[] = [];
+
+        imported.forEach((item) => {
+          const norm = normalizeStoreNameForComparison(item.name);
+          if (!norm) return;
+          if (existingNormSet.has(norm)) {
+            rejectedDuplicateNames.push(item.name.trim());
+          } else {
+            existingNormSet.add(norm);
+            acceptedStores.push(item);
+          }
+        });
+
+        if (acceptedStores.length > 0) {
+          onImportStoresBatch(acceptedStores);
+          setImportNotice(`تم استخراج وتسجيل ${acceptedStores.length} عنصر من ملف PDF بنجاح!`);
+          setTimeout(() => setImportNotice(''), 6000);
+        }
+        if (rejectedDuplicateNames.length > 0) {
+          setImportRejectNotice(
+            `تم رفض محل (${rejectedDuplicateNames.join(' و ')}) لأنه مضاف من قبل`
+          );
+        }
       }
     } catch {
       setImportNotice('تعذر استخراج البيانات من ملف PDF.');
@@ -605,9 +719,34 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
       </div>
 
       {importNotice && (
-        <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-400 text-emerald-200 text-xs font-bold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{importNotice}</span>
+        <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-400 text-emerald-200 text-xs font-bold flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{importNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setImportNotice('')}
+            className="text-[11px] underline cursor-pointer shrink-0"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
+
+      {importRejectNotice && (
+        <div className="p-3.5 rounded-xl bg-rose-500/20 border-2 border-rose-400 text-rose-200 text-xs sm:text-sm font-extrabold flex items-center justify-between gap-2 shadow-lg">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{importRejectNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setImportRejectNotice('')}
+            className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-extrabold cursor-pointer shrink-0"
+          >
+            إغلاق
+          </button>
         </div>
       )}
 
@@ -766,7 +905,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       {isStrictAdmin && (
                         <button
                           type="button"
-                          onClick={() => onDeleteStore(store.id)}
+                          onClick={() => setStorePendingDelete(store)}
                           title="حذف"
                           className="p-1 rounded-md bg-white/95 hover:bg-rose-600 text-rose-600 hover:text-white border border-slate-300 shadow cursor-pointer"
                         >
@@ -920,7 +1059,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       {isStrictAdmin && (
                         <button
                           type="button"
-                          onClick={() => onDeleteStore(store.id)}
+                          onClick={() => setStorePendingDelete(store)}
                           title="حذف"
                           className="p-1 rounded-md bg-white/95 hover:bg-rose-600 text-rose-600 hover:text-white border border-slate-300 shadow cursor-pointer"
                         >
@@ -1113,6 +1252,20 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 placeholder="اكتب الاسم كما تريد ظهوره بالضبط..."
                 className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-bold outline-none"
               />
+              {duplicateExistingStore && (
+                <div className="mt-2 p-2.5 rounded-xl bg-rose-50 border-2 border-rose-400 flex items-center justify-between gap-2">
+                  <span className="text-xs font-extrabold text-rose-800">
+                    هذا المحل مسجل بالفعل باسم: &quot;{duplicateExistingStore.name}&quot;
+                  </span>
+                  <button
+                    type="button"
+                    disabled
+                    className="px-3 py-1 rounded-lg bg-rose-600 text-white text-xs font-extrabold shrink-0 cursor-not-allowed shadow"
+                  >
+                    مسجل من قبل
+                  </button>
+                </div>
+              )}
             </div>
 
             <div>
@@ -1305,6 +1458,22 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             )}
           </div>
 
+          {importRejectNotice && (
+            <div className="p-3 rounded-xl bg-rose-50 border-2 border-rose-400 text-rose-900 text-xs font-extrabold flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{importRejectNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImportRejectNotice('')}
+                className="text-[11px] underline cursor-pointer shrink-0"
+              >
+                إغلاق
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
             <button
               type="button"
@@ -1313,10 +1482,21 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             >
               إلغاء
             </button>
-            <FluentButton type="submit" variant="primary" size="lg">
-              <Plus className="w-4 h-4" />
-              <span>حفظ</span>
-            </FluentButton>
+            {duplicateExistingStore ? (
+              <button
+                type="button"
+                disabled
+                className="px-5 py-2.5 rounded-xl bg-rose-600 text-white text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-not-allowed shadow-md"
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>مسجل من قبل</span>
+              </button>
+            ) : (
+              <FluentButton type="submit" variant="primary" size="lg">
+                <Plus className="w-4 h-4" />
+                <span>حفظ</span>
+              </FluentButton>
+            )}
           </div>
         </form>
       </FluentModal>
@@ -1356,8 +1536,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     variant="danger"
                     size="sm"
                     onClick={() => {
-                      onDeleteStore(activeStore.id);
-                      setActiveStoreId(null);
+                      setStorePendingDelete(activeStore);
                     }}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -1435,49 +1614,141 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               );
             })()}
 
-            {/* شريط الإعجاب (لايك 👍) والديس لايك (👎) وعدد المشاهدات لحظياً داخل تفاصيل المحل */}
-            <div className="p-2.5 sm:p-3 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-1.5 sm:gap-2 flex-nowrap overflow-hidden">
-              <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap">
-                <button
-                  type="button"
-                  onClick={() => onToggleStoreLike(activeStore.id)}
-                  className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                    activeStore.likes.includes(currentVisitorId)
-                      ? 'bg-[#1877F2] text-white border-[#1877F2] shadow'
-                      : 'bg-white text-black hover:bg-slate-100 border-slate-300'
-                  }`}
-                >
-                  <span>👍</span>
-                  <span className="whitespace-nowrap">أعجبني</span>
-                  <span className="font-mono-tabular px-1 sm:px-1.5 py-0.5 rounded-md bg-black/10">
-                    {activeStore.likes.length}
-                  </span>
-                </button>
+            {/* شريط الإعجاب (لايك 👍) والديس لايك (👎) وزر المشاركة وعدد المشاهدات لحظياً داخل تفاصيل المحل */}
+            <div className="space-y-2">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap overflow-hidden">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => onToggleStoreLike(activeStore.id)}
+                    className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                      activeStore.likes.includes(currentVisitorId)
+                        ? 'bg-[#1877F2] text-white border-[#1877F2] shadow'
+                        : 'bg-white text-black hover:bg-slate-100 border-slate-300'
+                    }`}
+                  >
+                    <span>👍</span>
+                    <span className="whitespace-nowrap">أعجبني</span>
+                    <span className="font-mono-tabular px-1 sm:px-1.5 py-0.5 rounded-md bg-black/10">
+                      {activeStore.likes.length}
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => onToggleStoreDislike(activeStore.id)}
-                  className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                    activeStore.dislikes.includes(currentVisitorId)
-                      ? 'bg-rose-600 text-white border-rose-500 shadow'
-                      : 'bg-white text-black hover:bg-slate-100 border-slate-300'
-                  }`}
+                  <button
+                    type="button"
+                    onClick={() => onToggleStoreDislike(activeStore.id)}
+                    className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                      activeStore.dislikes.includes(currentVisitorId)
+                        ? 'bg-rose-600 text-white border-rose-500 shadow'
+                        : 'bg-white text-black hover:bg-slate-100 border-slate-300'
+                    }`}
+                  >
+                    <span>👎</span>
+                    <span className="whitespace-nowrap">لم يعجبني</span>
+                    <span className="font-mono-tabular px-1 sm:px-1.5 py-0.5 rounded-md bg-black/10">
+                      {activeStore.dislikes.length}
+                    </span>
+                  </button>
+
+                  {/* زر مشاركة بجانب زر لم يعجبني */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsStoreShareMenuOpen((prev) => !prev);
+                      setStoreShareCopied(false);
+                    }}
+                    className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                      isStoreShareMenuOpen
+                        ? 'bg-sky-600 text-white border-sky-600 shadow'
+                        : 'bg-white text-black hover:bg-slate-100 border-slate-300'
+                    }`}
+                  >
+                    <Share2 className="w-3.5 h-3.5 shrink-0" />
+                    <span className="whitespace-nowrap">مشاركة</span>
+                  </button>
+                </div>
+
+                <span
+                  title="عدد المشاهدات"
+                  className="px-2 sm:px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-[11px] sm:text-xs font-extrabold text-black flex items-center justify-center gap-1 sm:gap-1.5 font-mono-tabular whitespace-nowrap shrink-0"
                 >
-                  <span>👎</span>
-                  <span className="whitespace-nowrap">لم يعجبني</span>
-                  <span className="font-mono-tabular px-1 sm:px-1.5 py-0.5 rounded-md bg-black/10">
-                    {activeStore.dislikes.length}
-                  </span>
-                </button>
+                  <Eye className="w-3.5 h-3.5 text-sky-700 shrink-0" />
+                  <span>{activeStore.viewsCount || 0}</span>
+                </span>
               </div>
 
-              <span
-                title="عدد المشاهدات"
-                className="px-2 sm:px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-[11px] sm:text-xs font-extrabold text-black flex items-center justify-center gap-1 sm:gap-1.5 font-mono-tabular whitespace-nowrap shrink-0"
-              >
-                <Eye className="w-3.5 h-3.5 text-sky-700 shrink-0" />
-                <span>{activeStore.viewsCount || 0}</span>
-              </span>
+              {/* قائمة خيارات مشاركة المحل (نسخ الرابط، واتساب، ماسنجر، تليجرام) */}
+              {isStoreShareMenuOpen &&
+                (() => {
+                  const shareUrl = `${window.location.origin}/?section=directory&storeId=${encodeURIComponent(
+                    activeStore.id
+                  )}`;
+                  const shareTitle = `${activeStore.name} (${activeStore.category}) - هاتف: ${activeStore.phone}`;
+                  const fullShareText = `${shareTitle}\n${shareUrl}`;
+                  return (
+                    <div className="p-3 rounded-xl bg-white border-2 border-sky-400 shadow-md space-y-2">
+                      <div className="text-xs font-extrabold text-black flex items-center justify-between">
+                        <span>مشاركة بيانات المحل عبر:</span>
+                        {storeShareCopied && (
+                          <span className="text-emerald-700 text-[11px] font-extrabold">
+                            تم نسخ الرابط بنجاح ✓
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(shareUrl).catch(() => {});
+                            setStoreShareCopied(true);
+                            setTimeout(() => setStoreShareCopied(false), 2500);
+                          }}
+                          className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-black text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                          <span>{storeShareCopied ? 'تم النسخ ✓' : 'نسخ الرابط'}</span>
+                        </button>
+
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(fullShareText)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>واتس اب</span>
+                        </a>
+
+                        <a
+                          href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+                            shareUrl
+                          )}&quote=${encodeURIComponent(shareTitle)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(fullShareText).catch(() => {});
+                          }}
+                          className="px-3 py-2 rounded-xl bg-[#0084FF] hover:bg-[#0073E6] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <Send className="w-3.5 h-3.5 shrink-0" />
+                          <span>ماسنجر</span>
+                        </a>
+
+                        <a
+                          href={`https://t.me/share/url?url=${encodeURIComponent(
+                            shareUrl
+                          )}&text=${encodeURIComponent(shareTitle)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 rounded-xl bg-[#229ED9] hover:bg-[#1E8CC2] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <Send className="w-3.5 h-3.5 shrink-0" />
+                          <span>تليجرام</span>
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })()}
             </div>
 
             {/* Store Full Details (Only shown if non-empty after cleaning default "محل" text for pharmacies/clinics) */}
@@ -1845,6 +2116,58 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         >
           <div className="space-y-3 text-black">
             {activeStore.comments.map((cmt) => renderCommentBlock(activeStore, cmt))}
+          </div>
+        </FluentModal>
+      )}
+
+      {/* ================= 4. STORE DELETE CONFIRMATION MODAL (شاشة تأكيد الحذف) ================= */}
+      {storePendingDelete && (
+        <FluentModal
+          isOpen={!!storePendingDelete}
+          onClose={() => setStorePendingDelete(null)}
+          title="شاشة تأكيد الحذف"
+          subtitle="تأكيد حذف المحل من الدليل التجاري"
+          maxWidth="md"
+          theme="light"
+        >
+          <div className="space-y-4 text-black p-1">
+            <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-300 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm sm:text-base font-extrabold text-rose-950">
+                  هل أنت متأكد من حذف &quot;{storePendingDelete.name}&quot;؟
+                </h4>
+                <p className="text-xs font-bold text-rose-800 leading-relaxed">
+                  القسم: {storePendingDelete.category} — سيتم حذف المحل وبياناته من الدليل التجاري نهائياً.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setStorePendingDelete(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-black text-xs font-extrabold cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <FluentButton
+                variant="danger"
+                onClick={() => {
+                  const targetId = storePendingDelete.id;
+                  onDeleteStore(targetId);
+                  if (activeStoreId === targetId) {
+                    setActiveStoreId(null);
+                  }
+                  setStorePendingDelete(null);
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>تأكيد الحذف</span>
+              </FluentButton>
+            </div>
           </div>
         </FluentModal>
       )}

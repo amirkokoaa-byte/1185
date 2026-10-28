@@ -779,12 +779,16 @@ async function startServer() {
       appType: 'spa',
     });
 
-    // Serve a clean, non-failing @vite/client so cached or active clients never throw "WebSocket closed without opened."
+    // Serve a clean, non-failing @vite/client so cached or active clients never throw WebSocket or SendBeforeConnectError
     app.get('/@vite/client', async (req, res, next) => {
       try {
         const transformed = await vite.transformRequest(req.url);
         if (transformed && transformed.code) {
           const safeCode = transformed.code
+            .replace(
+              'const socket = options.createConnection();',
+              'const socket = { OPEN: 1, readyState: 1, addEventListener() {}, removeEventListener() {}, send() {}, close() {} };'
+            )
             .replace(
               /reject\(\/\*\s*@__PURE__\s*\*\/\s*new Error\("WebSocket closed without opened\."\)\)/g,
               'resolve()'
@@ -794,8 +798,12 @@ async function startServer() {
               'resolve()'
             )
             .replace(
-              'transport.connect(createHMRHandler(handleMessage));',
-              '/* hmr disabled */'
+              /throw new SendBeforeConnectError\([^)]*\);/g,
+              'return;'
+            )
+            .replace(
+              'ws.send(JSON.stringify(data));',
+              'ws?.send?.(JSON.stringify(data));'
             );
           res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -806,6 +814,16 @@ async function startServer() {
         // fallback to default vite middleware
       }
       next();
+    });
+
+    app.get('/@vite-plugin-pwa/pwa-entry-point-loaded', (_req, res) => {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res
+        .status(200)
+        .send(
+          'export function registerDevSW() {}\nexport default registerDevSW;\n'
+        );
     });
 
     app.use(vite.middlewares);

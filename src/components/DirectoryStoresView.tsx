@@ -29,6 +29,8 @@ import {
   Share2,
   Copy,
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   PlatformSettings,
@@ -141,19 +143,96 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
       .replace(/\s+/g, ' ');
   };
 
+  const extractRealPhoneTokens = (rawPhone?: string): string[] => {
+    if (!rawPhone) return [];
+    return String(rawPhone)
+      .split(/[-/,،|]+|\s+/)
+      .map((part) => part.replace(/[^0-9]/g, ''))
+      .map((digits) => (digits.startsWith('201') && digits.length === 12 ? digits.slice(1) : digits))
+      .filter(
+        (digits) =>
+          digits.length >= 8 &&
+          digits !== '01000000000' &&
+          digits !== '1000000000' &&
+          !/^0+$/.test(digits)
+      );
+  };
+
   const findSimilarRegisteredStore = (
     candidateName: string,
+    candidatePhone?: string,
     excludeStoreId?: string
   ): StoreListingItem | undefined => {
     const normCandidate = normalizeStoreNameForComparison(candidateName);
-    if (!normCandidate) return undefined;
+    const candidatePhones = extractRealPhoneTokens(candidatePhone);
+    if (!normCandidate && candidatePhones.length === 0) return undefined;
     return stores.find((s) => {
       if (excludeStoreId && s.id === excludeStoreId) return false;
       const normExisting = normalizeStoreNameForComparison(s.name);
-      if (!normExisting) return false;
-      return normExisting === normCandidate;
+      if (normCandidate && normExisting && normExisting === normCandidate) {
+        return true;
+      }
+      if (candidatePhones.length > 0) {
+        const existingPhones = extractRealPhoneTokens(s.phone);
+        if (existingPhones.some((ep) => candidatePhones.includes(ep))) {
+          return true;
+        }
+      }
+      return false;
     });
   };
+
+  // Deduplicate stores by Name AND Real Phone Numbers so duplicate stores never appear in public view, and collect duplicates for Admin modal
+  const { uniqueStores, duplicateStoresEntries } = React.useMemo(() => {
+    const seenNames = new Map<string, StoreListingItem>();
+    const seenPhones = new Map<string, StoreListingItem>();
+    const unique: StoreListingItem[] = [];
+    const duplicates: Array<{
+      duplicate: StoreListingItem;
+      original: StoreListingItem;
+      reason: string;
+    }> = [];
+
+    for (const st of stores) {
+      if (!st) continue;
+      const normName = normalizeStoreNameForComparison(st.name);
+      const phoneTokens = extractRealPhoneTokens(st.phone);
+
+      const matchedByName = normName ? seenNames.get(normName) : undefined;
+      const matchedByPhone = phoneTokens
+        .map((p) => seenPhones.get(p))
+        .find((found) => Boolean(found));
+
+      if (matchedByName && matchedByName.id !== st.id) {
+        duplicates.push({
+          duplicate: st,
+          original: matchedByName,
+          reason: 'تشابه في اسم المحل',
+        });
+        continue;
+      }
+      if (matchedByPhone && matchedByPhone.id !== st.id) {
+        duplicates.push({
+          duplicate: st,
+          original: matchedByPhone,
+          reason: `تشابه في رقم الهاتف (${st.phone})`,
+        });
+        continue;
+      }
+
+      unique.push(st);
+      if (normName && !seenNames.has(normName)) {
+        seenNames.set(normName, st);
+      }
+      phoneTokens.forEach((p) => {
+        if (!seenPhones.has(p)) {
+          seenPhones.set(p, st);
+        }
+      });
+    }
+
+    return { uniqueStores: unique, duplicateStoresEntries: duplicates };
+  }, [stores]);
 
   // Ensure 'مول دريم بلازا' is always FIRST in storeCategories
   const allStoreCategories = [
@@ -229,9 +308,24 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [menuPanOffsetX, setMenuPanOffsetX] = useState<number>(0);
   const [profanityWarning, setProfanityWarning] = useState<string>('');
 
+  const [isDuplicateStoresModalOpen, setIsDuplicateStoresModalOpen] =
+    useState(false);
+  const [isStoreExcelPreviewModalOpen, setIsStoreExcelPreviewModalOpen] =
+    useState(false);
+  const [storeExcelPreviewItems, setStoreExcelPreviewItems] = useState<
+    StoreListingItem[]
+  >([]);
+  const [expandedStoreExcelItemId, setExpandedStoreExcelItemId] = useState<
+    string | null
+  >(null);
+  const [storeExcelForcedCategory, setStoreExcelForcedCategory] = useState<
+    string | undefined
+  >(undefined);
+
   const activeStore = stores.find((s) => s.id === activeStoreId) || null;
   const duplicateExistingStore = findSimilarRegisteredStore(
     storeName,
+    storePhone,
     editingStoreObj?.id
   );
 
@@ -301,6 +395,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
     const existingDuplicate = findSimilarRegisteredStore(
       storeName,
+      storePhone,
       editingStoreObj?.id
     );
     if (existingDuplicate) {
@@ -308,10 +403,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     }
 
     const cleanName = storeName.trim();
-    const cleanStoreCategory =
-      editingStoreObj && isPermanentDreamPlazaStore(editingStoreObj)
-        ? 'مول دريم بلازا'
-        : storeCategory.trim() || 'مول دريم بلازا';
+    const cleanStoreCategory = storeCategory.trim() || 'مول دريم بلازا';
     const realUploadedImages = menuImages.filter(
       (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
     );
@@ -379,7 +471,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     setIsAddModalOpen(false);
   };
 
-  // Excel & PDF Store Import Handlers
+  // Excel & PDF Store Import Handlers (Opens Preview Modal first on Excel upload)
   const handleExcelImport = async (
     e: React.ChangeEvent<HTMLInputElement>,
     targetCategoryOnly?: string
@@ -398,53 +490,89 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         forcedCat
       );
       if (imported.length > 0) {
-        const existingNormSet = new Set(
-          stores
-            .map((s) => normalizeStoreNameForComparison(s.name))
-            .filter(Boolean)
-        );
-        const acceptedStores: StoreListingItem[] = [];
-        const rejectedDuplicateNames: string[] = [];
-
-        imported.forEach((item) => {
-          const norm = normalizeStoreNameForComparison(item.name);
-          if (!norm) return;
-          if (existingNormSet.has(norm)) {
-            rejectedDuplicateNames.push(item.name.trim());
-          } else {
-            existingNormSet.add(norm);
-            acceptedStores.push(item);
-          }
-        });
-
-        if (acceptedStores.length > 0) {
-          onImportStoresBatch(acceptedStores);
-          setImportNotice(
-            forcedCat
-              ? `تم إدخال ${acceptedStores.length} عنصر من ملف الإكسيل في قسم (${forcedCat}) فقط بنجاح!`
-              : `تم استيراد وتسجيل ${acceptedStores.length} عنصر من ملف الإكسيل بنجاح!`
-          );
-          setTimeout(() => setImportNotice(''), 6000);
-          if (targetCategoryOnly && rejectedDuplicateNames.length === 0) {
-            setIsAddModalOpen(false);
-            setSelectedCategory(targetCategoryOnly);
-          } else if (targetCategoryOnly) {
-            setSelectedCategory(targetCategoryOnly);
-          }
-        }
-
-        if (rejectedDuplicateNames.length > 0) {
-          setImportRejectNotice(
-            `تم رفض محل (${rejectedDuplicateNames.join(' و ')}) لأنه مضاف من قبل`
-          );
-        } else {
-          setImportRejectNotice('');
-        }
+        setStoreExcelForcedCategory(targetCategoryOnly);
+        setStoreExcelPreviewItems(imported);
+        setExpandedStoreExcelItemId(null);
+        setIsStoreExcelPreviewModalOpen(true);
+      } else {
+        setImportNotice('لم يتم العثور على بيانات محلات صالحة داخل ملف الإكسيل.');
       }
     } catch {
       setImportNotice('تعذر قراءة ملف الإكسيل، تأكد من صحة الملف.');
     }
     e.target.value = '';
+  };
+
+  const handleConfirmStoreExcelPreviewImport = () => {
+    const validItems = storeExcelPreviewItems.filter(
+      (item) => item.name.trim().length > 0
+    );
+    if (validItems.length === 0) {
+      setIsStoreExcelPreviewModalOpen(false);
+      return;
+    }
+
+    const existingNormSet = new Set(
+      stores.map((s) => normalizeStoreNameForComparison(s.name)).filter(Boolean)
+    );
+    const existingPhoneSet = new Set(
+      stores.flatMap((s) => extractRealPhoneTokens(s.phone))
+    );
+
+    const acceptedStores: StoreListingItem[] = [];
+    const rejectedDuplicateNames: string[] = [];
+
+    validItems.forEach((item) => {
+      const norm = normalizeStoreNameForComparison(item.name);
+      if (!norm) return;
+      const itemPhones = extractRealPhoneTokens(item.phone);
+      const hasDuplicatePhone = itemPhones.some((p) => existingPhoneSet.has(p));
+
+      if (existingNormSet.has(norm) || hasDuplicatePhone) {
+        rejectedDuplicateNames.push(item.name.trim());
+      } else {
+        existingNormSet.add(norm);
+        itemPhones.forEach((p) => existingPhoneSet.add(p));
+        acceptedStores.push({
+          ...item,
+          name: item.name.trim(),
+          category: item.category.trim() || 'مول دريم بلازا',
+          phone: item.phone.trim() || '01000000000',
+          whatsapp:
+            item.phone
+              .trim()
+              .split('-')[0]
+              .replace(/[^0-9]/g, '') || '01000000000',
+          updatedAt: Date.now(),
+        });
+      }
+    });
+
+    if (acceptedStores.length > 0) {
+      onImportStoresBatch(acceptedStores);
+      setImportNotice(
+        storeExcelForcedCategory
+          ? `تم إدخال ${acceptedStores.length} عنصر من ملف الإكسيل في قسم (${storeExcelForcedCategory}) بنجاح!`
+          : `تم استيراد وتسجيل ${acceptedStores.length} عنصر من ملف الإكسيل بنجاح!`
+      );
+      setTimeout(() => setImportNotice(''), 6000);
+      if (storeExcelForcedCategory) {
+        setSelectedCategory(storeExcelForcedCategory);
+      }
+      setIsAddModalOpen(false);
+    }
+
+    if (rejectedDuplicateNames.length > 0) {
+      setImportRejectNotice(
+        `تم رفض محل (${rejectedDuplicateNames.join(' و ')}) لأنه مضاف من قبل`
+      );
+    } else {
+      setImportRejectNotice('');
+    }
+
+    setIsStoreExcelPreviewModalOpen(false);
+    setStoreExcelPreviewItems([]);
+    setExpandedStoreExcelItemId(null);
   };
 
   const handlePDFImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -521,9 +649,9 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     };
   };
 
-  // Filter stores by search & category (using normalized string comparison so trailing spaces never hide stores)
+  // Filter uniqueStores by search & category (using normalized string comparison so trailing spaces never hide stores and duplicates are excluded)
   const normalizedSelectedCat = normalizeCategoryString(selectedCategory);
-  const filteredStores = stores.filter((s) => {
+  const filteredStores = uniqueStores.filter((s) => {
     if (!s) return false;
     const matchesCategory =
       selectedCategory === 'all' ||
@@ -699,26 +827,38 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             </h1>
           </div>
 
-          {/* Primary Button right beside the title on the same line (Strict Admin Only) */}
+          {/* Primary Buttons right beside the title on the same line (Strict Admin Only) */}
           {isStrictAdmin && (
-            <FluentButton
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                setEditingStoreObj(null);
-                setStoreCategory(
-                  selectedCategory !== 'all'
-                    ? selectedCategory
-                    : allStoreCategories[0] || 'سوبر ماركت'
-                );
-                setStoreSubCategory('');
-                setIsAddModalOpen(true);
-              }}
-              className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              <span>أضف منتج / محل</span>
-            </FluentButton>
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <FluentButton
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setEditingStoreObj(null);
+                  setStoreCategory(
+                    selectedCategory !== 'all'
+                      ? selectedCategory
+                      : allStoreCategories[0] || 'سوبر ماركت'
+                  );
+                  setStoreSubCategory('');
+                  setIsAddModalOpen(true);
+                }}
+                className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
+              >
+                <Plus className="w-4 h-4 shrink-0" />
+                <span>أضف منتج / محل</span>
+              </FluentButton>
+
+              <button
+                type="button"
+                onClick={() => setIsDuplicateStoresModalOpen(true)}
+                className="fluent-reveal inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/50 text-xs sm:text-sm font-extrabold cursor-pointer shrink-0 whitespace-nowrap shadow"
+                title="عرض المحلات المكررة للتعديل أو الحذف النهائي"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+                <span>المحلات المكررة ({duplicateStoresEntries.length})</span>
+              </button>
+            </div>
           )}
         </div>
 
@@ -2236,6 +2376,300 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 <span>تأكيد الحذف</span>
               </FluentButton>
             </div>
+          </div>
+        </FluentModal>
+      )}
+
+      {/* ================= 5. STORE EXCEL IMPORT PREVIEW MODAL (شاشة معاينة بيانات الإكسيل للمحلات) ================= */}
+      <FluentModal
+        isOpen={isStoreExcelPreviewModalOpen}
+        onClose={() => {
+          setIsStoreExcelPreviewModalOpen(false);
+          setExpandedStoreExcelItemId(null);
+        }}
+        title={`معاينة المحلات المستخرجة من الإكسيل (${storeExcelPreviewItems.length} محل)`}
+        subtitle="كل محل في سطر واحد أسفل بعض — اضغط على اسم المحل لعرض جميع التفاصيل أو التعديل أو الحذف قبل الإضافة"
+        maxWidth="lg"
+        theme="light"
+      >
+        <div className="space-y-3 text-black w-full overflow-x-hidden">
+          <div className="max-h-[60vh] overflow-y-auto overflow-x-hidden space-y-2 pr-0.5 w-full">
+            {storeExcelPreviewItems.map((item, idx) => {
+              const isExpanded = expandedStoreExcelItemId === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-xl bg-slate-50 border-2 border-slate-300 hover:border-sky-500 p-2.5 transition-all w-full overflow-x-hidden"
+                >
+                  {/* سطر واحد لكل محل بدون شريط تمرير يمين ويسار */}
+                  <div className="flex items-center justify-between gap-2 w-full overflow-x-hidden">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-hidden">
+                      <span className="w-6 h-6 rounded-lg bg-sky-600 text-white text-[11px] font-extrabold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedStoreExcelItemId(isExpanded ? null : item.id)
+                        }
+                        className="min-w-0 flex-1 text-right font-extrabold text-xs sm:text-sm text-black hover:text-sky-700 truncate cursor-pointer"
+                        title="اضغط لعرض جميع التفاصيل أو التعديل"
+                      >
+                        {item.name}
+                      </button>
+
+                      <span className="px-2 py-0.5 rounded-lg bg-sky-100 border border-sky-300 text-sky-900 text-[10px] font-extrabold shrink-0 max-w-[95px] truncate">
+                        {item.category}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[11px] font-mono-tabular font-extrabold text-slate-700 hidden sm:inline-block max-w-[105px] truncate">
+                        {item.phone}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedStoreExcelItemId(isExpanded ? null : item.id)
+                        }
+                        className="p-1.5 rounded-lg bg-amber-100 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-300 cursor-pointer transition-colors"
+                        title="عرض وتعديل التفاصيل"
+                      >
+                        {isExpanded ? (
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setStoreExcelPreviewItems((prev) =>
+                            prev.filter((row) => row.id !== item.id)
+                          )
+                        }
+                        className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-300 cursor-pointer transition-colors"
+                        title="حذف من القائمة"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* التفاصيل الكاملة للمحل عند الضغط على الاسم */}
+                  {isExpanded && (
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-300 grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full overflow-x-hidden">
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          اسم المحل / المنتج
+                        </label>
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setStoreExcelPreviewItems((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id ? { ...row, name: val } : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          القسم
+                        </label>
+                        <select
+                          value={item.category}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setStoreExcelPreviewItems((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id ? { ...row, category: val } : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold outline-none"
+                        >
+                          {allStoreCategories.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          رقم الهاتف
+                        </label>
+                        <input
+                          type="text"
+                          value={item.phone}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setStoreExcelPreviewItems((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id ? { ...row, phone: val } : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold font-mono-tabular outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          نوع النشاط الفرعي
+                        </label>
+                        <input
+                          type="text"
+                          value={item.subCategory || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setStoreExcelPreviewItems((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id
+                                  ? { ...row, subCategory: val }
+                                  : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold outline-none"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          تفاصيل المحل
+                        </label>
+                        <input
+                          type="text"
+                          value={item.details || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setStoreExcelPreviewItems((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id ? { ...row, details: val } : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-300">
+            <button
+              type="button"
+              onClick={() => {
+                setIsStoreExcelPreviewModalOpen(false);
+                setExpandedStoreExcelItemId(null);
+              }}
+              className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-black text-xs font-extrabold cursor-pointer"
+            >
+              إلغاء
+            </button>
+
+            <FluentButton
+              type="button"
+              variant="primary"
+              size="lg"
+              onClick={handleConfirmStoreExcelPreviewImport}
+              disabled={storeExcelPreviewItems.length === 0}
+            >
+              <Plus className="w-4 h-4" />
+              <span>أضف ({storeExcelPreviewItems.length})</span>
+            </FluentButton>
+          </div>
+        </div>
+      </FluentModal>
+
+      {/* ================= 6. ADMIN DUPLICATE STORES MODAL (المحلات المكررة - Admin فقط) ================= */}
+      {isStrictAdmin && (
+        <FluentModal
+          isOpen={isDuplicateStoresModalOpen}
+          onClose={() => setIsDuplicateStoresModalOpen(false)}
+          title={`المحلات المكررة (${duplicateStoresEntries.length})`}
+          subtitle="قائمة المحلات المكررة في الاسم أو رقم الهاتف — يمكنك تعديل أي محل أو حذفه نهائياً لحظياً"
+          maxWidth="2xl"
+          theme="light"
+        >
+          <div className="space-y-3 text-black w-full overflow-x-hidden">
+            {duplicateStoresEntries.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-center space-y-2">
+                <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+                <div className="text-sm sm:text-base font-extrabold text-emerald-950">
+                  لا توجد أي محلات مكررة حالياً في الدليل التجاري
+                </div>
+                <p className="text-xs font-bold text-emerald-800">
+                  جميع المحلات المسجلة فريدة من حيث الاسم وأرقام الهواتف.
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-[65vh] overflow-y-auto overflow-x-hidden space-y-2.5 pr-0.5">
+                {duplicateStoresEntries.map(({ duplicate, original, reason }) => (
+                  <div
+                    key={duplicate.id}
+                    className="p-3 rounded-xl bg-slate-50 border-2 border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full overflow-x-hidden"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-sm font-extrabold text-black break-words">
+                          {duplicate.name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg bg-amber-100 border border-amber-300 text-amber-950 text-[10px] font-extrabold">
+                          {duplicate.category}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg bg-rose-100 border border-rose-300 text-rose-900 text-[10px] font-extrabold">
+                          {reason}
+                        </span>
+                      </div>
+                      <div className="text-xs font-mono-tabular font-bold text-slate-800">
+                        الهاتف: {duplicate.phone}
+                      </div>
+                      <div className="text-[11px] font-bold text-slate-600">
+                        مكرر مع المحل الأصلي: &quot;{original.name}&quot; ({original.category} — {original.phone})
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsDuplicateStoresModalOpen(false);
+                          openEditStoreModal(duplicate);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>تعديل</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onDeleteStore(duplicate.id);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>حذف نهائي</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </FluentModal>
       )}

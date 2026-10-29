@@ -39,6 +39,7 @@ import {
 import {
   exportServiceNumbersToExcel,
   exportServiceNumbersToPDF,
+  parseServiceNumbersFromExcelFile,
 } from '../services/exportService';
 
 interface ServiceNumbersViewProps {
@@ -46,6 +47,10 @@ interface ServiceNumbersViewProps {
   settings?: PlatformSettings;
   currentUser: UserAccount | null;
   onAddServiceNumber: (entry: ServicePhoneEntry) => void;
+  onImportServiceNumbersBatch?: (
+    entries: ServicePhoneEntry[],
+    discoveredProfessions?: string[]
+  ) => void;
   onUpdateServiceNumber: (entry: ServicePhoneEntry) => void;
   onDeleteServiceNumber: (id: string) => void;
   onUpdateSettings?: (settings: PlatformSettings) => void;
@@ -56,6 +61,7 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
   settings,
   currentUser,
   onAddServiceNumber,
+  onImportServiceNumbersBatch,
   onUpdateServiceNumber,
   onDeleteServiceNumber,
   onUpdateSettings,
@@ -76,11 +82,28 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
   const availableProfessions = ensureServiceProfessionsList([
     ...(settings?.serviceProfessions || []),
     ...customLocalProfessions,
+    ...serviceNumbers
+      .map((s) => (s.profession || s.category || '').trim())
+      .filter(Boolean),
   ]);
 
-  // Search & View Mode State
+  // Search, Profession Filter & View Mode State
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProfessionFilter, setSelectedProfessionFilter] =
+    useState<string>('all');
   const [viewMode, setViewMode] = useState<'both' | 'table' | 'cards'>('both');
+
+  // Excel Import Preview Modal State inside "أضف خدمة جديدة"
+  const [isExcelPreviewModalOpen, setIsExcelPreviewModalOpen] = useState(false);
+  const [excelPreviewEntries, setExcelPreviewEntries] = useState<
+    ServicePhoneEntry[]
+  >([]);
+  const [expandedExcelEntryId, setExpandedExcelEntryId] = useState<
+    string | null
+  >(null);
+  const [excelStatusMessage, setExcelStatusMessage] = useState<string | null>(
+    null
+  );
 
   // Add / Edit Service Modal State
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
@@ -352,7 +375,96 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
     setEditingEntry(null);
   };
 
+  // Handle Excel file selection inside "أضف خدمة جديدة" modal
+  const handleServiceExcelFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const { entries, discoveredProfessions } =
+        await parseServiceNumbersFromExcelFile(file);
+      if (discoveredProfessions.length > 0) {
+        const mergedProfessions = ensureServiceProfessionsList([
+          ...availableProfessions,
+          ...discoveredProfessions,
+        ]);
+        setCustomLocalProfessions(mergedProfessions);
+        if (settings && onUpdateSettings) {
+          onUpdateSettings({
+            ...settings,
+            serviceProfessions: mergedProfessions,
+            updatedAt: Date.now(),
+          });
+        }
+      }
+      if (entries.length === 0) {
+        setExcelStatusMessage(
+          'لم يتم العثور على بيانات صالحة في ملف الإكسيل. تأكد من وجود: (1: اسم مقدم الخدمة، 2: المهنة، 3: تفاصيل، 4: رقم الهاتف).'
+        );
+        return;
+      }
+      setExcelStatusMessage(null);
+      setExcelPreviewEntries(entries);
+      setExpandedExcelEntryId(null);
+      setIsExcelPreviewModalOpen(true);
+    } catch {
+      setExcelStatusMessage('تعذر قراءة ملف الإكسيل، يرجى التأكد من صيغة الملف.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleConfirmExcelServicesImport = () => {
+    const validEntries = excelPreviewEntries.filter(
+      (item) => item.title.trim().length > 0 && item.phone.trim().length > 0
+    );
+    if (validEntries.length === 0) {
+      setIsExcelPreviewModalOpen(false);
+      return;
+    }
+
+    const newProfsFromBatch = validEntries
+      .map((item) => (item.profession || item.category || '').trim())
+      .filter(Boolean);
+    const updatedProfessionsList = ensureServiceProfessionsList([
+      ...availableProfessions,
+      ...newProfsFromBatch,
+    ]);
+    setCustomLocalProfessions(updatedProfessionsList);
+
+    if (onImportServiceNumbersBatch) {
+      onImportServiceNumbersBatch(validEntries, updatedProfessionsList);
+    } else {
+      if (settings && onUpdateSettings) {
+        onUpdateSettings({
+          ...settings,
+          serviceProfessions: updatedProfessionsList,
+          updatedAt: Date.now(),
+        });
+      }
+      validEntries.forEach((entry) => {
+        onAddServiceNumber({
+          ...entry,
+          category: (entry.profession || entry.category || 'خدمات عامة').trim(),
+        });
+      });
+    }
+
+    setIsExcelPreviewModalOpen(false);
+    setExcelPreviewEntries([]);
+    setExpandedExcelEntryId(null);
+    setIsFormModalOpen(false);
+    setEditingEntry(null);
+  };
+
   const filteredServices = serviceNumbers.filter((s) => {
+    if (selectedProfessionFilter !== 'all') {
+      const srvProf = (s.profession || s.category || '').trim();
+      if (srvProf !== selectedProfessionFilter) {
+        return false;
+      }
+    }
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
     return (
@@ -486,23 +598,54 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
         </div>
       </div>
 
-      {/* Search Bar */}
+      {/* Search Bar + Profession Dropdown Next to Search (For All Registered Users & Visitors) */}
       <div className="bg-[#112240]/80 border border-[#334155] rounded-2xl p-3 sm:p-4">
-        <div className="relative flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <Search className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث عن اسم مقدم الخدمة أو المهنة أو رقم الهاتف..."
-              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-3 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] outline-none"
-            />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-1 min-w-0 flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search className="w-4 h-4 text-sky-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ابحث عن اسم مقدم الخدمة أو المهنة أو رقم الهاتف..."
+                className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-10 pl-3 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] outline-none"
+              />
+            </div>
+            <FluentButton variant="primary" size="sm" className="shrink-0">
+              <Search className="w-4 h-4" />
+              <span>بحث</span>
+            </FluentButton>
           </div>
-          <FluentButton variant="primary" size="sm" className="shrink-0">
-            <Search className="w-4 h-4" />
-            <span>بحث</span>
-          </FluentButton>
+
+          {/* القائمة المنسدلة لتصفية الخدمات والمهن بجانب البحث لجميع الحسابات والزائرين */}
+          <div className="relative sm:w-60 shrink-0">
+            <Briefcase className="w-4 h-4 text-sky-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <select
+              value={selectedProfessionFilter}
+              onChange={(e) => setSelectedProfessionFilter(e.target.value)}
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-9 pl-3 py-2 sm:py-2.5 text-xs sm:text-sm text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
+              title="تصفية حسب المهنة / الخدمة"
+            >
+              <option value="all" className="bg-[#0A192F] text-[#F8FAFC] font-bold">
+                كل الخدمات والمهن ({serviceNumbers.length})
+              </option>
+              {availableProfessions.map((prof) => {
+                const count = serviceNumbers.filter(
+                  (s) => (s.profession || s.category || '').trim() === prof
+                ).length;
+                return (
+                  <option
+                    key={prof}
+                    value={prof}
+                    className="bg-[#0A192F] text-[#F8FAFC] font-bold"
+                  >
+                    {prof} {count > 0 ? `(${count})` : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -885,6 +1028,31 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
         theme="light"
       >
         <form onSubmit={handleSaveService} className="space-y-4 text-black">
+          {/* شريط رفع ملف إكسيل داخل نافذة أضف خدمة جديدة */}
+          {!editingEntry && (
+            <div className="p-3 rounded-xl bg-emerald-50 border-2 border-emerald-300 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-extrabold text-emerald-950">
+                رفع بيانات مقدمي الخدمة من ملف إكسيل (الاسم، المهنة، التفاصيل، رقم الهاتف)
+              </div>
+              <label className="fluent-reveal inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold cursor-pointer shadow shrink-0">
+                <FileSpreadsheet className="w-4 h-4" />
+                <span>إكسيل</span>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleServiceExcelFileUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          )}
+
+          {excelStatusMessage && (
+            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs font-extrabold">
+              {excelStatusMessage}
+            </div>
+          )}
+
           {/* 1. اسم مقدم الخدمة وبجانبه المهنة (قائمة منسدلة + زر + لإضافة مهنة جديدة) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -1503,6 +1671,215 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
           })()}
         </FluentModal>
       )}
+
+      {/* ================= MODAL 3: EXCEL IMPORT PREVIEW MODAL FOR SERVICE PROVIDERS ================= */}
+      <FluentModal
+        isOpen={isExcelPreviewModalOpen}
+        onClose={() => {
+          setIsExcelPreviewModalOpen(false);
+          setExpandedExcelEntryId(null);
+        }}
+        title={`معاينة بيانات ملف الإكسيل (${excelPreviewEntries.length} مقدم خدمة)`}
+        subtitle="كل مقدم خدمة في سطر واحد أسفل بعض — اضغط على الاسم لعرض جميع التفاصيل أو التعديل أو الحذف قبل الإضافة"
+        maxWidth="lg"
+        theme="light"
+      >
+        <div className="space-y-3 text-black w-full overflow-x-hidden">
+          <div className="max-h-[60vh] overflow-y-auto overflow-x-hidden space-y-2 pr-0.5 w-full">
+            {excelPreviewEntries.map((item, idx) => {
+              const isExpanded = expandedExcelEntryId === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-xl bg-slate-50 border-2 border-slate-300 hover:border-sky-500 p-2.5 transition-all w-full overflow-x-hidden"
+                >
+                  {/* السطر الواحد لمقدم الخدمة بدون شريط تمرير يمين ويسار */}
+                  <div className="flex items-center justify-between gap-2 w-full overflow-x-hidden">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-hidden">
+                      <span className="w-6 h-6 rounded-lg bg-sky-600 text-white text-[11px] font-extrabold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+
+                      <input
+                        type="text"
+                        value={item.title}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setExcelPreviewEntries((prev) =>
+                            prev.map((row) =>
+                              row.id === item.id ? { ...row, title: val } : row
+                            )
+                          );
+                        }}
+                        className="min-w-0 flex-1 rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2 py-1 text-xs font-extrabold text-black outline-none truncate"
+                        placeholder="اسم مقدم الخدمة"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedExcelEntryId(isExpanded ? null : item.id)
+                        }
+                        className="px-2 py-1 rounded-lg bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300 text-[11px] font-extrabold shrink-0 cursor-pointer flex items-center gap-1"
+                        title="عرض جميع التفاصيل أو التعديل"
+                      >
+                        <span className="max-w-[75px] truncate">
+                          {item.profession || 'خدمات عامة'}
+                        </span>
+                        {isExpanded ? (
+                          <ChevronUp className="w-3.5 h-3.5 shrink-0" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[11px] font-mono-tabular font-extrabold text-slate-800 hidden sm:inline-block max-w-[110px] truncate">
+                        {item.phone}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedExcelEntryId(isExpanded ? null : item.id)
+                        }
+                        className="p-1.5 rounded-lg bg-amber-100 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-300 cursor-pointer transition-colors"
+                        title="عرض وتعديل التفاصيل"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExcelPreviewEntries((prev) =>
+                            prev.filter((row) => row.id !== item.id)
+                          )
+                        }
+                        className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-300 cursor-pointer transition-colors"
+                        title="حذف من القائمة"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* تفاصيل مقدم الخدمة عند الضغط على الاسم أو زر التعديل */}
+                  {isExpanded && (
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-300 grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full overflow-x-hidden">
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          1. اسم مقدم الخدمة
+                        </label>
+                        <input
+                          type="text"
+                          value={item.title}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setExcelPreviewEntries((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id ? { ...row, title: val } : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          2. المهنة
+                        </label>
+                        <select
+                          value={item.profession || availableProfessions[0] || 'خدمات عامة'}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setExcelPreviewEntries((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id
+                                  ? { ...row, profession: val, category: val }
+                                  : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold outline-none"
+                        >
+                          {availableProfessions.map((prof) => (
+                            <option key={prof} value={prof}>
+                              {prof}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          3. تفاصيل
+                        </label>
+                        <input
+                          type="text"
+                          value={item.notes || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setExcelPreviewEntries((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id ? { ...row, notes: val } : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-black mb-1">
+                          4. رقم الهاتف
+                        </label>
+                        <input
+                          type="text"
+                          value={item.phone}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setExcelPreviewEntries((prev) =>
+                              prev.map((row) =>
+                                row.id === item.id ? { ...row, phone: val } : row
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg bg-white border border-slate-300 focus:border-sky-600 px-2.5 py-1.5 text-xs text-black font-bold font-mono-tabular outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-300">
+            <button
+              type="button"
+              onClick={() => {
+                setIsExcelPreviewModalOpen(false);
+                setExpandedExcelEntryId(null);
+              }}
+              className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-black text-xs font-extrabold cursor-pointer"
+            >
+              إلغاء
+            </button>
+
+            <FluentButton
+              type="button"
+              variant="primary"
+              size="lg"
+              onClick={handleConfirmExcelServicesImport}
+              disabled={excelPreviewEntries.length === 0}
+            >
+              <Plus className="w-4 h-4" />
+              <span>أضف ({excelPreviewEntries.length})</span>
+            </FluentButton>
+          </div>
+        </div>
+      </FluentModal>
     </div>
   );
 };

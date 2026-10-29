@@ -648,9 +648,8 @@ export default function App() {
 
   const handleUpdateStore = (updatedStore: StoreListingItem) => {
     try {
-      const cleanCategory = isPermanentDreamPlazaStore(updatedStore)
-        ? 'مول دريم بلازا'
-        : String(updatedStore.category || '').trim() || 'مول دريم بلازا';
+      const cleanCategory =
+        String(updatedStore.category || '').trim() || 'مول دريم بلازا';
       const stampedStore: StoreListingItem = {
         ...updatedStore,
         name: String(updatedStore.name || '').trim(),
@@ -705,13 +704,11 @@ export default function App() {
 
   const handleDeleteStore = (id: string) => {
     if (currentUser?.role === 'moderator') return;
-    // Protect the 24 permanent Dream Plaza stores from deletion
+    // Protect the 24 permanent Dream Plaza store IDs (dp-perm-1..24) from deletion, while allowing deletion of any duplicate store
     if (isPermanentDreamPlazaStore(id)) return;
-    const targetStore = dbState.stores.find((s) => s.id === id);
-    if (targetStore && isPermanentDreamPlazaStore(targetStore)) return;
     updateAndPersist((prev) => ({
       ...prev,
-      stores: prev.stores.filter((s) => s.id !== id || isPermanentDreamPlazaStore(s)),
+      stores: prev.stores.filter((s) => s.id !== id || isPermanentDreamPlazaStore(s.id)),
       deletedRecordIds: Array.from(
         new Set([...(prev.deletedRecordIds || []), id])
       ),
@@ -852,6 +849,47 @@ export default function App() {
         (id) => id !== stampedEntry.id
       ),
     }));
+  };
+
+  const handleImportServiceNumbersBatch = (
+    entries: ServicePhoneEntry[],
+    discoveredProfessions?: string[]
+  ) => {
+    const nowTs = Date.now();
+    const stampedEntries = entries.map((entry, idx) => ({
+      ...entry,
+      id:
+        entry.id && String(entry.id).trim().length > 0
+          ? String(entry.id).trim()
+          : `srvnum-imp-${nowTs}-${idx}`,
+      category: (entry.profession || entry.category || 'خدمات عامة').trim(),
+      updatedAt: nowTs,
+    }));
+    const importedIdsSet = new Set(stampedEntries.map((e) => e.id));
+
+    updateAndPersist((prev) => {
+      const mergedProfs = Array.from(
+        new Set([
+          ...(prev.settings.serviceProfessions || []),
+          ...(discoveredProfessions || []),
+          ...stampedEntries
+            .map((e) => (e.profession || e.category || '').trim())
+            .filter(Boolean),
+        ])
+      );
+      return {
+        ...prev,
+        serviceNumbers: [...stampedEntries, ...prev.serviceNumbers],
+        deletedRecordIds: (prev.deletedRecordIds || []).filter(
+          (id) => !importedIdsSet.has(id)
+        ),
+        settings: {
+          ...prev.settings,
+          serviceProfessions: mergedProfs,
+          updatedAt: nowTs,
+        },
+      };
+    });
   };
 
   const handleUpdateServiceNumber = (updated: ServicePhoneEntry) => {
@@ -3526,6 +3564,7 @@ export default function App() {
             onToggleCommentLike={handleToggleCommentLike}
             onAddCommentReply={handleAddCommentReply}
             onAddServiceNumber={handleAddServiceNumber}
+            onImportServiceNumbersBatch={handleImportServiceNumbersBatch}
             onUpdateServiceNumber={handleUpdateServiceNumber}
             onDeleteServiceNumber={handleDeleteServiceNumber}
             onAddTawsila={handleAddTawsila}

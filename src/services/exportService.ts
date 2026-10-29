@@ -801,3 +801,182 @@ function extractStoresFrom2DMatrix(
 
   return results;
 }
+
+/**
+ * SMART EXCEL SERVICE NUMBERS IMPORTER
+ * Parses rows formatted as:
+ * 1. الأول: اسم مقدم الخدمة (title)
+ * 2. الثاني: المهنة (profession / category)
+ * 3. الثالث: تفاصيل (notes)
+ * 4. الرابع: رقم الهاتف (phone)
+ */
+export async function parseServiceNumbersFromExcelFile(
+  file: File
+): Promise<{
+  entries: ServicePhoneEntry[];
+  discoveredProfessions: string[];
+}> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array' });
+  const firstSheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[firstSheetName];
+  if (!sheet) {
+    return { entries: [], discoveredProfessions: [] };
+  }
+
+  const rawMatrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: '',
+  });
+
+  const cleanMatrix: string[][] = rawMatrix
+    .map((row) => (Array.isArray(row) ? row.map((c) => String(c ?? '').trim()) : []))
+    .filter((row) => row.some((cell) => cell.length > 0));
+
+  if (cleanMatrix.length === 0) {
+    return { entries: [], discoveredProfessions: [] };
+  }
+
+  const isServiceHeaderCell = (val: string) => {
+    const v = val.toLowerCase();
+    return (
+      v.includes('اسم مقدم') ||
+      v.includes('مقدم الخدمة') ||
+      v.includes('مقدم الخدمه') ||
+      v === 'الاسم' ||
+      v === 'اسم' ||
+      v === 'المهنة' ||
+      v === 'المهنه' ||
+      v === 'تفاصيل' ||
+      v === 'التفاصيل' ||
+      v === 'ملاحظات' ||
+      v.includes('رقم الهاتف') ||
+      v === 'الهاتف' ||
+      v === 'تليفون' ||
+      v === 'موبايل'
+    );
+  };
+
+  const firstRow = cleanMatrix[0] || [];
+  const hasTopHeader =
+    firstRow.filter((cell) => isServiceHeaderCell(cell)).length >= 2 ||
+    isServiceHeaderCell(firstRow[0] || '');
+
+  const headerRow = hasTopHeader ? firstRow : [];
+  const dataRows = hasTopHeader ? cleanMatrix.slice(1) : cleanMatrix;
+
+  const entries: ServicePhoneEntry[] = [];
+  const discoveredProfessionsSet = new Set<string>();
+  const nowBase = Date.now();
+
+  dataRows.forEach((row, idx) => {
+    const nonEmptyCells = row.filter((c) => c.length > 0);
+    if (nonEmptyCells.length === 0) return;
+
+    let title = '';
+    let profession = '';
+    let notes = '';
+    let phone = '';
+    let locationUrl = '';
+
+    // 1. Positional mapping: (1) اسم مقدم الخدمة, (2) المهنة, (3) تفاصيل, (4) رقم الهاتف
+    if (row.length >= 4) {
+      title = (row[0] || '').trim();
+      profession = (row[1] || '').trim();
+      notes = (row[2] || '').trim();
+      phone = (row[3] || '').trim();
+      if (row[4] && /^https?:\/\//i.test(row[4].trim())) {
+        locationUrl = row[4].trim();
+      }
+    }
+
+    // 2. If a header row exists, refine mapping for any named columns
+    if (hasTopHeader && headerRow.length > 0) {
+      let hTitle = '';
+      let hProf = '';
+      let hNotes = '';
+      let hPhone = '';
+      let hLoc = '';
+      headerRow.forEach((h, cIdx) => {
+        const val = (row[cIdx] || '').trim();
+        if (!val) return;
+        const hl = h.toLowerCase();
+        if (hl.includes('اسم') || hl.includes('مقدم')) hTitle = val;
+        else if (hl.includes('مهن') || hl.includes('تخصص') || hl.includes('قسم'))
+          hProf = val;
+        else if (hl.includes('تفاصيل') || hl.includes('ملاحظ') || hl.includes('وصف'))
+          hNotes = hNotes ? `${hNotes} - ${val}` : val;
+        else if (
+          hl.includes('هاتف') ||
+          hl.includes('تليفون') ||
+          hl.includes('موبايل') ||
+          hl.includes('رقم')
+        )
+          hPhone = val;
+        else if (hl.includes('لوكيشن') || hl.includes('موقع') || hl.includes('خريطة'))
+          hLoc = val;
+      });
+      if (hTitle) title = hTitle;
+      if (hProf) profession = hProf;
+      if (hNotes) notes = hNotes;
+      if (hPhone) phone = hPhone;
+      if (hLoc) locationUrl = hLoc;
+    }
+
+    // 3. Fallback if row had fewer than 4 cells or phone/name were in different positions
+    if (!title || !phone) {
+      const remaining: string[] = [];
+      row.forEach((cell) => {
+        const c = (cell || '').trim();
+        if (!c) return;
+        if (!locationUrl && /^https?:\/\//i.test(c)) {
+          locationUrl = c;
+        } else if (!phone && /[0-9]{7,15}/.test(c.replace(/[\s-]/g, ''))) {
+          phone = c;
+        } else {
+          remaining.push(c);
+        }
+      });
+      if (!title && remaining.length > 0) {
+        title = remaining[0];
+      }
+      if (!profession && remaining.length > 1) {
+        profession = remaining[1];
+      }
+      if (!notes && remaining.length > 2) {
+        notes = remaining.slice(2).join(' - ');
+      }
+    }
+
+    if (!title && !phone) return;
+    const finalTitle = title || `مقدم خدمة #${idx + 1}`;
+    const finalProfession = profession || 'خدمات عامة';
+    const finalPhone = phone || '01000000000';
+
+    if (profession && profession.trim()) {
+      discoveredProfessionsSet.add(profession.trim());
+    }
+
+    entries.push({
+      id: `srv-imp-${nowBase}-${idx}`,
+      title: finalTitle,
+      profession: finalProfession,
+      category: finalProfession,
+      notes: notes || undefined,
+      phone: finalPhone,
+      locationUrl: locationUrl || '',
+      likes: [],
+      viewsCount: 0,
+      ratings: {},
+      comments: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: nowBase + idx,
+    });
+  });
+
+  return {
+    entries,
+    discoveredProfessions: Array.from(discoveredProfessionsSet),
+  };
+}
+

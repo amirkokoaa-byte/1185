@@ -53,6 +53,10 @@ interface PortalSectionsWorkspaceProps {
   onToggleCommentLike: (storeId: string, commentId: string) => void;
   onAddCommentReply: (storeId: string, commentId: string, reply: StoreReplyItem) => void;
   onAddServiceNumber: (entry: ServicePhoneEntry) => void;
+  onImportServiceNumbersBatch?: (
+    entries: ServicePhoneEntry[],
+    discoveredProfessions?: string[]
+  ) => void;
   onUpdateServiceNumber: (entry: ServicePhoneEntry) => void;
   onDeleteServiceNumber: (id: string) => void;
   onAddTawsila: (ride: TawsilaRideItem) => void;
@@ -285,6 +289,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onToggleCommentLike,
   onAddCommentReply,
   onAddServiceNumber,
+  onImportServiceNumbersBatch,
   onUpdateServiceNumber,
   onDeleteServiceNumber,
   onAddTawsila,
@@ -574,6 +579,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         settings={state.settings}
         currentUser={currentUser}
         onAddServiceNumber={onAddServiceNumber}
+        onImportServiceNumbersBatch={onImportServiceNumbersBatch}
         onUpdateServiceNumber={onUpdateServiceNumber}
         onDeleteServiceNumber={onDeleteServiceNumber}
         onUpdateSettings={onUpdateSettings}

@@ -1588,18 +1588,20 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
              ==================================================================== */}
           {activeSubTab === 'accounts' && (
             <FluentCard className="space-y-4">
-              <div className="pb-3 border-b border-[#334155]">
-                <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
-                  <Users className="w-5 h-5 text-sky-400" />
-                  <span>2. الحسابات المسجلة في الموقع ({state.users.length})</span>
-                </h3>
-                <p className="text-xs text-[#94A3B8]">
-                  قائمة بجميع الحسابات المسجلة مع أزرار (إعطاء صلاحية مشرف، تعديل، حذف، تعليق الحساب). المشرف يراجع المنشورات ويعدل على جميع الأقسام ما عدا الإعدادات.
-                </p>
+              <div className="pb-3 border-b border-[#334155] flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                    <Users className="w-5 h-5 text-sky-400" />
+                    <span>2. الحسابات المسجلة في الموقع ({state.users.length})</span>
+                  </h3>
+                  <p className="text-xs text-[#94A3B8]">
+                    يتم عرض حتى 50 حساباً هنا — اضغط على زر &quot;المزيد&quot; بالأسفل لعرض جميع الحسابات المسجلة بكامل تفاصيلها في شاشة كاملة.
+                  </p>
+                </div>
               </div>
 
               <div className="space-y-3">
-                {state.users.map((u) => (
+                {state.users.slice(0, 50).map((u) => (
                   <div
                     key={u.id}
                     className={`fluent-reveal p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
@@ -1723,6 +1725,196 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* زر المزيد في الأسفل لفتح شاشة منبثقة بعرض الشاشة بها جميع الحسابات وتفاصيلها */}
+              <div className="pt-3 border-t border-[#334155] flex justify-center">
+                <FluentButton
+                  variant="primary"
+                  size="lg"
+                  onClick={() => {
+                    const modalEl = document.getElementById('all-accounts-fullscreen-modal');
+                    if (modalEl) {
+                      modalEl.classList.remove('hidden');
+                      modalEl.classList.add('flex');
+                    }
+                  }}
+                  className="px-8 py-2.5 text-sm font-extrabold"
+                >
+                  <Users className="w-4 h-4" />
+                  <span>المزيد ({state.users.length} حساب)</span>
+                </FluentButton>
+              </div>
+
+              {/* شاشة منبثقة بعرض الشاشة كاملة تعرض جميع الحسابات المسجلة بكامل تفاصيلها */}
+              <div
+                id="all-accounts-fullscreen-modal"
+                className="fixed inset-0 z-50 hidden items-center justify-center p-2 sm:p-4 bg-[#020617]/85 backdrop-blur-md"
+                onClick={() => {
+                  const modalEl = document.getElementById('all-accounts-fullscreen-modal');
+                  if (modalEl) {
+                    modalEl.classList.add('hidden');
+                    modalEl.classList.remove('flex');
+                  }
+                }}
+              >
+                <div
+                  className="w-screen max-w-[98vw] max-h-[92vh] flex flex-col rounded-2xl border-2 border-slate-300 bg-white text-black shadow-2xl overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-200 bg-slate-100 shrink-0">
+                    <div>
+                      <h3 className="text-base sm:text-xl font-extrabold text-black flex items-center gap-2">
+                        <Users className="w-5 h-5 text-sky-700" />
+                        <span>جميع الحسابات المسجلة بالكامل ({state.users.length} حساب)</span>
+                      </h3>
+                      <p className="text-xs font-bold text-slate-700 mt-0.5">
+                        عرض كامل لجميع الحسابات وتفاصيلها وصلاحيات الإدارة بعرض الشاشة
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const modalEl = document.getElementById('all-accounts-fullscreen-modal');
+                        if (modalEl) {
+                          modalEl.classList.add('hidden');
+                          modalEl.classList.remove('flex');
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-extrabold cursor-pointer shadow"
+                    >
+                      إغلاق
+                    </button>
+                  </div>
+
+                  <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden space-y-3 flex-1">
+                    {state.users.map((u, idx) => (
+                      <div
+                        key={u.id}
+                        className={`p-3.5 sm:p-4 rounded-xl border-2 flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
+                          u.isBanned
+                            ? 'bg-rose-50 border-rose-400'
+                            : 'bg-slate-50 border-slate-300'
+                        }`}
+                      >
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-lg bg-sky-700 text-white text-xs font-extrabold">
+                              #{idx + 1}
+                            </span>
+                            <span className="text-sm sm:text-base font-extrabold text-black">
+                              {u.username}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[11px] font-extrabold border ${
+                                u.role === 'admin'
+                                  ? 'bg-amber-100 text-amber-950 border-amber-400'
+                                  : u.role === 'moderator'
+                                  ? 'bg-emerald-100 text-emerald-950 border-emerald-400'
+                                  : 'bg-sky-100 text-sky-950 border-sky-300'
+                              }`}
+                            >
+                              {u.role === 'admin'
+                                ? 'مدير النظام (Admin)'
+                                : u.role === 'moderator'
+                                ? 'مشرف'
+                                : 'مستخدم'}
+                            </span>
+                            {u.isBanned && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-[11px] font-extrabold">
+                                حساب معلق (موقوف)
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-800">
+                            <span>
+                              اسم الحساب (لتسجيل الدخول):{' '}
+                              <strong className="text-black font-extrabold">
+                                {u.accountName || u.username}
+                              </strong>
+                            </span>
+                            <span>
+                              الاسم المعروض للمستخدمين:{' '}
+                              <strong className="text-emerald-800 font-extrabold">
+                                {u.username}
+                              </strong>
+                            </span>
+                            <span>
+                              الباسورد:{' '}
+                              <code className="px-1.5 py-0.5 rounded bg-white border border-slate-300 text-sky-900 font-mono-tabular font-extrabold">
+                                {u.password}
+                              </code>
+                            </span>
+                            {u.phone && (
+                              <span>
+                                الهاتف:{' '}
+                                <strong className="text-black font-mono-tabular font-extrabold">
+                                  {u.phone}
+                                </strong>
+                              </span>
+                            )}
+                            <span>
+                              تاريخ التسجيل:{' '}
+                              <span className="font-mono-tabular font-extrabold">
+                                {new Date(u.createdAt).toLocaleDateString('ar-EG')}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {u.role !== 'admin' && (
+                            <FluentButton
+                              variant={u.role === 'moderator' ? 'emerald' : 'secondary'}
+                              size="sm"
+                              onClick={() => handleToggleModeratorRole(u)}
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>
+                                {u.role === 'moderator'
+                                  ? 'إلغاء صلاحية مشرف'
+                                  : 'إعطاء صلاحية مشرف'}
+                              </span>
+                            </FluentButton>
+                          )}
+
+                          <FluentButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => openEditUserModal(u)}
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-sky-400" />
+                            <span>تعديل</span>
+                          </FluentButton>
+
+                          <FluentButton
+                            variant="danger"
+                            size="sm"
+                            onClick={() => {
+                              onDeleteUserAccount(u.id);
+                              showToast(`تم حذف الحساب "${u.username}" نهائياً.`);
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>حذف</span>
+                          </FluentButton>
+
+                          <FluentButton
+                            variant={u.isBanned ? 'emerald' : 'secondary'}
+                            size="sm"
+                            onClick={() => handleToggleSuspendUser(u)}
+                          >
+                            <Ban className="w-3.5 h-3.5 text-amber-400" />
+                            <span>
+                              {u.isBanned ? 'إلغاء تعليق الحساب' : 'تعليق الحساب'}
+                            </span>
+                          </FluentButton>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </FluentCard>
           )}

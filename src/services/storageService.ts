@@ -788,9 +788,11 @@ export function mergeStoresWithImages(
         ...st,
         ...baseMerged,
         id: st.id,
-        category: isPermanentDreamPlazaStore(st)
-          ? DREAM_PLAZA_CANONICAL_CATEGORY
-          : canonicalizeStoreCategoryName(baseMerged.category || st.category),
+        category: canonicalizeStoreCategoryName(
+          baseMerged.category ||
+            st.category ||
+            (isPermanentDreamPlazaStore(st) ? DREAM_PLAZA_CANONICAL_CATEGORY : '')
+        ),
         menuImages: resolvedImages,
         updatedAt: Math.max(prevUpdated, incUpdated) || st.updatedAt,
         imagesExplicitlyCleared: explicitlyCleared && resolvedImages.length === 0,
@@ -816,9 +818,15 @@ export function mergeStoresWithImages(
   );
 }
 
-function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] {
+function normalizeStoresList(
+  rawStores: StoreListingItem[],
+  deletedIds?: string[]
+): StoreListingItem[] {
+  const deletedSet = new Set(deletedIds || []);
   const vault = loadStoreImagesVault();
-  const ensuredInput = ensureStoreListHasIds(rawStores);
+  const ensuredInput = ensureStoreListHasIds(rawStores).filter(
+    (st) => !deletedSet.has(st.id)
+  );
 
   // Ensure all 24 permanent Dream Plaza stores are always present, merged with any existing data/photos
   const byId = new Map<string, StoreListingItem>();
@@ -831,7 +839,7 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
 
   // 1. Add non-permanent stores in their current order first (so newly added stores appear at top)
   for (const st of ensuredInput) {
-    if (!PERMANENT_DREAM_PLAZA_IDS.has(st.id) && !addedIds.has(st.id)) {
+    if (!PERMANENT_DREAM_PLAZA_IDS.has(st.id) && !addedIds.has(st.id) && !deletedSet.has(st.id)) {
       combinedList.push(st);
       addedIds.add(st.id);
     }
@@ -846,7 +854,9 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
         ...existingPerm,
         id: permStore.id,
         name: existingPerm.name?.trim() || permStore.name,
-        category: DREAM_PLAZA_CANONICAL_CATEGORY,
+        category: existingPerm.category?.trim()
+          ? canonicalizeStoreCategoryName(existingPerm.category)
+          : DREAM_PLAZA_CANONICAL_CATEGORY,
         phone: existingPerm.phone?.trim() || permStore.phone,
         details: existingPerm.details?.trim() || permStore.details,
         subCategory: existingPerm.subCategory?.trim() || permStore.subCategory,
@@ -860,7 +870,9 @@ function normalizeStoresList(rawStores: StoreListingItem[]): StoreListingItem[] 
   return combinedList.map((s, idx) => {
     const ensuredId = ensureValidStoreId(s, idx);
     const cleanName = String(s.name || '').trim() || `محل #${idx + 1}`;
-    const cleanCategory = isPermanentDreamPlazaStore(s)
+    const cleanCategory = s.category?.trim()
+      ? canonicalizeStoreCategoryName(s.category)
+      : isPermanentDreamPlazaStore(s)
       ? DREAM_PLAZA_CANONICAL_CATEGORY
       : canonicalizeStoreCategoryName(s.category);
     const nameKey = normalizeStoreNameKey(cleanName);
@@ -1145,10 +1157,23 @@ function mergeCollectionById<T extends { id: string }>(
   }
 
   // Safely preserve any non-deleted items in safeBase that were not yet in safeIncoming
+  const nowMs = Date.now();
   for (const loc of safeBase) {
     if (!seenIds.has(loc.id) && !deletedSet.has(loc.id)) {
-      result.push(loc);
-      seenIds.add(loc.id);
+      if (authoritativeCloud && !PERMANENT_DREAM_PLAZA_IDS.has(loc.id)) {
+        const locTs = Math.max(
+          parseItemTimestampMs((loc as unknown as { updatedAt?: unknown }).updatedAt),
+          parseItemTimestampMs((loc as unknown as { createdAt?: unknown }).createdAt)
+        );
+        // Keep local item when authoritative cloud snapshot arrives only if it was just created/edited (< 15s ago)
+        if (locTs > 0 && nowMs - locTs < 15000) {
+          result.push(loc);
+          seenIds.add(loc.id);
+        }
+      } else {
+        result.push(loc);
+        seenIds.add(loc.id);
+      }
     }
   }
 
@@ -1791,6 +1816,9 @@ class HybridStorageEngine {
   private hasSyncedPermanentDreamPlazaToCloud = false;
   private overflowStoreImagesChunk1: Record<string, string[]> = {};
   private overflowStoreImagesChunk2: Record<string, string[]> = {};
+  private lastSectionSignatures: Record<string, string> = {};
+  private firebaseCloudPollTimer: ReturnType<typeof setInterval> | null = null;
+  private isFirebaseCloudPolling = false;
   private listeners: Array<(state: PlatformDatabaseState) => void> = [];
   private cloudWriteErrorListeners: Array<(message: string) => void> = [];
   private connectionStatusListeners: Array<
@@ -1849,17 +1877,24 @@ class HybridStorageEngine {
       // 3. Offline-only cache hydration: IndexedDB is used strictly as an offline cache when internet is unavailable
       this.hydrateFromIndexedDBInstant();
 
-      // 4. Auto-Sync offline additions/edits/deletions with Firebase & Server as soon as internet reconnects or app gains focus
+      // 4. Auto-Sync offline additions/edits/deletions with Firebase & Server as soon as internet reconnects or app gains focus (including iOS Safari pageshow)
       window.addEventListener('online', () => {
         this.flushOfflinePendingSync();
         this.pullLatestDeltaNow();
+        this.pullFromFirebaseCloudNow();
       });
       window.addEventListener('focus', () => {
         this.pullLatestDeltaNow();
+        this.pullFromFirebaseCloudNow();
+      });
+      window.addEventListener('pageshow', () => {
+        this.pullLatestDeltaNow();
+        this.pullFromFirebaseCloudNow();
       });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           this.pullLatestDeltaNow();
+          this.pullFromFirebaseCloudNow();
         }
       });
     }
@@ -1871,8 +1906,54 @@ class HybridStorageEngine {
     return Boolean(fb && fb.enabled && fb.apiKey && fb.projectId);
   }
 
+  public async pullFromFirebaseCloudNow() {
+    if (!this.firestoreDb || this.isFirebaseCloudPolling) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    this.isFirebaseCloudPolling = true;
+    try {
+      const [
+        storesSnap,
+        servicesSnap,
+        communitySnap,
+        adsSnap,
+        tawsilaSnap,
+        settingsUsersSnap,
+      ] = await Promise.all([
+        getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'section_stores')).catch(() => null),
+        getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'section_services')).catch(() => null),
+        getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'section_community')).catch(() => null),
+        getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'section_ads')).catch(() => null),
+        getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'section_tawsila')).catch(() => null),
+        getDoc(doc(this.firestoreDb, 'fluent_portal_v3', 'section_settings_users')).catch(() => null),
+      ]);
+      if (storesSnap && storesSnap.exists()) {
+        this.applySectionStoresSnapshot(storesSnap.data());
+      }
+      if (servicesSnap && servicesSnap.exists()) {
+        this.applySectionServicesSnapshot(servicesSnap.data());
+      }
+      if (communitySnap && communitySnap.exists()) {
+        this.applySectionCommunitySnapshot(communitySnap.data());
+      }
+      if (adsSnap && adsSnap.exists()) {
+        this.applySectionAdsSnapshot(adsSnap.data());
+      }
+      if (tawsilaSnap && tawsilaSnap.exists()) {
+        this.applySectionTawsilaSnapshot(tawsilaSnap.data());
+      }
+      if (settingsUsersSnap && settingsUsersSnap.exists()) {
+        this.applySectionSettingsUsersSnapshot(settingsUsersSnap.data());
+      }
+    } catch {
+      // ignore transient mobile network errors
+    } finally {
+      this.isFirebaseCloudPolling = false;
+    }
+  }
+
   public async pullLatestDeltaNow() {
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return;
+    this.pullFromFirebaseCloudNow();
     // Wait for initial Firebase onSnapshot response first when Firebase is enabled
     const waitForFirebaseFirst =
       this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated;
@@ -2658,7 +2739,9 @@ class HybridStorageEngine {
       squareAds: mergedSquareAds,
       popupAd: mergedPopupAd,
       messages: mergedMessages,
-      stores: normalizeStoresList(mergedStoresRaw),
+      stores: this.enrichStoresWithOverflowChunks(
+        normalizeStoresList(mergedStoresRaw, mergedDeletedIds)
+      ),
       serviceNumbers: normalizeServiceNumbersList(mergedServicesRaw),
       tawsilaRides: normalizeTawsilaList(mergedTawsilaRaw),
       communityPosts: normalizeCommunityPostsList(mergedCommunityRaw),
@@ -2998,16 +3081,19 @@ class HybridStorageEngine {
       new Set([...(base.deletedRecordIds || []), ...patchDeleted])
     );
 
-    let mergedStores = Array.isArray(chatPatch.stores)
-      ? mergeStoresWithImages(
-          base.stores,
-          chatPatch.stores as StoreListingItem[],
-          mergedDeletedIds,
-          true
-        )
-      : normalizeStoresList(
-          base.stores.filter((st) => !mergedDeletedIds.includes(st.id))
-        );
+    let mergedStores = this.enrichStoresWithOverflowChunks(
+      Array.isArray(chatPatch.stores)
+        ? mergeStoresWithImages(
+            base.stores,
+            chatPatch.stores as StoreListingItem[],
+            mergedDeletedIds,
+            true
+          )
+        : normalizeStoresList(
+            base.stores.filter((st) => !mergedDeletedIds.includes(st.id)),
+            mergedDeletedIds
+          )
+    );
     if (
       chatPatch.storeInteractionsMap &&
       typeof chatPatch.storeInteractionsMap === 'object'
@@ -3438,23 +3524,30 @@ class HybridStorageEngine {
           }
         );
       } else {
-        // Initialize Firestore and enable IndexedDB persistence for automatic cloud-to-local cache management
+        // Initialize Firestore with experimentalAutoDetectLongPolling for reliable sync on iPhone (iOS Safari) and Android mobile networks
         try {
-          this.firestoreDb = getFirestore(this.firebaseApp);
-          await enableIndexedDbPersistence(this.firestoreDb).catch(() => {
-            // If multiple tabs are open or persistence was already configured, fallback to multi-tab local cache if needed
+          this.firestoreDb = initializeFirestore(this.firebaseApp, {
+            experimentalAutoDetectLongPolling: true,
+            localCache: persistentLocalCache({
+              tabManager: persistentMultipleTabManager(),
+            }),
           });
         } catch {
           try {
-            this.firestoreDb = initializeFirestore(this.firebaseApp, {
-              localCache: persistentLocalCache({
-                tabManager: persistentMultipleTabManager(),
-              }),
-            });
+            this.firestoreDb = getFirestore(this.firebaseApp);
+            await enableIndexedDbPersistence(this.firestoreDb).catch(() => {});
           } catch {
             this.firestoreDb = getFirestore(this.firebaseApp);
           }
         }
+
+        if (this.firebaseCloudPollTimer) {
+          clearInterval(this.firebaseCloudPollTimer);
+        }
+        this.firebaseCloudPollTimer = setInterval(() => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+          this.pullFromFirebaseCloudNow();
+        }, 3500);
 
         const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
         const fastChatDocRef = doc(
@@ -3962,21 +4055,94 @@ class HybridStorageEngine {
           await setDoc(docRef, ultraCompactPayload);
         };
 
-        firebaseWritePromises.push(
-          this.writeStoresToFirestoreSafe(
-            normalizedNextStores,
-            normalizedNextState.settings.storeCategories,
-            normalizedNextState.deletedRecordIds || [],
-            tabId,
-            nowIso
-          ),
-          setDoc(servicesDocRef, sectionServicesPayload),
-          setDoc(communityDocRef, sectionCommunityPayload),
-          setDoc(adsDocRef, sectionAdsPayload),
-          setDoc(tawsilaDocRef, sectionTawsilaPayload),
-          setDoc(settingsUsersDocRef, sectionSettingsUsersPayload),
-          writeWorkspaceSafe()
-        );
+        const storesSig = JSON.stringify({
+          stores: compactCloudStores,
+          storeCategories: normalizedNextState.settings.storeCategories,
+          deletedRecordIds: normalizedNextState.deletedRecordIds || [],
+        });
+        const servicesSig = JSON.stringify({
+          serviceNumbers: sectionServicesPayload.serviceNumbers,
+          serviceProfessions: sectionServicesPayload.serviceProfessions,
+          deletedRecordIds: normalizedNextState.deletedRecordIds || [],
+        });
+        const communitySig = JSON.stringify({
+          communityPosts: sectionCommunityPayload.communityPosts,
+          buySellPosts: sectionCommunityPayload.buySellPosts,
+          utilityPosts: sectionCommunityPayload.utilityPosts,
+          utilitySubmissions: sectionCommunityPayload.utilitySubmissions,
+          deletedRecordIds: normalizedNextState.deletedRecordIds || [],
+        });
+        const adsSig = JSON.stringify({
+          topBanners: sectionAdsPayload.topBanners,
+          squareAds: sectionAdsPayload.squareAds,
+          popupAd: sectionAdsPayload.popupAd,
+          adPackagesPricing: sectionAdsPayload.adPackagesPricing,
+          deletedRecordIds: normalizedNextState.deletedRecordIds || [],
+        });
+        const tawsilaSig = JSON.stringify({
+          tawsilaRides: sectionTawsilaPayload.tawsilaRides,
+          deletedRecordIds: normalizedNextState.deletedRecordIds || [],
+        });
+        const settingsUsersSig = JSON.stringify({
+          users: sectionSettingsUsersPayload.users,
+          messages: sectionSettingsUsersPayload.messages,
+          settings: sectionSettingsUsersPayload.settings,
+          deletedRecordIds: normalizedNextState.deletedRecordIds || [],
+        });
+
+        const hasPriorSignatures = Object.keys(this.lastSectionSignatures).length > 0;
+        const storesChanged =
+          !hasPriorSignatures || this.lastSectionSignatures.stores !== storesSig;
+        const servicesChanged =
+          !hasPriorSignatures || this.lastSectionSignatures.services !== servicesSig;
+        const communityChanged =
+          !hasPriorSignatures || this.lastSectionSignatures.community !== communitySig;
+        const adsChanged =
+          !hasPriorSignatures || this.lastSectionSignatures.ads !== adsSig;
+        const tawsilaChanged =
+          !hasPriorSignatures || this.lastSectionSignatures.tawsila !== tawsilaSig;
+        const settingsUsersChanged =
+          !hasPriorSignatures ||
+          this.lastSectionSignatures.settingsUsers !== settingsUsersSig;
+
+        this.lastSectionSignatures = {
+          stores: storesSig,
+          services: servicesSig,
+          community: communitySig,
+          ads: adsSig,
+          tawsila: tawsilaSig,
+          settingsUsers: settingsUsersSig,
+        };
+
+        if (storesChanged) {
+          firebaseWritePromises.push(
+            this.writeStoresToFirestoreSafe(
+              normalizedNextStores,
+              normalizedNextState.settings.storeCategories,
+              normalizedNextState.deletedRecordIds || [],
+              tabId,
+              nowIso
+            )
+          );
+        }
+        if (servicesChanged) {
+          firebaseWritePromises.push(setDoc(servicesDocRef, sectionServicesPayload));
+        }
+        if (communityChanged) {
+          firebaseWritePromises.push(setDoc(communityDocRef, sectionCommunityPayload));
+        }
+        if (adsChanged) {
+          firebaseWritePromises.push(setDoc(adsDocRef, sectionAdsPayload));
+        }
+        if (tawsilaChanged) {
+          firebaseWritePromises.push(setDoc(tawsilaDocRef, sectionTawsilaPayload));
+        }
+        if (settingsUsersChanged) {
+          firebaseWritePromises.push(
+            setDoc(settingsUsersDocRef, sectionSettingsUsersPayload)
+          );
+        }
+        firebaseWritePromises.push(writeWorkspaceSafe());
       }
     }
 

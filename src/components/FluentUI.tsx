@@ -137,7 +137,7 @@ interface FluentModalProps {
   onClose: () => void;
   title: string;
   subtitle?: string;
-  maxWidth?: 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
+  maxWidth?: 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | 'full';
   theme?: 'dark' | 'light';
   children: React.ReactNode;
 }
@@ -175,6 +175,7 @@ export const FluentModal: React.FC<FluentModalProps> = ({
     '2xl': 'max-w-2xl',
     '3xl': 'max-w-3xl',
     '4xl': 'max-w-4xl',
+    full: 'w-screen max-w-[98vw]',
   }[maxWidth];
 
   const isLight = theme === 'light';

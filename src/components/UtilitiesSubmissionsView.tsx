@@ -91,6 +91,14 @@ interface UtilitiesSubmissionsViewProps {
     reason: CommunityReportReason
   ) => void;
   onDeleteUtilityComment: (postId: string, commentId: string) => void;
+  onEditUtilityComment?: (postId: string, commentId: string, newText: string) => void;
+  onEditUtilityReply?: (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    newText: string
+  ) => void;
+  onDeleteUtilityReply?: (postId: string, commentId: string, replyId: string) => void;
   onRestoreReportedUtilityComment: (postId: string, commentId: string) => void;
   onTogglePinUtilityComment: (postId: string, commentId: string) => void;
   onToggleHideUtilityComment?: (postId: string, commentId: string) => void;
@@ -210,6 +218,9 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   onAddReplyToUtilityComment,
   onReportUtilityComment,
   onDeleteUtilityComment,
+  onEditUtilityComment,
+  onEditUtilityReply,
+  onDeleteUtilityReply,
   onRestoreReportedUtilityComment,
   onTogglePinUtilityComment,
   onToggleHideUtilityComment,
@@ -916,6 +927,9 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
         onAddReplyToComment={onAddReplyToUtilityComment}
         onReportComment={onReportUtilityComment}
         onDeleteComment={onDeleteUtilityComment}
+        onEditComment={onEditUtilityComment}
+        onEditReply={onEditUtilityReply}
+        onDeleteReply={onDeleteUtilityReply}
         onRestoreReportedComment={onRestoreReportedUtilityComment}
         onTogglePinComment={onTogglePinUtilityComment}
         onToggleHideComment={onToggleHideUtilityComment}

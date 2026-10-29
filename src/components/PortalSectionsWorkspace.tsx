@@ -42,6 +42,7 @@ interface PortalSectionsWorkspaceProps {
   onOpenAuthModal: () => void;
   onAddStore: (store: StoreListingItem) => void;
   onUpdateStore: (store: StoreListingItem) => void;
+  onGeneralizeStoreImageStyle?: (styleVariant: 1 | 2) => void;
   onIncrementStoreViews: (storeId: string) => void;
   onImportStoresBatch: (stores: StoreListingItem[]) => void;
   onDeleteStore: (id: string) => void;
@@ -95,6 +96,14 @@ interface PortalSectionsWorkspaceProps {
     reason: CommunityReportReason
   ) => void;
   onDeleteCommunityComment: (postId: string, commentId: string) => void;
+  onEditCommunityComment?: (postId: string, commentId: string, newText: string) => void;
+  onEditCommunityReply?: (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    newText: string
+  ) => void;
+  onDeleteCommunityReply?: (postId: string, commentId: string, replyId: string) => void;
   onRestoreReportedCommunityComment: (postId: string, commentId: string) => void;
   onTogglePinCommunityComment: (postId: string, commentId: string) => void;
   onToggleHideCommunityComment?: (postId: string, commentId: string) => void;
@@ -226,6 +235,14 @@ interface PortalSectionsWorkspaceProps {
     reason: CommunityReportReason
   ) => void;
   onDeleteUtilityComment: (postId: string, commentId: string) => void;
+  onEditUtilityComment?: (postId: string, commentId: string, newText: string) => void;
+  onEditUtilityReply?: (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    newText: string
+  ) => void;
+  onDeleteUtilityReply?: (postId: string, commentId: string, replyId: string) => void;
   onRestoreReportedUtilityComment: (postId: string, commentId: string) => void;
   onTogglePinUtilityComment: (postId: string, commentId: string) => void;
   onToggleHideUtilityComment?: (postId: string, commentId: string) => void;
@@ -262,6 +279,14 @@ interface PortalSectionsWorkspaceProps {
     reason: CommunityReportReason
   ) => void;
   onDeleteBuySellComment: (postId: string, commentId: string) => void;
+  onEditBuySellComment?: (postId: string, commentId: string, newText: string) => void;
+  onEditBuySellReply?: (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    newText: string
+  ) => void;
+  onDeleteBuySellReply?: (postId: string, commentId: string, replyId: string) => void;
   onRestoreReportedBuySellComment: (postId: string, commentId: string) => void;
   onTogglePinBuySellComment: (postId: string, commentId: string) => void;
   onToggleHideBuySellComment?: (postId: string, commentId: string) => void;
@@ -278,6 +303,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onOpenAuthModal,
   onAddStore,
   onUpdateStore,
+  onGeneralizeStoreImageStyle,
   onIncrementStoreViews,
   onImportStoresBatch,
   onDeleteStore,
@@ -312,6 +338,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onAddReplyToCommunityComment,
   onReportCommunityComment,
   onDeleteCommunityComment,
+  onEditCommunityComment,
+  onEditCommunityReply,
+  onDeleteCommunityReply,
   onRestoreReportedCommunityComment,
   onTogglePinCommunityComment,
   onToggleHideCommunityComment,
@@ -377,6 +406,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onAddReplyToUtilityComment,
   onReportUtilityComment,
   onDeleteUtilityComment,
+  onEditUtilityComment,
+  onEditUtilityReply,
+  onDeleteUtilityReply,
   onRestoreReportedUtilityComment,
   onTogglePinUtilityComment,
   onToggleHideUtilityComment,
@@ -397,6 +429,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onAddReplyToBuySellComment,
   onReportBuySellComment,
   onDeleteBuySellComment,
+  onEditBuySellComment,
+  onEditBuySellReply,
+  onDeleteBuySellReply,
   onRestoreReportedBuySellComment,
   onTogglePinBuySellComment,
   onToggleHideBuySellComment,
@@ -557,6 +592,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onOpenAuthModal={onOpenAuthModal}
         onAddStore={onAddStore}
         onUpdateStore={onUpdateStore}
+        onGeneralizeStoreImageStyle={onGeneralizeStoreImageStyle}
         onIncrementStoreViews={onIncrementStoreViews}
         onImportStoresBatch={onImportStoresBatch}
         onDeleteStore={onDeleteStore}
@@ -640,6 +676,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onAddReplyToComment={onAddReplyToCommunityComment}
         onReportComment={onReportCommunityComment}
         onDeleteComment={onDeleteCommunityComment}
+        onEditComment={onEditCommunityComment}
+        onEditReply={onEditCommunityReply}
+        onDeleteReply={onDeleteCommunityReply}
         onRestoreReportedComment={onRestoreReportedCommunityComment}
         onTogglePinComment={onTogglePinCommunityComment}
         onToggleHideComment={onToggleHideCommunityComment}
@@ -717,6 +756,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onAddReplyToUtilityComment={onAddReplyToUtilityComment}
         onReportUtilityComment={onReportUtilityComment}
         onDeleteUtilityComment={onDeleteUtilityComment}
+        onEditUtilityComment={onEditUtilityComment}
+        onEditUtilityReply={onEditUtilityReply}
+        onDeleteUtilityReply={onDeleteUtilityReply}
         onRestoreReportedUtilityComment={onRestoreReportedUtilityComment}
         onTogglePinUtilityComment={onTogglePinUtilityComment}
         onToggleHideUtilityComment={onToggleHideUtilityComment}
@@ -785,6 +827,9 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onAddReplyToComment={onAddReplyToBuySellComment}
         onReportComment={onReportBuySellComment}
         onDeleteComment={onDeleteBuySellComment}
+        onEditComment={onEditBuySellComment}
+        onEditReply={onEditBuySellReply}
+        onDeleteReply={onDeleteBuySellReply}
         onRestoreReportedComment={onRestoreReportedBuySellComment}
         onTogglePinComment={onTogglePinBuySellComment}
         onToggleHideComment={onToggleHideBuySellComment}

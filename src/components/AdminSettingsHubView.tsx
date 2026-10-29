@@ -60,9 +60,11 @@ import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import {
   createBannerSvg,
   createSquareAdSvg,
+  createSuggestedStoreSvgPair,
   getEffectiveOnlineDisplayCount,
   isPermanentDreamPlazaStore,
   RealOnlinePresenceStats,
+  setGlobalDefaultStoreSvgStyle,
   storageEngine,
   uploadImageDynamic,
 } from '../services/storageService';
@@ -2445,6 +2447,113 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                         </div>
                       </div>
                     </div>
+
+                    {/* اختيار الصورة الأساسية (1) أم الصورة الثانية (2) لتظهر في الرئيسية + تعميم الشكل على جميع المحلات */}
+                    {(() => {
+                      const previewTitle = adPlaceName.trim() || 'اسم المكان (الأقواس)';
+                      const previewCat = adCategoryOrSub.trim() || 'مول دريم بلازا';
+                      const [sug1, sug2] = createSuggestedStoreSvgPair(
+                        previewTitle,
+                        previewCat
+                      );
+                      const activeStyle = state.settings.defaultStoreSvgStyle || 1;
+                      return (
+                        <div className="p-3 rounded-xl bg-[#112240] border border-sky-400/40 space-y-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-sky-300">
+                            <span>
+                              اختيار شكل الصورة للإعلان (الصورة الأساسية 1 أم الثانية 2) وتعميم الشكل لجميع المحلات:
+                            </span>
+                            {combinedAdImages.length >= 2 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const reordered = [
+                                    combinedAdImages[1],
+                                    combinedAdImages[0],
+                                    ...combinedAdImages.slice(2),
+                                  ];
+                                  applyCombinedAdImages(reordered);
+                                  showToast(
+                                    'تم تبديل الصورة الأساسية (1) والصورة الثانية (2) لتظهر في الرئيسية!'
+                                  );
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold cursor-pointer shadow"
+                              >
+                                تبديل الصورة الأساسية (1) والثانية (2) في الرئيسية
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {[
+                              {
+                                variant: 1 as const,
+                                label: 'الصورة الأساسية (1) — تصميم كلاسيكي فاتح',
+                                url: sug1,
+                              },
+                              {
+                                variant: 2 as const,
+                                label: 'الصورة الثانية (2) — تصميم ملكي داكن',
+                                url: sug2,
+                              },
+                            ].map((item) => {
+                              const isSelectedStyle = activeStyle === item.variant;
+                              return (
+                                <div
+                                  key={item.variant}
+                                  onClick={() => {
+                                    setGlobalDefaultStoreSvgStyle(item.variant);
+                                    const realOnly = combinedAdImages.filter(
+                                      (x) => !x.startsWith('data:image/svg+xml')
+                                    );
+                                    applyCombinedAdImages(
+                                      realOnly.length > 0
+                                        ? [item.url, ...realOnly]
+                                        : [item.url]
+                                    );
+                                    onUpdateSettings({
+                                      ...state.settings,
+                                      defaultStoreSvgStyle: item.variant,
+                                      updatedAt: Date.now(),
+                                    });
+                                    showToast(
+                                      `تم اختيار الشكل (${item.variant}) ليكون في الرئيسية وتعميم جميع المحلات بنفس الشكل!`
+                                    );
+                                  }}
+                                  className={`p-2 rounded-xl border-2 flex items-center gap-2.5 cursor-pointer transition-all ${
+                                    isSelectedStyle
+                                      ? 'border-emerald-400 bg-emerald-500/15'
+                                      : 'border-[#334155] bg-[#0A192F] hover:border-sky-400'
+                                  }`}
+                                >
+                                  <img
+                                    src={item.url}
+                                    alt={item.label}
+                                    className="w-16 h-16 rounded-lg object-contain bg-white border border-slate-300 shrink-0"
+                                  />
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
+                                      {item.label}
+                                    </div>
+                                    <span
+                                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                        isSelectedStyle
+                                          ? 'bg-emerald-600 text-white'
+                                          : 'bg-sky-600/30 text-sky-300'
+                                      }`}
+                                    >
+                                      {isSelectedStyle
+                                        ? 'مُفعّل في الرئيسية ومُعمّم للكل ✓'
+                                        : 'اختيار للرئيسية وتعميم للكل'}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* شبكة إدارة وترقيم صور الإعلان وتحديد الصورة الرئيسية */}
                     {combinedAdImages.length > 0 && (

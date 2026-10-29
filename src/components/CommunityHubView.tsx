@@ -135,6 +135,14 @@ interface CommunityHubViewProps {
     reason: CommunityReportReason
   ) => void;
   onDeleteComment: (postId: string, commentId: string) => void;
+  onEditComment?: (postId: string, commentId: string, newText: string) => void;
+  onEditReply?: (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    newText: string
+  ) => void;
+  onDeleteReply?: (postId: string, commentId: string, replyId: string) => void;
   onRestoreReportedComment: (postId: string, commentId: string) => void;
   onTogglePinComment: (postId: string, commentId: string) => void;
   onToggleHideComment?: (postId: string, commentId: string) => void;
@@ -344,6 +352,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   onAddReplyToComment,
   onReportComment,
   onDeleteComment,
+  onEditComment,
+  onEditReply,
+  onDeleteReply,
   onRestoreReportedComment,
   onTogglePinComment,
   onToggleHideComment,
@@ -505,6 +516,16 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [activeCommentsModalPostId, setActiveCommentsModalPostId] = useState<
     string | null
   >(null);
+  const [expandedPostContentMap, setExpandedPostContentMap] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedCommentRepliesMap, setExpandedCommentRepliesMap] = useState<
+    Record<string, boolean>
+  >({});
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState<string>('');
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
+  const [editingReplyText, setEditingReplyText] = useState<string>('');
 
   const handleJumpToPost = (postId: string) => {
     setIsSavedPostsModalOpen(false);
@@ -2713,9 +2734,44 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       <span>تم البيع</span>
                     </div>
                   )}
-                  <p className="text-xs sm:text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line">
-                    {post.content}
-                  </p>
+                  {(() => {
+                    const rawContent = post.content || '';
+                    const lineCount = rawContent.split(/\r?\n/).length;
+                    const isOverThreeLines =
+                      lineCount > 3 || rawContent.length > 180;
+                    const isPostExpanded = Boolean(
+                      expandedPostContentMap[post.id]
+                    );
+                    return (
+                      <div className="space-y-1">
+                        <p
+                          className={`text-xs sm:text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line ${
+                            isOverThreeLines && !isPostExpanded
+                              ? 'line-clamp-3'
+                              : ''
+                          }`}
+                        >
+                          {post.content}
+                        </p>
+                        {isOverThreeLines && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedPostContentMap((prev) => ({
+                                ...prev,
+                                [post.id]: !prev[post.id],
+                              }))
+                            }
+                            className="text-xs font-extrabold text-sky-400 hover:text-sky-300 underline cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <span>
+                              {isPostExpanded ? 'إظهار أقل' : 'إظهار المزيد'}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -3001,15 +3057,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     const hasLaugh = cmt.reactions.laugh.includes(visitorId);
                     const hasSad = cmt.reactions.sad.includes(visitorId);
                     const replyKey = `${post.id}_${cmt.id}`;
-                    const isReplyingToThis = replyingToCommentKey === replyKey;
                     const isCmtReportOpen =
                       openReportMenuId === `cmt-${cmt.id}`;
+                    const canOwnerOrAdminEditDelete = Boolean(
+                      isPostOwner || isStrictAdmin
+                    );
+                    const isEditingThisComment = editingCommentId === cmt.id;
 
                     return (
                       <div
                         key={cmt.id}
                         onClick={() => setActiveCommentsModalPostId(post.id)}
-                        title="اضغط لعرض جميع التعليقات في شاشة منبثقة"
+                        title="اضغط لعرض جميع التعليقات والردود في شاشة منبثقة"
                         className="p-2.5 rounded-xl bg-[#0A192F]/90 hover:bg-[#0A192F] border border-[#334155] hover:border-sky-400/70 space-y-2 cursor-pointer transition-all"
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -3080,12 +3139,27 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               <span>إبلاغ</span>
                             </button>
 
-                            {/* صلاحيات Admin فقط: حذف أي تعليق في مجتمع */}
-                            {isStrictAdmin && (
+                            {/* تعديل وحذف التعليق: يظهر لصاحب المنشور و Admin فقط */}
+                            {canOwnerOrAdminEditDelete && onEditComment && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCommentId(cmt.id);
+                                  setEditingCommentText(cmt.text);
+                                }}
+                                title="تعديل التعليق (لصاحب المنشور و Admin فقط)"
+                                className="px-2 py-0.5 rounded-lg bg-sky-600/20 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                <span>تعديل</span>
+                              </button>
+                            )}
+
+                            {canOwnerOrAdminEditDelete && (
                               <button
                                 type="button"
                                 onClick={() => onDeleteComment(post.id, cmt.id)}
-                                title="حذف التعليق (صلاحية Admin فقط)"
+                                title="حذف التعليق (لصاحب المنشور و Admin فقط)"
                                 className="px-2 py-0.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                               >
                                 <Trash2 className="w-3 h-3" />
@@ -3120,11 +3194,50 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                           </div>
                         </div>
 
-                        <p className="text-xs text-[#F8FAFC] leading-relaxed">
-                          {cmt.text}
-                        </p>
+                        {isEditingThisComment ? (
+                          <div
+                            className="flex items-center gap-2 pt-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="text"
+                              value={editingCommentText}
+                              onChange={(e) =>
+                                setEditingCommentText(e.target.value)
+                              }
+                              className="flex-1 rounded-lg bg-[#112240] border border-sky-400 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const trimmed = editingCommentText.trim();
+                                if (!trimmed) return;
+                                onEditComment?.(post.id, cmt.id, trimmed);
+                                setEditingCommentId(null);
+                                setEditingCommentText('');
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold cursor-pointer"
+                            >
+                              حفظ
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCommentId(null);
+                                setEditingCommentText('');
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-[#94A3B8] text-xs font-bold cursor-pointer"
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-[#F8FAFC] leading-relaxed">
+                            {cmt.text}
+                          </p>
+                        )}
 
-                        {/* Comment Actions: Like Button + 3 Specific Emoji Reactions (❤️, 😂, 😢) + Reply */}
+                        {/* Comment Actions: Like Button + 3 Specific Emoji Reactions (❤️, 😂, 😢) + Reply (Opens Comments Modal) */}
                         <div
                           className="flex flex-wrap items-center justify-between gap-2 pt-0.5"
                           onClick={(e) => e.stopPropagation()}
@@ -3195,15 +3308,14 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             </button>
                           </div>
 
-                          {/* Reply to another person's comment (hidden if commentsDisabled) */}
+                          {/* الرد على الكومنت لا يظهر إلا في حالة الدخول في عرض الكومنتات في الشاشة المنبثقة فقط */}
                           {!post.commentsDisabled && (
                             <button
                               type="button"
-                              onClick={() =>
-                                setReplyingToCommentKey(
-                                  isReplyingToThis ? null : replyKey
-                                )
-                              }
+                              onClick={() => {
+                                setActiveCommentsModalPostId(post.id);
+                                setReplyingToCommentKey(replyKey);
+                              }}
                               className="text-[11px] font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
                             >
                               <CornerDownLeft className="w-3 h-3" />
@@ -3211,79 +3323,6 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             </button>
                           )}
                         </div>
-
-                        {/* Nested Replies to Comment */}
-                        {cmt.replies.length > 0 && (
-                          <div className="mr-3 pr-2.5 border-r-2 border-[#334155] space-y-1.5 pt-1">
-                            {cmt.replies.map((rep) => (
-                              <div
-                                key={rep.id}
-                                className="p-2 rounded-lg bg-[#112240] border border-[#334155]/80 text-xs space-y-0.5"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="font-extrabold text-amber-300">
-                                    {rep.authorUsername}
-                                  </span>
-                                  <span className="text-[10px] text-[#94A3B8]">
-                                    {formatTextualArabicElapsedTime(
-                                      rep.createdAt,
-                                      liveTimeTick
-                                    )}
-                                  </span>
-                                </div>
-                                <p className="text-[#F8FAFC]">{rep.text}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Reply Input */}
-                        {isReplyingToThis && (
-                          <div
-                            className="flex items-center gap-2 pt-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <input
-                              type="text"
-                              value={replyDrafts[replyKey] || ''}
-                              onChange={(e) =>
-                                setReplyDrafts((prev) => ({
-                                  ...prev,
-                                  [replyKey]: e.target.value,
-                                }))
-                              }
-                              placeholder={`الرد على تعليق ${cmt.authorUsername}...`}
-                              className="flex-1 rounded-lg bg-[#112240] border border-sky-400/50 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
-                            />
-                            <FluentButton
-                              variant="primary"
-                              size="sm"
-                              onClick={() => {
-                                const txt = (replyDrafts[replyKey] || '').trim();
-                                if (!txt) return;
-                                if (containsAbusiveWords(txt)) {
-                                  setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
-                                  return;
-                                }
-                                setProfanityAlert('');
-                                onAddReplyToComment(post.id, cmt.id, {
-                                  id: `rep-c-${Date.now()}`,
-                                  authorId: visitorId,
-                                  authorUsername: visitorName,
-                                  text: txt,
-                                  createdAt: new Date().toISOString(),
-                                });
-                                setReplyDrafts((prev) => ({
-                                  ...prev,
-                                  [replyKey]: '',
-                                }));
-                                setReplyingToCommentKey(null);
-                              }}
-                            >
-                              إرسال الرد
-                            </FluentButton>
-                          </div>
-                        )}
                       </div>
                     );
                   })}
@@ -3483,6 +3522,20 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       const isReplyingToThis = replyingToCommentKey === replyKey;
                       const isCmtReportOpen =
                         openReportMenuId === `modal-cmt-${cmt.id}`;
+                      const canModalOwnerOrAdminEditDelete = Boolean(
+                        isModalPostOwner || isStrictAdmin
+                      );
+                      const isEditingModalComment = editingCommentId === cmt.id;
+                      const isRepliesExpanded = Boolean(
+                        expandedCommentRepliesMap[cmt.id]
+                      );
+                      const visibleReplies = isRepliesExpanded
+                        ? cmt.replies
+                        : cmt.replies.slice(0, 1);
+                      const remainingRepliesCount = Math.max(
+                        0,
+                        cmt.replies.length - 1
+                      );
 
                       return (
                         <div
@@ -3551,13 +3604,29 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                                 <span>إبلاغ</span>
                               </button>
 
-                              {isStrictAdmin && (
+                              {/* تعديل وحذف التعليق: يظهر لصاحب المنشور و Admin فقط */}
+                              {canModalOwnerOrAdminEditDelete && onEditComment && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingCommentId(cmt.id);
+                                    setEditingCommentText(cmt.text);
+                                  }}
+                                  title="تعديل التعليق (لصاحب المنشور و Admin فقط)"
+                                  className="px-2 py-0.5 rounded-lg bg-sky-600/20 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>تعديل</span>
+                                </button>
+                              )}
+
+                              {canModalOwnerOrAdminEditDelete && (
                                 <button
                                   type="button"
                                   onClick={() =>
                                     onDeleteComment(modalPost.id, cmt.id)
                                   }
-                                  title="حذف التعليق (صلاحية Admin فقط)"
+                                  title="حذف التعليق (لصاحب المنشور و Admin فقط)"
                                   className="px-2 py-0.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                                 >
                                   <Trash2 className="w-3 h-3" />
@@ -3592,9 +3661,49 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             </div>
                           </div>
 
-                          <p className="text-xs text-[#F8FAFC] leading-relaxed">
-                            {cmt.text}
-                          </p>
+                          {isEditingModalComment ? (
+                            <div className="flex items-center gap-2 pt-1">
+                              <input
+                                type="text"
+                                value={editingCommentText}
+                                onChange={(e) =>
+                                  setEditingCommentText(e.target.value)
+                                }
+                                className="flex-1 rounded-lg bg-[#112240] border border-sky-400 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const trimmed = editingCommentText.trim();
+                                  if (!trimmed) return;
+                                  onEditComment?.(
+                                    modalPost.id,
+                                    cmt.id,
+                                    trimmed
+                                  );
+                                  setEditingCommentId(null);
+                                  setEditingCommentText('');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold cursor-pointer"
+                              >
+                                حفظ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCommentId(null);
+                                  setEditingCommentText('');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-[#94A3B8] text-xs font-bold cursor-pointer"
+                              >
+                                إلغاء
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[#F8FAFC] leading-relaxed">
+                              {cmt.text}
+                            </p>
+                          )}
 
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
                             <div className="flex flex-wrap items-center gap-1">
@@ -3687,27 +3796,142 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             )}
                           </div>
 
+                          {/* عند الرد على كومنت يظهر أول رد فقط وأي ردود أخرى تظهر أرقام فقط ويوجد زر إظهار */}
                           {cmt.replies.length > 0 && (
                             <div className="mr-3 pr-2.5 border-r-2 border-[#334155] space-y-1.5 pt-1">
-                              {cmt.replies.map((rep) => (
-                                <div
-                                  key={rep.id}
-                                  className="p-2 rounded-lg bg-[#112240] border border-[#334155]/80 text-xs space-y-0.5"
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-extrabold text-amber-300">
-                                      {rep.authorUsername}
-                                    </span>
-                                    <span className="text-[10px] text-[#94A3B8]">
-                                      {formatTextualArabicElapsedTime(
-                                        rep.createdAt,
-                                        liveTimeTick
+                              {visibleReplies.map((rep) => {
+                                const isEditingThisReply =
+                                  editingReplyId === rep.id;
+                                return (
+                                  <div
+                                    key={rep.id}
+                                    className="p-2 rounded-lg bg-[#112240] border border-[#334155]/80 text-xs space-y-1"
+                                  >
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-extrabold text-amber-300">
+                                          {rep.authorUsername}
+                                        </span>
+                                        <span className="text-[10px] text-[#94A3B8]">
+                                          {formatTextualArabicElapsedTime(
+                                            rep.createdAt,
+                                            liveTimeTick
+                                          )}
+                                        </span>
+                                      </div>
+
+                                      {/* زر تعديل وحذف على الرد ويظهر لصاحب المنشور و Admin فقط */}
+                                      {canModalOwnerOrAdminEditDelete && (
+                                        <div className="flex items-center gap-1">
+                                          {onEditReply && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setEditingReplyId(rep.id);
+                                                setEditingReplyText(rep.text);
+                                              }}
+                                              title="تعديل الرد (لصاحب المنشور و Admin فقط)"
+                                              className="px-1.5 py-0.5 rounded bg-sky-600/20 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-500/40 text-[10px] font-bold flex items-center gap-0.5 cursor-pointer"
+                                            >
+                                              <Edit3 className="w-2.5 h-2.5" />
+                                              <span>تعديل</span>
+                                            </button>
+                                          )}
+                                          {onDeleteReply && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                onDeleteReply(
+                                                  modalPost.id,
+                                                  cmt.id,
+                                                  rep.id
+                                                )
+                                              }
+                                              title="حذف الرد (لصاحب المنشور و Admin فقط)"
+                                              className="px-1.5 py-0.5 rounded bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/40 text-[10px] font-bold flex items-center gap-0.5 cursor-pointer"
+                                            >
+                                              <Trash2 className="w-2.5 h-2.5" />
+                                              <span>حذف</span>
+                                            </button>
+                                          )}
+                                        </div>
                                       )}
-                                    </span>
+                                    </div>
+
+                                    {isEditingThisReply ? (
+                                      <div className="flex items-center gap-1.5 pt-0.5">
+                                        <input
+                                          type="text"
+                                          value={editingReplyText}
+                                          onChange={(e) =>
+                                            setEditingReplyText(e.target.value)
+                                          }
+                                          className="flex-1 rounded-lg bg-[#0A192F] border border-sky-400 px-2.5 py-1 text-xs text-[#F8FAFC] outline-none"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const trimmed =
+                                              editingReplyText.trim();
+                                            if (!trimmed) return;
+                                            onEditReply?.(
+                                              modalPost.id,
+                                              cmt.id,
+                                              rep.id,
+                                              trimmed
+                                            );
+                                            setEditingReplyId(null);
+                                            setEditingReplyText('');
+                                          }}
+                                          className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-extrabold cursor-pointer"
+                                        >
+                                          حفظ
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingReplyId(null);
+                                            setEditingReplyText('');
+                                          }}
+                                          className="px-2 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-[#94A3B8] text-[10px] font-bold cursor-pointer"
+                                        >
+                                          إلغاء
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <p className="text-[#F8FAFC]">
+                                        {rep.text}
+                                      </p>
+                                    )}
                                   </div>
-                                  <p className="text-[#F8FAFC]">{rep.text}</p>
+                                );
+                              })}
+
+                              {/* أي ردود أخرى تظهر أرقام فقط ويوجد زر إظهار عند الضغط عليه يظهر باقي التعليقات/الردود */}
+                              {remainingRepliesCount > 0 && (
+                                <div className="flex items-center gap-2 pt-1">
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 font-mono-tabular text-[11px] font-extrabold">
+                                    +{remainingRepliesCount}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedCommentRepliesMap((prev) => ({
+                                        ...prev,
+                                        [cmt.id]: !prev[cmt.id],
+                                      }))
+                                    }
+                                    className="px-2.5 py-0.5 rounded-lg bg-sky-600/25 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-400/50 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>
+                                      {isRepliesExpanded
+                                        ? 'إخفاء'
+                                        : `إظهار (${remainingRepliesCount})`}
+                                    </span>
+                                  </button>
                                 </div>
-                              ))}
+                              )}
                             </div>
                           )}
 

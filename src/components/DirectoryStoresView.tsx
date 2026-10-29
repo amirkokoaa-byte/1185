@@ -46,6 +46,8 @@ import {
   getOrCreateVisitorId,
   isPermanentDreamPlazaStore,
   normalizeCategoryString,
+  setGlobalDefaultStoreSvgStyle,
+  splitStoreTitleWithParentheses,
   uploadImageDynamic,
 } from '../services/storageService';
 import {
@@ -76,6 +78,7 @@ interface DirectoryStoresViewProps {
   onDeleteStoreComment: (storeId: string, commentId: string) => void;
   onToggleCommentLike: (storeId: string, commentId: string) => void;
   onAddCommentReply: (storeId: string, commentId: string, reply: StoreReplyItem) => void;
+  onGeneralizeStoreImageStyle?: (styleVariant: 1 | 2) => void;
 }
 
 export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
@@ -95,6 +98,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   onDeleteStoreComment,
   onToggleCommentLike,
   onAddCommentReply,
+  onGeneralizeStoreImageStyle,
 }) => {
   const canManage =
     currentUser?.role === 'admin' || currentUser?.role === 'moderator';
@@ -117,10 +121,38 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
   const getStoreCoverPhoto = (store: StoreListingItem): string => {
     const first = store.menuImages?.[0];
+    const activeStyle = settings.defaultStoreSvgStyle || 1;
     if (!first || first.startsWith('data:image/svg+xml')) {
-      return createSquareAdSvg(store.name, store.category, '#0284C7');
+      return createSquareAdSvg(
+        store.name,
+        store.category,
+        '#0284C7',
+        activeStyle
+      );
     }
     return first;
+  };
+
+  const renderFormattedStoreName = (rawName: string) => {
+    const { mainTitle, parenPart } = splitStoreTitleWithParentheses(rawName);
+    const wordCount = mainTitle.split(/\s+/).filter(Boolean).length;
+    const isOneOrTwoWords = wordCount <= 2;
+    return (
+      <span className="inline-flex flex-col items-start leading-snug max-w-full">
+        <span
+          className={`font-extrabold text-black ${
+            isOneOrTwoWords ? 'whitespace-nowrap' : 'break-words'
+          }`}
+        >
+          {mainTitle}
+        </span>
+        {parenPart && (
+          <span className="text-[11px] sm:text-xs font-extrabold text-sky-900 block">
+            {parenPart}
+          </span>
+        )}
+      </span>
+    );
   };
 
   // Search, Category Filter & View Layout Mode ('grid' = 2 per row on mobile, 'horizontal' = image on right + details beside it)
@@ -276,11 +308,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [storePhone, setStorePhone] = useState('');
   const [storeDetails, setStoreDetails] = useState('');
   const [menuImages, setMenuImages] = useState<string[]>([]);
-  const [selectedSuggestedVariant, setSelectedSuggestedVariant] = useState<1 | 2>(1);
+  const [selectedSuggestedVariant, setSelectedSuggestedVariant] = useState<1 | 2>(
+    settings.defaultStoreSvgStyle || 1
+  );
   const [uploadingMenu, setUploadingMenu] = useState(false);
   const [uploadStatusMsg, setUploadStatusMsg] = useState('');
 
   const openEditStoreModal = (target: StoreListingItem) => {
+    if (!isStrictAdmin) return;
     setEditingStoreObj(target);
     setStoreCategory(target.category);
     setStoreSubCategory(target.subCategory || '');
@@ -389,10 +424,10 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     }
   };
 
-  // Submit New Store
+  // Submit New Store (Strict Admin Only for both Create & Edit)
   const handleCreateStoreSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingStoreObj && !isStrictAdmin) return;
+    if (!isStrictAdmin) return;
     if (!storeName.trim() || !storePhone.trim()) return;
 
     const existingDuplicate = findSimilarRegisteredStore(
@@ -877,32 +912,78 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           )}
         </div>
 
-        {/* Import & Export Toolbar: Admin & Moderator */}
+        {/* Import & Export Toolbar + Unified Store Image Style Selector (Strict Admin Only for Import/Style) */}
         {canManage && (
           <div className="flex flex-wrap items-center gap-2">
-            {/* أضف إكسيل */}
-            <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-emerald-300 border border-emerald-500/40 cursor-pointer">
-              <Upload className="w-3.5 h-3.5 text-emerald-400" />
-              <span>أضف إكسيل</span>
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                onChange={handleExcelImport}
-                className="hidden"
-              />
-            </label>
+            {isStrictAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedSuggestedVariant(1);
+                    setGlobalDefaultStoreSvgStyle(1);
+                    onGeneralizeStoreImageStyle?.(1);
+                    setImportNotice(
+                      'تم تعميم الشكل (1) الأساسي كواجهة رئيسية لجميع المحلات بنجاح!'
+                    );
+                  }}
+                  className={`fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-extrabold border cursor-pointer transition-all ${
+                    (settings.defaultStoreSvgStyle || 1) === 1
+                      ? 'bg-sky-600 text-white border-sky-400 shadow'
+                      : 'bg-[#1E293B] hover:bg-[#334155] text-sky-300 border-sky-500/40'
+                  }`}
+                  title="اختيار الصورة الأساسية (الشكل 1) وتعميم جميع المحلات بنفس الشكل"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span>الصورة الأساسية (1) للكل</span>
+                </button>
 
-            {/* أضف PDF */}
-            <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-sky-300 border border-sky-500/40 cursor-pointer">
-              <Upload className="w-3.5 h-3.5 text-sky-400" />
-              <span>أضف PDF</span>
-              <input
-                type="file"
-                accept=".pdf"
-                onChange={handlePDFImport}
-                className="hidden"
-              />
-            </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedSuggestedVariant(2);
+                    setGlobalDefaultStoreSvgStyle(2);
+                    onGeneralizeStoreImageStyle?.(2);
+                    setImportNotice(
+                      'تم تعميم الشكل (2) الثاني كواجهة رئيسية لجميع المحلات بنجاح!'
+                    );
+                  }}
+                  className={`fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-extrabold border cursor-pointer transition-all ${
+                    settings.defaultStoreSvgStyle === 2
+                      ? 'bg-sky-600 text-white border-sky-400 shadow'
+                      : 'bg-[#1E293B] hover:bg-[#334155] text-sky-300 border-sky-500/40'
+                  }`}
+                  title="اختيار الصورة الثانية (الشكل 2) وتعميم جميع المحلات بنفس الشكل"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span>الصورة الثانية (2) للكل</span>
+                </button>
+
+                {/* أضف إكسيل */}
+                <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-emerald-300 border border-emerald-500/40 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>أضف إكسيل</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={handleExcelImport}
+                    className="hidden"
+                  />
+                </label>
+
+                {/* أضف PDF */}
+                <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-sky-300 border border-sky-500/40 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-sky-400" />
+                  <span>أضف PDF</span>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={handlePDFImport}
+                    className="hidden"
+                  />
+                </label>
+              </>
+            )}
 
             <FluentButton
               variant="secondary"
@@ -1105,8 +1186,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     {ratingInfo.avg}
                   </span>
 
-                  {/* Admin / Moderator Edit & Delete quick icons on image corner */}
-                  {canManage && (
+                  {/* Strict Admin Only Edit & Delete quick icons on image corner */}
+                  {isStrictAdmin && (
                     <div
                       className="absolute bottom-1.5 right-1.5 flex items-center gap-1"
                       onClick={(e) => e.stopPropagation()}
@@ -1114,16 +1195,16 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       <button
                         type="button"
                         onClick={() => openEditStoreModal(store)}
-                        title="تعديل"
+                        title="تعديل (Admin فقط)"
                         className="p-1 rounded-md bg-white/95 hover:bg-sky-600 text-sky-700 hover:text-white border border-slate-300 shadow cursor-pointer"
                       >
                         <Edit3 className="w-3 h-3" />
                       </button>
-                      {isStrictAdmin && !isPermanentStore && (
+                      {!isPermanentStore && (
                         <button
                           type="button"
                           onClick={() => setStorePendingDelete(store)}
-                          title="حذف"
+                          title="حذف (Admin فقط)"
                           className="p-1 rounded-md bg-white/95 hover:bg-rose-600 text-rose-600 hover:text-white border border-slate-300 shadow cursor-pointer"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -1137,8 +1218,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 <div className="p-2.5 sm:p-4 flex-1 min-w-0 flex flex-col justify-between space-y-2 relative z-10 bg-white text-black">
                   <div className="space-y-1">
                     <div className="flex items-start justify-between gap-1.5">
-                      <h3 className="text-xs sm:text-base font-extrabold text-black line-clamp-2 break-words leading-snug">
-                        {store.name}
+                      <h3 className="text-xs sm:text-base font-extrabold text-black leading-snug min-w-0">
+                        {renderFormattedStoreName(store.name)}
                       </h3>
                       <div className="flex flex-wrap items-center gap-1 shrink-0">
                         <span className="px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-300 text-black text-[10px] font-extrabold">
@@ -1260,8 +1341,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     </div>
                   )}
 
-                  {/* Admin / Moderator Edit & Delete quick icons on image bottom-right */}
-                  {canManage && (
+                  {/* Strict Admin Only Edit & Delete quick icons on image bottom-right */}
+                  {isStrictAdmin && (
                     <div
                       className="absolute bottom-1.5 right-1.5 flex items-center gap-1"
                       onClick={(e) => e.stopPropagation()}
@@ -1269,16 +1350,16 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                       <button
                         type="button"
                         onClick={() => openEditStoreModal(store)}
-                        title="تعديل"
+                        title="تعديل (Admin فقط)"
                         className="p-1 rounded-md bg-white/95 hover:bg-sky-600 text-sky-700 hover:text-white border border-slate-300 shadow cursor-pointer"
                       >
                         <Edit3 className="w-3 h-3" />
                       </button>
-                      {isStrictAdmin && !isPermanentStore && (
+                      {!isPermanentStore && (
                         <button
                           type="button"
                           onClick={() => setStorePendingDelete(store)}
-                          title="حذف"
+                          title="حذف (Admin فقط)"
                           className="p-1 rounded-md bg-white/95 hover:bg-rose-600 text-rose-600 hover:text-white border border-slate-300 shadow cursor-pointer"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -1291,8 +1372,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 {/* Store Registered Name & Optional Details (White background + Black text) */}
                 <div className="p-2 sm:p-3.5 flex-1 flex flex-col justify-between space-y-2 bg-white text-black relative z-10">
                   <div className="space-y-0.5">
-                    <h3 className="text-xs sm:text-base font-extrabold text-black line-clamp-2 break-words leading-snug">
-                      {store.name}
+                    <h3 className="text-xs sm:text-base font-extrabold text-black leading-snug">
+                      {renderFormattedStoreName(store.name)}
                     </h3>
                     {store.subCategory && (
                       <span className="inline-block px-2 py-0.5 rounded-md bg-sky-50 border border-sky-300 text-sky-900 text-[10px] font-extrabold">
@@ -1617,6 +1698,8 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                           key={sug.variant}
                           onClick={() => {
                             setSelectedSuggestedVariant(sug.variant);
+                            setGlobalDefaultStoreSvgStyle(sug.variant);
+                            onGeneralizeStoreImageStyle?.(sug.variant);
                             setMenuImages((prev) => {
                               const realOnly = prev.filter(
                                 (x) => !x.startsWith('data:image/svg+xml')
@@ -1646,7 +1729,9 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                                   : 'bg-white border border-slate-300 text-slate-700'
                               }`}
                             >
-                              {isSelected ? 'تم الاختيار ✓' : 'اختر الصورة'}
+                              {isSelected
+                                ? 'الرئيسية + تعميم للكل ✓'
+                                : 'اختر وتعميم للكل'}
                             </span>
                           </div>
                         </div>
@@ -1659,19 +1744,49 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
             {menuImages.length > 0 && (
               <div className="space-y-2 pt-2">
-                <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-700">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-extrabold text-slate-700">
                   <span>
-                    الصور المرفوعة ({menuImages.length}) — يمكنك حذف أي صورة قديمة أو حديثة وتحديد الصورة الرئيسية التي تظهر للناس:
+                    الصور المرفوعة ({menuImages.length}) — اختر الصورة الأساسية (1) أم الصورة الثانية (2) لتظهر في الرئيسية:
                   </span>
-                  {menuImages.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => setMenuImages([])}
-                      className="text-rose-600 hover:text-rose-700 underline cursor-pointer"
-                    >
-                      حذف جميع الصور
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {menuImages.length >= 2 && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMenuImages((prev) => [...prev])
+                          }
+                          className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-extrabold cursor-pointer"
+                        >
+                          الصورة الأساسية (1) في الرئيسية ✓
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMenuImages((prev) => {
+                              if (prev.length < 2) return prev;
+                              const copy = [...prev];
+                              const second = copy[1];
+                              copy.splice(1, 1);
+                              return [second, ...copy];
+                            })
+                          }
+                          className="px-2 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-extrabold cursor-pointer"
+                        >
+                          جعل الصورة الثانية (2) في الرئيسية
+                        </button>
+                      </div>
+                    )}
+                    {menuImages.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setMenuImages([])}
+                        className="text-rose-600 hover:text-rose-700 underline cursor-pointer"
+                      >
+                        حذف جميع الصور
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
@@ -1830,9 +1945,31 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           theme="light"
         >
           <div className="space-y-5 text-black">
-            {/* Admin / Moderator Edit Store & Admin-Only Delete Store Controls */}
-            {canManage && (
-              <div className="flex items-center justify-end gap-2">
+            {/* Strict Admin Only Edit Store & Delete Store Controls */}
+            {isStrictAdmin && (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {activeStore.menuImages.length >= 2 && onUpdateStore && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const reordered = [
+                        activeStore.menuImages[1],
+                        activeStore.menuImages[0],
+                        ...activeStore.menuImages.slice(2),
+                      ];
+                      onUpdateStore({
+                        ...activeStore,
+                        menuImages: reordered,
+                        updatedAt: Date.now(),
+                      });
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow"
+                    title="تبديل بين الصورة الأساسية (1) والصورة الثانية (2) لتظهر في الرئيسية"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    <span>تبديل الصورة الأساسية (1) والثانية (2) في الرئيسية</span>
+                  </button>
+                )}
                 <FluentButton
                   variant="secondary"
                   size="sm"
@@ -1845,7 +1982,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   <Edit3 className="w-3.5 h-3.5 text-sky-400" />
                   <span>تعديل البيانات</span>
                 </FluentButton>
-                {isStrictAdmin && !isPermanentDreamPlazaStore(activeStore) && (
+                {!isPermanentDreamPlazaStore(activeStore) && (
                   <FluentButton
                     variant="danger"
                     size="sm"

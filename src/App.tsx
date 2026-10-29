@@ -45,6 +45,7 @@ import {
   UtilitySubmissionItem,
 } from './types';
 import {
+  createSquareAdSvg,
   getEffectiveOnlineDisplayCount,
   getOrCreateVisitorId,
   isPermanentDreamPlazaStore,
@@ -647,6 +648,8 @@ export default function App() {
   };
 
   const handleUpdateStore = (updatedStore: StoreListingItem) => {
+    // التشديد على عدم تغيير أو نقل أي محل من أي قسم إلا في حالة تعديل Admin فقط
+    if (currentUser?.role !== 'admin') return;
     try {
       const cleanCategory =
         String(updatedStore.category || '').trim() || 'مول دريم بلازا';
@@ -666,6 +669,37 @@ export default function App() {
       const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء تعديل المحل';
       setCloudWriteErrorToast(`فشل حفظ تعديلات المحل: ${msg}`);
     }
+  };
+
+  const handleGeneralizeStoreImageStyle = (styleVariant: 1 | 2) => {
+    const nowTs = Date.now();
+    updateAndPersist((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        defaultStoreSvgStyle: styleVariant,
+        updatedAt: nowTs,
+      },
+      stores: prev.stores.map((s) => {
+        const realImgs = (s.menuImages || []).filter(
+          (img) => img && !img.startsWith('data:image/svg+xml')
+        );
+        if (realImgs.length > 0) {
+          return s;
+        }
+        const unifiedSvg = createSquareAdSvg(
+          s.name,
+          s.category,
+          styleVariant === 2 ? '#0F172A' : '#0284C7',
+          styleVariant
+        );
+        return {
+          ...s,
+          menuImages: [unifiedSvg],
+          updatedAt: nowTs,
+        };
+      }),
+    }));
   };
 
   const handleIncrementStoreViews = (storeId: string) => {
@@ -703,8 +737,8 @@ export default function App() {
   };
 
   const handleDeleteStore = (id: string) => {
-    if (currentUser?.role === 'moderator') return;
-    // Protect the 24 permanent Dream Plaza store IDs (dp-perm-1..24) from deletion, while allowing deletion of any duplicate store
+    // التشديد على عدم حذف أي محل من أي قسم إلا في حالة Admin فقط
+    if (currentUser?.role !== 'admin') return;
     if (isPermanentDreamPlazaStore(id)) return;
     updateAndPersist((prev) => ({
       ...prev,
@@ -1252,23 +1286,164 @@ export default function App() {
   };
 
   const handleDeleteCommunityComment = (postId: string, commentId: string) => {
-    if (currentUser?.role === 'moderator') return;
     const nowTs = Date.now();
-    updateAndPersist((prev) => ({
-      ...prev,
-      deletedRecordIds: Array.from(
-        new Set([...(prev.deletedRecordIds || []), commentId])
-      ),
-      communityPosts: prev.communityPosts.map((p) =>
-        p.id === postId
-          ? {
-              ...p,
-              updatedAt: nowTs,
-              comments: p.comments.filter((c) => c.id !== commentId),
-            }
-          : p
-      ),
-    }));
+    updateAndPersist((prev) => {
+      const targetPost = prev.communityPosts.find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), commentId])
+        ),
+        communityPosts: prev.communityPosts.map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.filter((c) => c.id !== commentId),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleEditCommunityComment = (
+    postId: string,
+    commentId: string,
+    newText: string
+  ) => {
+    const clean = newText.trim();
+    if (!clean) return;
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = prev.communityPosts.find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        communityPosts: prev.communityPosts.map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId ? { ...c, text: clean, updatedAt: nowTs } : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleEditCommunityReply = (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    newText: string
+  ) => {
+    const clean = newText.trim();
+    if (!clean) return;
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = prev.communityPosts.find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        communityPosts: prev.communityPosts.map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId
+                    ? {
+                        ...c,
+                        updatedAt: nowTs,
+                        replies: (c.replies || []).map((r) =>
+                          r.id === replyId
+                            ? { ...r, text: clean, updatedAt: nowTs }
+                            : r
+                        ),
+                      }
+                    : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleDeleteCommunityReply = (
+    postId: string,
+    commentId: string,
+    replyId: string
+  ) => {
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = prev.communityPosts.find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), replyId])
+        ),
+        communityPosts: prev.communityPosts.map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId
+                    ? {
+                        ...c,
+                        updatedAt: nowTs,
+                        replies: (c.replies || []).filter((r) => r.id !== replyId),
+                      }
+                    : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
   };
 
   const handleRestoreReportedCommunityComment = (
@@ -2502,23 +2677,164 @@ export default function App() {
   };
 
   const handleDeleteUtilityComment = (postId: string, commentId: string) => {
-    if (currentUser?.role === 'moderator') return;
     const nowTs = Date.now();
-    updateAndPersist((prev) => ({
-      ...prev,
-      deletedRecordIds: Array.from(
-        new Set([...(prev.deletedRecordIds || []), commentId])
-      ),
-      utilityPosts: (prev.utilityPosts || []).map((p) =>
-        p.id === postId
-          ? {
-              ...p,
-              updatedAt: nowTs,
-              comments: p.comments.filter((c) => c.id !== commentId),
-            }
-          : p
-      ),
-    }));
+    updateAndPersist((prev) => {
+      const targetPost = (prev.utilityPosts || []).find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), commentId])
+        ),
+        utilityPosts: (prev.utilityPosts || []).map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.filter((c) => c.id !== commentId),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleEditUtilityComment = (
+    postId: string,
+    commentId: string,
+    newText: string
+  ) => {
+    const clean = newText.trim();
+    if (!clean) return;
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = (prev.utilityPosts || []).find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        utilityPosts: (prev.utilityPosts || []).map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId ? { ...c, text: clean, updatedAt: nowTs } : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleEditUtilityReply = (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    newText: string
+  ) => {
+    const clean = newText.trim();
+    if (!clean) return;
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = (prev.utilityPosts || []).find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        utilityPosts: (prev.utilityPosts || []).map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId
+                    ? {
+                        ...c,
+                        updatedAt: nowTs,
+                        replies: (c.replies || []).map((r) =>
+                          r.id === replyId
+                            ? { ...r, text: clean, updatedAt: nowTs }
+                            : r
+                        ),
+                      }
+                    : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleDeleteUtilityReply = (
+    postId: string,
+    commentId: string,
+    replyId: string
+  ) => {
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = (prev.utilityPosts || []).find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), replyId])
+        ),
+        utilityPosts: (prev.utilityPosts || []).map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId
+                    ? {
+                        ...c,
+                        updatedAt: nowTs,
+                        replies: (c.replies || []).filter((r) => r.id !== replyId),
+                      }
+                    : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
   };
 
   const handleRestoreReportedUtilityComment = (
@@ -2909,23 +3225,164 @@ export default function App() {
   };
 
   const handleDeleteBuySellComment = (postId: string, commentId: string) => {
-    if (currentUser?.role === 'moderator') return;
     const nowTs = Date.now();
-    updateAndPersist((prev) => ({
-      ...prev,
-      deletedRecordIds: Array.from(
-        new Set([...(prev.deletedRecordIds || []), commentId])
-      ),
-      buySellPosts: (prev.buySellPosts || []).map((p) =>
-        p.id === postId
-          ? {
-              ...p,
-              updatedAt: nowTs,
-              comments: p.comments.filter((c) => c.id !== commentId),
-            }
-          : p
-      ),
-    }));
+    updateAndPersist((prev) => {
+      const targetPost = (prev.buySellPosts || []).find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), commentId])
+        ),
+        buySellPosts: (prev.buySellPosts || []).map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.filter((c) => c.id !== commentId),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleEditBuySellComment = (
+    postId: string,
+    commentId: string,
+    newText: string
+  ) => {
+    const clean = newText.trim();
+    if (!clean) return;
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = (prev.buySellPosts || []).find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        buySellPosts: (prev.buySellPosts || []).map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId ? { ...c, text: clean, updatedAt: nowTs } : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleEditBuySellReply = (
+    postId: string,
+    commentId: string,
+    replyId: string,
+    newText: string
+  ) => {
+    const clean = newText.trim();
+    if (!clean) return;
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = (prev.buySellPosts || []).find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        buySellPosts: (prev.buySellPosts || []).map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId
+                    ? {
+                        ...c,
+                        updatedAt: nowTs,
+                        replies: (c.replies || []).map((r) =>
+                          r.id === replyId
+                            ? { ...r, text: clean, updatedAt: nowTs }
+                            : r
+                        ),
+                      }
+                    : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
+  };
+
+  const handleDeleteBuySellReply = (
+    postId: string,
+    commentId: string,
+    replyId: string
+  ) => {
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetPost = (prev.buySellPosts || []).find((p) => p.id === postId);
+      if (!targetPost) return prev;
+      const isPostOwner =
+        targetPost.authorId === visitorId ||
+        Boolean(
+          currentUser &&
+            (targetPost.authorId === currentUser.id ||
+              targetPost.authorUsername.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase())
+        );
+      if (currentUser?.role !== 'admin' && !isPostOwner) return prev;
+      return {
+        ...prev,
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), replyId])
+        ),
+        buySellPosts: (prev.buySellPosts || []).map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                updatedAt: nowTs,
+                comments: p.comments.map((c) =>
+                  c.id === commentId
+                    ? {
+                        ...c,
+                        updatedAt: nowTs,
+                        replies: (c.replies || []).filter((r) => r.id !== replyId),
+                      }
+                    : c
+                ),
+              }
+            : p
+        ),
+      };
+    });
   };
 
   const handleRestoreReportedBuySellComment = (
@@ -3667,6 +4124,7 @@ export default function App() {
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onAddStore={handleAddStore}
             onUpdateStore={handleUpdateStore}
+            onGeneralizeStoreImageStyle={handleGeneralizeStoreImageStyle}
             onIncrementStoreViews={handleIncrementStoreViews}
             onImportStoresBatch={handleImportStoresBatch}
             onDeleteStore={handleDeleteStore}
@@ -3703,6 +4161,9 @@ export default function App() {
             onAddReplyToCommunityComment={handleAddReplyToCommunityComment}
             onReportCommunityComment={handleReportCommunityComment}
             onDeleteCommunityComment={handleDeleteCommunityComment}
+            onEditCommunityComment={handleEditCommunityComment}
+            onEditCommunityReply={handleEditCommunityReply}
+            onDeleteCommunityReply={handleDeleteCommunityReply}
             onRestoreReportedCommunityComment={
               handleRestoreReportedCommunityComment
             }
@@ -3780,6 +4241,9 @@ export default function App() {
             onAddReplyToUtilityComment={handleAddReplyToUtilityComment}
             onReportUtilityComment={handleReportUtilityComment}
             onDeleteUtilityComment={handleDeleteUtilityComment}
+            onEditUtilityComment={handleEditUtilityComment}
+            onEditUtilityReply={handleEditUtilityReply}
+            onDeleteUtilityReply={handleDeleteUtilityReply}
             onRestoreReportedUtilityComment={handleRestoreReportedUtilityComment}
             onTogglePinUtilityComment={handleTogglePinUtilityComment}
             onToggleHideUtilityComment={handleToggleHideUtilityComment}
@@ -3802,6 +4266,9 @@ export default function App() {
             onAddReplyToBuySellComment={handleAddReplyToBuySellComment}
             onReportBuySellComment={handleReportBuySellComment}
             onDeleteBuySellComment={handleDeleteBuySellComment}
+            onEditBuySellComment={handleEditBuySellComment}
+            onEditBuySellReply={handleEditBuySellReply}
+            onDeleteBuySellReply={handleDeleteBuySellReply}
             onRestoreReportedBuySellComment={handleRestoreReportedBuySellComment}
             onTogglePinBuySellComment={handleTogglePinBuySellComment}
             onToggleHideBuySellComment={handleToggleHideBuySellComment}
@@ -3847,6 +4314,9 @@ export default function App() {
               onAddReplyToComment={handleAddReplyToBuySellComment}
               onReportComment={handleReportBuySellComment}
               onDeleteComment={handleDeleteBuySellComment}
+              onEditComment={handleEditBuySellComment}
+              onEditReply={handleEditBuySellReply}
+              onDeleteReply={handleDeleteBuySellReply}
               onRestoreReportedComment={handleRestoreReportedBuySellComment}
               onTogglePinComment={handleTogglePinBuySellComment}
               onToggleHideComment={handleToggleHideBuySellComment}

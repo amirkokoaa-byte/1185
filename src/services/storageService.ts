@@ -159,63 +159,104 @@ export function splitStoreTitleWithParentheses(rawTitle: string): {
   };
 }
 
+const GLOBAL_STORE_SVG_STYLE_KEY = 'nakhil_1185_global_store_svg_style_v1';
+let activeGlobalStoreSvgStyle: 1 | 2 = 1;
+try {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem(GLOBAL_STORE_SVG_STYLE_KEY);
+    if (saved === '2') activeGlobalStoreSvgStyle = 2;
+  }
+} catch {
+  // ignore
+}
+
+export function getGlobalDefaultStoreSvgStyle(): 1 | 2 {
+  return activeGlobalStoreSvgStyle;
+}
+
+export function setGlobalDefaultStoreSvgStyle(style: 1 | 2): void {
+  activeGlobalStoreSvgStyle = style === 2 ? 2 : 1;
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(GLOBAL_STORE_SVG_STYLE_KEY, String(activeGlobalStoreSvgStyle));
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export const createSquareAdSvg = (
   title: string,
   category: string,
   colorHex = '#0284C7',
-  styleVariant: 1 | 2 = 1
+  styleVariant?: 1 | 2
 ) => {
+  const effectiveStyle: 1 | 2 = styleVariant || activeGlobalStoreSvgStyle || 1;
   const cleanCat = (category || 'محل تجاري').trim();
   const cleanTitle = (title || cleanCat).trim();
   const { mainTitle, parenPart } = splitStoreTitleWithParentheses(cleanTitle);
 
-  // اسم المحل داخل المستطيل: إذا كان يوجد أقواس يكون اسم المحل في الأول وأسفله الأقواس بشكل منسق
+  // اسم المحل داخل المستطيل: إذا كان اسم المحل اسم واحد أو اسمين يظهر في سطر واحد، وأي أقواس تكون في السطر الثاني
   let titleInsideRectMarkup = '';
-  const textFill = styleVariant === 2 ? '#0F172A' : '#000000';
-  const parenFill = styleVariant === 2 ? '#0369A1' : '#1E293B';
+  const textFill = effectiveStyle === 2 ? '#0F172A' : '#000000';
+  const parenFill = effectiveStyle === 2 ? '#0369A1' : '#1E293B';
+  const titleWords = mainTitle.split(/\s+/).filter(Boolean);
 
   if (parenPart) {
+    // السطر الأول: اسم المحل في سطر واحد، والسطر الثاني: الأقواس
     const mainFontSize =
-      mainTitle.length > 18 ? 40 : mainTitle.length > 13 ? 48 : mainTitle.length > 9 ? 56 : 62;
+      mainTitle.length > 22
+        ? 34
+        : mainTitle.length > 17
+        ? 40
+        : mainTitle.length > 13
+        ? 48
+        : mainTitle.length > 9
+        ? 56
+        : 62;
     const parenFontSize =
-      parenPart.length > 20 ? 32 : parenPart.length > 14 ? 38 : 44;
+      parenPart.length > 22 ? 30 : parenPart.length > 16 ? 36 : 42;
     titleInsideRectMarkup = `
       <text x="250" y="134" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.1" font-family="Cairo, sans-serif" font-size="${mainFontSize}" font-weight="900">${escapeSvgXml(mainTitle)}</text>
       <text x="250" y="212" text-anchor="middle" dominant-baseline="middle" fill="${parenFill}" stroke="${parenFill}" stroke-width="0.9" font-family="Cairo, sans-serif" font-size="${parenFontSize}" font-weight="900">${escapeSvgXml(parenPart)}</text>
     `;
+  } else if (titleWords.length <= 2) {
+    // إذا كان اسم المحل كلمة واحدة أو كلمتين: يظهر دائماً في سطر واحد
+    const singleFontSize =
+      mainTitle.length <= 7
+        ? 68
+        : mainTitle.length <= 11
+        ? 56
+        : mainTitle.length <= 15
+        ? 46
+        : mainTitle.length <= 19
+        ? 38
+        : 32;
+    titleInsideRectMarkup = `
+      <text x="250" y="174" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.3" font-family="Cairo, sans-serif" font-size="${singleFontSize}" font-weight="900">${escapeSvgXml(mainTitle)}</text>
+    `;
+  } else if (mainTitle.length > 14 && titleWords.length >= 3) {
+    const mid = Math.ceil(titleWords.length / 2);
+    const line1 = escapeSvgXml(titleWords.slice(0, mid).join(' '));
+    const line2 = escapeSvgXml(titleWords.slice(mid).join(' '));
+    const maxLen = Math.max(line1.length, line2.length);
+    const lineFontSize = maxLen > 16 ? 40 : maxLen > 12 ? 48 : 56;
+    titleInsideRectMarkup = `
+      <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line1}</text>
+      <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line2}</text>
+    `;
   } else {
-    const titleWords = mainTitle.split(/\s+/).filter(Boolean);
-    if (mainTitle.length > 10 && titleWords.length >= 2) {
-      const mid = Math.ceil(titleWords.length / 2);
-      const line1 = escapeSvgXml(titleWords.slice(0, mid).join(' '));
-      const line2 = escapeSvgXml(titleWords.slice(mid).join(' '));
-      const maxLen = Math.max(line1.length, line2.length);
-      const lineFontSize = maxLen > 15 ? 44 : maxLen > 11 ? 52 : 60;
-      titleInsideRectMarkup = `
-        <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line1}</text>
-        <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line2}</text>
-      `;
-    } else if (mainTitle.length > 13 && titleWords.length === 1) {
-      const half = Math.ceil(mainTitle.length / 2);
-      const line1 = escapeSvgXml(mainTitle.slice(0, half));
-      const line2 = escapeSvgXml(mainTitle.slice(half));
-      titleInsideRectMarkup = `
-        <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="52" font-weight="900">${line1}</text>
-        <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="52" font-weight="900">${line2}</text>
-      `;
-    } else {
-      const singleFontSize =
-        mainTitle.length <= 7 ? 70 : mainTitle.length <= 10 ? 58 : 48;
-      titleInsideRectMarkup = `
-        <text x="250" y="174" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.4" font-family="Cairo, sans-serif" font-size="${singleFontSize}" font-weight="900">${escapeSvgXml(mainTitle)}</text>
-      `;
-    }
+    const singleFontSize =
+      mainTitle.length <= 7 ? 68 : mainTitle.length <= 11 ? 56 : 46;
+    titleInsideRectMarkup = `
+      <text x="250" y="174" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.3" font-family="Cairo, sans-serif" font-size="${singleFontSize}" font-weight="900">${escapeSvgXml(mainTitle)}</text>
+    `;
   }
 
   // أسفل المستطيل: القسم بخط بارز واضح ومنسق
   const catWords = cleanCat.split(/\s+/).filter(Boolean);
   let categoryBelowRectMarkup = '';
-  const catTextColor = styleVariant === 2 ? '#FFFFFF' : '#000000';
+  const catTextColor = effectiveStyle === 2 ? '#FFFFFF' : '#000000';
   if (cleanCat.length > 14 && catWords.length >= 2) {
     const midCat = Math.ceil(catWords.length / 2);
     const cLine1 = escapeSvgXml(catWords.slice(0, midCat).join(' '));
@@ -231,7 +272,7 @@ export const createSquareAdSvg = (
     `;
   }
 
-  if (styleVariant === 2) {
+  if (effectiveStyle === 2) {
     const svg2 = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
       <rect width="500" height="500" rx="22" fill="#0F172A"/>
       <rect x="14" y="14" width="472" height="472" rx="18" fill="#1E293B" stroke="#38BDF8" stroke-width="4"/>
@@ -1368,9 +1409,13 @@ function mergeCommunityPostsWithInteractions(
         const pCmt = (prevPost.comments || []).find((c) => c && c.id === cmt.id);
         const iCmt = (incPost.comments || []).find((c) => c && c.id === cmt.id);
         if (!pCmt || !iCmt) return cmt;
+        const pTime = parseItemTimestampMs(pCmt.updatedAt || pCmt.createdAt);
+        const iTime = parseItemTimestampMs(iCmt.updatedAt || iCmt.createdAt);
+        const newerCmt = iTime >= pTime ? iCmt : pCmt;
+        const olderCmt = iTime >= pTime ? pCmt : iCmt;
         return {
-          ...pCmt,
-          ...iCmt,
+          ...olderCmt,
+          ...newerCmt,
           replies: mergeCollectionById(
             pCmt.replies || [],
             iCmt.replies || [],
@@ -1545,6 +1590,18 @@ function mergePlatformSettings(
         incomingSettings.adPackagesPricing?.tenDaysDiscountPercent ??
         20,
     },
+    defaultStoreSvgStyle: (() => {
+      const chosen =
+        (preferIncoming
+          ? incomingSettings.defaultStoreSvgStyle
+          : baseSettings.defaultStoreSvgStyle) ??
+        baseSettings.defaultStoreSvgStyle ??
+        incomingSettings.defaultStoreSvgStyle ??
+        getGlobalDefaultStoreSvgStyle();
+      const validStyle: 1 | 2 = chosen === 2 ? 2 : 1;
+      setGlobalDefaultStoreSvgStyle(validStyle);
+      return validStyle;
+    })(),
     updatedAt: Math.max(baseUpdatedAt, incomingUpdatedAt),
     firebase: baseSettings.firebase || HIDDEN_DEFAULT_FIREBASE_CONFIG,
   };

@@ -216,6 +216,7 @@ export interface CommunityCommentReply {
   authorId: string;
   authorUsername: string;
   text: string;
+  updatedAt?: number | string;
   createdAt: string;
 }
 
@@ -371,6 +372,7 @@ export interface PlatformSettings {
   appUploadedFileName?: string; // اسم ملف التطبيق المرفوع
   appExternalLinkUrl?: string; // لينك التطبيق في موقع خارجي (زر لينك التطبيق)
   adPackagesPricing?: AdPackagesPricingConfig; // أسعار باقات الإعلانات الـ 3 ونسبة خصم عرض الـ 10 أيام
+  defaultStoreSvgStyle?: 1 | 2; // الشكل الموحد لصورة المحلات (1 = الأساسي الكلاسيكي، 2 = الثاني الملكي الداكن) لتعميم جميع المحلات بنفس الشكل
   firebase: FirebaseConfigSettings;
 }
 

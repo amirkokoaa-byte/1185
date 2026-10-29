@@ -1118,26 +1118,36 @@ export default function App() {
   };
 
   const handleAddCommentToPost = (postId: string, comment: CommunityCommentItem) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) =>
-        p.id === postId ? { ...p, comments: [...p.comments, comment] } : p
+        p.id === postId
+          ? {
+              ...p,
+              updatedAt: nowTs,
+              comments: [...p.comments, { ...comment, isHidden: false, updatedAt: nowTs }],
+            }
+          : p
       ),
     }));
   };
 
   const handleToggleCommunityCommentLike = (postId: string, commentId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) => {
             if (c.id !== commentId) return c;
             const liked = c.likes.includes(visitorId);
             return {
               ...c,
+              updatedAt: nowTs,
               likes: liked
                 ? c.likes.filter((id) => id !== visitorId)
                 : [...c.likes, visitorId],
@@ -1153,18 +1163,21 @@ export default function App() {
     commentId: string,
     reaction: CommentEmojiReactionType
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) => {
             if (c.id !== commentId) return c;
             const currentArr = c.reactions[reaction] || [];
             const hasReacted = currentArr.includes(visitorId);
             return {
               ...c,
+              updatedAt: nowTs,
               reactions: {
                 ...c.reactions,
                 [reaction]: hasReacted
@@ -1183,14 +1196,18 @@ export default function App() {
     commentId: string,
     reply: CommunityCommentReply
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, replies: [...c.replies, reply] } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, replies: [...c.replies, reply] }
+              : c
           ),
         };
       }),
@@ -1203,20 +1220,23 @@ export default function App() {
     reason: CommunityReportReason
   ) => {
     const reporterName = currentUser?.username || 'زائر';
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
             c.id === commentId
               ? {
                   ...c,
+                  updatedAt: nowTs,
                   reports: [
                     ...c.reports,
                     {
-                      id: `rep-c-${Date.now()}`,
+                      id: `rep-c-${nowTs}`,
                       reporterId: visitorId,
                       reporterUsername: reporterName,
                       reason,
@@ -1233,11 +1253,19 @@ export default function App() {
 
   const handleDeleteCommunityComment = (postId: string, commentId: string) => {
     if (currentUser?.role === 'moderator') return;
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), commentId])
+      ),
       communityPosts: prev.communityPosts.map((p) =>
         p.id === postId
-          ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) }
+          ? {
+              ...p,
+              updatedAt: nowTs,
+              comments: p.comments.filter((c) => c.id !== commentId),
+            }
           : p
       ),
     }));
@@ -1247,14 +1275,16 @@ export default function App() {
     postId: string,
     commentId: string
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, reports: [] } : c
+            c.id === commentId ? { ...c, updatedAt: nowTs, reports: [] } : c
           ),
         };
       }),
@@ -1265,6 +1295,7 @@ export default function App() {
     postId: string,
     commentId: string
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
@@ -1280,8 +1311,11 @@ export default function App() {
         if (currentUser?.role !== 'admin' && !isOwner) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, isPinned: !c.isPinned } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, isPinned: !c.isPinned }
+              : c
           ),
         };
       }),
@@ -1292,14 +1326,18 @@ export default function App() {
     postId: string,
     commentId: string
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, isHidden: !c.isHidden } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, isHidden: !c.isHidden }
+              : c
           ),
         };
       }),
@@ -2327,10 +2365,17 @@ export default function App() {
     postId: string,
     comment: CommunityCommentItem
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) =>
-        p.id === postId ? { ...p, comments: [...p.comments, comment] } : p
+        p.id === postId
+          ? {
+              ...p,
+              updatedAt: nowTs,
+              comments: [...p.comments, { ...comment, isHidden: false, updatedAt: nowTs }],
+            }
+          : p
       ),
     }));
   };
@@ -2339,17 +2384,20 @@ export default function App() {
     postId: string,
     commentId: string
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) => {
             if (c.id !== commentId) return c;
             const liked = c.likes.includes(visitorId);
             return {
               ...c,
+              updatedAt: nowTs,
               likes: liked
                 ? c.likes.filter((id) => id !== visitorId)
                 : [...c.likes, visitorId],
@@ -2365,18 +2413,21 @@ export default function App() {
     commentId: string,
     reaction: CommentEmojiReactionType
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) => {
             if (c.id !== commentId) return c;
             const currentArr = c.reactions[reaction] || [];
             const hasReacted = currentArr.includes(visitorId);
             return {
               ...c,
+              updatedAt: nowTs,
               reactions: {
                 ...c.reactions,
                 [reaction]: hasReacted
@@ -2395,14 +2446,18 @@ export default function App() {
     commentId: string,
     reply: CommunityCommentReply
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, replies: [...c.replies, reply] } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, replies: [...c.replies, reply] }
+              : c
           ),
         };
       }),
@@ -2415,20 +2470,23 @@ export default function App() {
     reason: CommunityReportReason
   ) => {
     const reporterName = currentUser?.username || 'زائر';
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
             c.id === commentId
               ? {
                   ...c,
+                  updatedAt: nowTs,
                   reports: [
                     ...c.reports,
                     {
-                      id: `rep-uc-${Date.now()}`,
+                      id: `rep-uc-${nowTs}`,
                       reporterId: visitorId,
                       reporterUsername: reporterName,
                       reason,
@@ -2445,11 +2503,19 @@ export default function App() {
 
   const handleDeleteUtilityComment = (postId: string, commentId: string) => {
     if (currentUser?.role === 'moderator') return;
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), commentId])
+      ),
       utilityPosts: (prev.utilityPosts || []).map((p) =>
         p.id === postId
-          ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) }
+          ? {
+              ...p,
+              updatedAt: nowTs,
+              comments: p.comments.filter((c) => c.id !== commentId),
+            }
           : p
       ),
     }));
@@ -2459,14 +2525,16 @@ export default function App() {
     postId: string,
     commentId: string
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, reports: [] } : c
+            c.id === commentId ? { ...c, updatedAt: nowTs, reports: [] } : c
           ),
         };
       }),
@@ -2474,6 +2542,7 @@ export default function App() {
   };
 
   const handleTogglePinUtilityComment = (postId: string, commentId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
@@ -2489,8 +2558,11 @@ export default function App() {
         if (currentUser?.role !== 'admin' && !isOwner) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, isPinned: !c.isPinned } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, isPinned: !c.isPinned }
+              : c
           ),
         };
       }),
@@ -2498,14 +2570,18 @@ export default function App() {
   };
 
   const handleToggleHideUtilityComment = (postId: string, commentId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, isHidden: !c.isHidden } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, isHidden: !c.isHidden }
+              : c
           ),
         };
       }),
@@ -2696,10 +2772,17 @@ export default function App() {
     postId: string,
     comment: CommunityCommentItem
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) =>
-        p.id === postId ? { ...p, comments: [...p.comments, comment] } : p
+        p.id === postId
+          ? {
+              ...p,
+              updatedAt: nowTs,
+              comments: [...p.comments, { ...comment, isHidden: false, updatedAt: nowTs }],
+            }
+          : p
       ),
     }));
   };
@@ -2708,17 +2791,20 @@ export default function App() {
     postId: string,
     commentId: string
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) => {
             if (c.id !== commentId) return c;
             const liked = c.likes.includes(visitorId);
             return {
               ...c,
+              updatedAt: nowTs,
               likes: liked
                 ? c.likes.filter((id) => id !== visitorId)
                 : [...c.likes, visitorId],
@@ -2734,18 +2820,21 @@ export default function App() {
     commentId: string,
     reaction: CommentEmojiReactionType
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) => {
             if (c.id !== commentId) return c;
             const currentArr = c.reactions[reaction] || [];
             const hasReacted = currentArr.includes(visitorId);
             return {
               ...c,
+              updatedAt: nowTs,
               reactions: {
                 ...c.reactions,
                 [reaction]: hasReacted
@@ -2764,14 +2853,18 @@ export default function App() {
     commentId: string,
     reply: CommunityCommentReply
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, replies: [...c.replies, reply] } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, replies: [...c.replies, reply] }
+              : c
           ),
         };
       }),
@@ -2784,20 +2877,23 @@ export default function App() {
     reason: CommunityReportReason
   ) => {
     const reporterName = currentUser?.username || 'زائر';
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
             c.id === commentId
               ? {
                   ...c,
+                  updatedAt: nowTs,
                   reports: [
                     ...c.reports,
                     {
-                      id: `rep-bsc-${Date.now()}`,
+                      id: `rep-bsc-${nowTs}`,
                       reporterId: visitorId,
                       reporterUsername: reporterName,
                       reason,
@@ -2814,11 +2910,19 @@ export default function App() {
 
   const handleDeleteBuySellComment = (postId: string, commentId: string) => {
     if (currentUser?.role === 'moderator') return;
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), commentId])
+      ),
       buySellPosts: (prev.buySellPosts || []).map((p) =>
         p.id === postId
-          ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) }
+          ? {
+              ...p,
+              updatedAt: nowTs,
+              comments: p.comments.filter((c) => c.id !== commentId),
+            }
           : p
       ),
     }));
@@ -2828,14 +2932,16 @@ export default function App() {
     postId: string,
     commentId: string
   ) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, reports: [] } : c
+            c.id === commentId ? { ...c, updatedAt: nowTs, reports: [] } : c
           ),
         };
       }),
@@ -2843,6 +2949,7 @@ export default function App() {
   };
 
   const handleTogglePinBuySellComment = (postId: string, commentId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
@@ -2858,8 +2965,11 @@ export default function App() {
         if (currentUser?.role !== 'admin' && !isOwner) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, isPinned: !c.isPinned } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, isPinned: !c.isPinned }
+              : c
           ),
         };
       }),
@@ -2867,14 +2977,18 @@ export default function App() {
   };
 
   const handleToggleHideBuySellComment = (postId: string, commentId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
         if (p.id !== postId) return p;
         return {
           ...p,
+          updatedAt: nowTs,
           comments: p.comments.map((c) =>
-            c.id === commentId ? { ...c, isHidden: !c.isHidden } : c
+            c.id === commentId
+              ? { ...c, updatedAt: nowTs, isHidden: !c.isHidden }
+              : c
           ),
         };
       }),

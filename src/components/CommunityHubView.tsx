@@ -502,6 +502,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [openShareMenuPostId, setOpenShareMenuPostId] = useState<string | null>(null);
   const [copiedSharePostId, setCopiedSharePostId] = useState<string | null>(null);
   const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
+  const [activeCommentsModalPostId, setActiveCommentsModalPostId] = useState<
+    string | null
+  >(null);
 
   const handleJumpToPost = (postId: string) => {
     setIsSavedPostsModalOpen(false);
@@ -533,20 +536,24 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     }
   }, [posts.length, chatOnlyOverlayMode]);
 
-  // Close "المزيد" menu when clicking anywhere outside
+  // Close "المزيد" menu and "مشاركة" dropdown menu when clicking anywhere outside
   useEffect(() => {
-    if (!openMoreMenuPostId) return;
+    if (!openMoreMenuPostId && !openShareMenuPostId) return;
     const handleDocClick = (ev: MouseEvent) => {
       const target = ev.target as HTMLElement | null;
       if (target && target.closest('[data-more-menu-container="true"]')) {
         return;
       }
+      if (target && target.closest('[data-share-dropdown-container="true"]')) {
+        return;
+      }
       setOpenMoreMenuPostId(null);
       setOpenReportSubMenuPostId(null);
+      setOpenShareMenuPostId(null);
     };
     document.addEventListener('mousedown', handleDocClick);
     return () => document.removeEventListener('mousedown', handleDocClick);
-  }, [openMoreMenuPostId]);
+  }, [openMoreMenuPostId, openShareMenuPostId]);
 
   // ============================================================================
   // Persistent Bottom-Left Square Private Chat Box (Up to 2 Open Chats, Classic FB Minimize '-', Close 'x', Block, Report, Reactions, & 2s Notification)
@@ -2346,27 +2353,23 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               return 0;
             });
 
-          // Comments: Pinned comment or First comment shown directly below the post
+          // Comments: Pinned comment or First comment shown directly below the post; clicking it opens smooth popup modal with all comments
           const pinnedOrFirstComment =
             visibleForViewerComments.find((c) => c.isPinned && !c.isHidden) ||
-            visibleForViewerComments.find((c) => c.isPinned) ||
+            visibleForViewerComments.find((c) => !c.isHidden) ||
             visibleForViewerComments[0] ||
             null;
-          const isAllCommentsExpanded = Boolean(
-            expandedAllCommentsForPost[post.id]
-          );
-          const commentsToRender = isAllCommentsExpanded
-            ? visibleForViewerComments
-            : pinnedOrFirstComment
+          const commentsToRender = pinnedOrFirstComment
             ? [pinnedOrFirstComment]
             : [];
+          const isShareDropdownOpen = openShareMenuPostId === post.id;
 
           return (
             <div key={post.id} id={`post-card-${post.id}`}>
               <FluentCard
                 noPadding
                 className={`p-3 sm:p-3.5 space-y-2 border-[#334155] hover:border-sky-400/60 overflow-visible transition-all ${
-                  isMoreMenuOpen ? 'z-40 relative' : 'relative'
+                  isMoreMenuOpen || isShareDropdownOpen ? 'z-40 relative' : 'relative'
                 } ${
                   highlightedPostId === post.id
                     ? 'ring-2 ring-amber-400 border-amber-400 shadow-[0_0_25px_rgba(251,191,36,0.45)]'
@@ -2716,9 +2719,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                 </div>
               )}
 
-              {/* أزرار التفاعل الـ 3 بحجم صغير وفي سطر واحد: لايك + ديس لايك + تعليق */}
-              <div className="pt-2 border-t border-[#334155]/80 flex flex-row flex-nowrap items-center justify-between gap-1.5 overflow-x-auto">
-                <div className="flex flex-row flex-nowrap items-center gap-1.5 shrink-0">
+              {/* أزرار التفاعل الـ 4 بحجم صغير وفي سطر واحد: لايك + ديس لايك + تعليق + مشاركة (قائمة منسدلة) */}
+              <div className="pt-2 border-t border-[#334155]/80 flex flex-wrap items-center justify-between gap-1.5 overflow-visible relative">
+                <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                   {/* 1. زر لايك بحجم صغير */}
                   <button
                     type="button"
@@ -2779,135 +2782,130 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     )}
                   </button>
 
-                  {/* 4. زر "مشاركة" (نسخ الرابط، واتساب، ماسنجر، تليجرام) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenShareMenuPostId((prev) =>
-                        prev === post.id ? null : post.id
-                      );
-                      setCopiedSharePostId(null);
-                    }}
-                    className={`fluent-reveal px-2.5 py-1 rounded-lg border text-[11px] sm:text-xs font-extrabold flex items-center gap-1 whitespace-nowrap cursor-pointer transition-all ${
-                      openShareMenuPostId === post.id
-                        ? 'bg-sky-600 text-white border-sky-400 shadow-[0_0_10px_rgba(2,132,199,0.5)]'
-                        : 'bg-[#0A192F] hover:bg-[#1E293B] text-emerald-300 border-[#334155]'
-                    }`}
+                  {/* 4. زر "مشاركة" يفتح قائمة منسدلة بها الخيارات المتاحة */}
+                  <div
+                    className="relative"
+                    data-share-dropdown-container="true"
                   >
-                    <Share2 className="w-3 h-3 shrink-0" />
-                    <span>مشاركة</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenShareMenuPostId((prev) =>
+                          prev === post.id ? null : post.id
+                        );
+                        setCopiedSharePostId(null);
+                      }}
+                      className={`fluent-reveal px-2.5 py-1 rounded-lg border text-[11px] sm:text-xs font-extrabold flex items-center gap-1 whitespace-nowrap cursor-pointer transition-all ${
+                        isShareDropdownOpen
+                          ? 'bg-sky-600 text-white border-sky-400 shadow-[0_0_10px_rgba(2,132,199,0.5)]'
+                          : 'bg-[#0A192F] hover:bg-[#1E293B] text-emerald-300 border-[#334155]'
+                      }`}
+                    >
+                      <Share2 className="w-3 h-3 shrink-0" />
+                      <span>مشاركة</span>
+                      <ChevronDown className="w-3 h-3 shrink-0" />
+                    </button>
+
+                    {isShareDropdownOpen &&
+                      (() => {
+                        const targetSec = enableBuySellPrivateChat
+                          ? 'buy_sell'
+                          : 'community';
+                        const shareUrl = `${window.location.origin}/?section=${targetSec}&postId=${encodeURIComponent(
+                          post.id
+                        )}`;
+                        const shareSnippet = `${post.authorUsername} (${
+                          post.postType
+                        }): ${post.content.slice(0, 120)}${
+                          post.content.length > 120 ? '...' : ''
+                        }`;
+                        const fullShareText = `${shareSnippet}\n${shareUrl}`;
+                        const isCopied = copiedSharePostId === post.id;
+
+                        return (
+                          <div className="absolute right-0 sm:left-0 sm:right-auto top-full mt-1.5 w-48 rounded-xl bg-[#0A192F] border border-sky-400/70 shadow-2xl z-50 py-1.5 space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard
+                                  ?.writeText(shareUrl)
+                                  .catch(() => {});
+                                setCopiedSharePostId(post.id);
+                                setTimeout(() => {
+                                  setCopiedSharePostId((prev) =>
+                                    prev === post.id ? null : prev
+                                  );
+                                }, 2500);
+                              }}
+                              className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-[#F8FAFC] text-xs font-extrabold flex items-center justify-between gap-2 cursor-pointer transition-colors"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <Copy className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                <span>
+                                  {isCopied ? 'تم النسخ ✓' : 'نسخ الرابط'}
+                                </span>
+                              </span>
+                            </button>
+
+                            <a
+                              href={`https://wa.me/?text=${encodeURIComponent(
+                                fullShareText
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => setOpenShareMenuPostId(null)}
+                              className="w-full px-3 py-1.5 text-right hover:bg-emerald-600/25 text-emerald-300 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>واتس اب</span>
+                            </a>
+
+                            <a
+                              href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+                                shareUrl
+                              )}&quote=${encodeURIComponent(shareSnippet)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => {
+                                navigator.clipboard
+                                  ?.writeText(fullShareText)
+                                  .catch(() => {});
+                                setOpenShareMenuPostId(null);
+                              }}
+                              className="w-full px-3 py-1.5 text-right hover:bg-sky-600/25 text-sky-300 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+                            >
+                              <Send className="w-3.5 h-3.5 text-[#0084FF] shrink-0" />
+                              <span>ماسنجر</span>
+                            </a>
+
+                            <a
+                              href={`https://t.me/share/url?url=${encodeURIComponent(
+                                shareUrl
+                              )}&text=${encodeURIComponent(shareSnippet)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => setOpenShareMenuPostId(null)}
+                              className="w-full px-3 py-1.5 text-right hover:bg-sky-500/25 text-sky-200 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+                            >
+                              <Send className="w-3.5 h-3.5 text-[#229ED9] shrink-0" />
+                              <span>تليجرام</span>
+                            </a>
+                          </div>
+                        );
+                      })()}
+                  </div>
                 </div>
 
-                {visibleForViewerComments.length > 1 && (
+                {visibleForViewerComments.length > 0 && (
                   <button
                     type="button"
-                    onClick={() =>
-                      setExpandedAllCommentsForPost((prev) => ({
-                        ...prev,
-                        [post.id]: !prev[post.id],
-                      }))
-                    }
+                    onClick={() => setActiveCommentsModalPostId(post.id)}
                     className="text-[11px] font-bold text-sky-400 hover:text-sky-300 cursor-pointer whitespace-nowrap shrink-0"
                   >
-                    {isAllCommentsExpanded
-                      ? 'إخفاء'
-                      : `الكل (${visibleForViewerComments.length})`}
+                    عرض كل التعليقات ({visibleForViewerComments.length})
                   </button>
                 )}
               </div>
-
-              {/* قائمة خيارات مشاركة المنشور (نسخ الرابط / واتس اب / ماسنجر / تليجرام) */}
-              {openShareMenuPostId === post.id &&
-                (() => {
-                  const targetSec = enableBuySellPrivateChat
-                    ? 'buy_sell'
-                    : 'community';
-                  const shareUrl = `${window.location.origin}/?section=${targetSec}&postId=${encodeURIComponent(
-                    post.id
-                  )}`;
-                  const shareSnippet = `${post.authorUsername} (${
-                    post.postType
-                  }): ${post.content.slice(0, 120)}${
-                    post.content.length > 120 ? '...' : ''
-                  }`;
-                  const fullShareText = `${shareSnippet}\n${shareUrl}`;
-                  const isCopied = copiedSharePostId === post.id;
-
-                  return (
-                    <div className="p-2.5 rounded-xl bg-[#0A192F] border border-sky-400/60 space-y-2 shadow-lg">
-                      <div className="flex items-center justify-between text-[11px] font-extrabold text-sky-300">
-                        <span>مشاركة المنشور عبر:</span>
-                        {isCopied && (
-                          <span className="text-emerald-400">
-                            تم نسخ الرابط بنجاح ✓
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard
-                              ?.writeText(shareUrl)
-                              .catch(() => {});
-                            setCopiedSharePostId(post.id);
-                            setTimeout(() => {
-                              setCopiedSharePostId((prev) =>
-                                prev === post.id ? null : prev
-                              );
-                            }, 2500);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-[#112240] hover:bg-[#1E293B] border border-[#334155] text-[#F8FAFC] text-[11px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                          <span>{isCopied ? 'تم النسخ ✓' : 'نسخ الرابط'}</span>
-                        </button>
-
-                        <a
-                          href={`https://wa.me/?text=${encodeURIComponent(
-                            fullShareText
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5 shrink-0" />
-                          <span>واتس اب</span>
-                        </a>
-
-                        <a
-                          href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
-                            shareUrl
-                          )}&quote=${encodeURIComponent(shareSnippet)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => {
-                            navigator.clipboard
-                              ?.writeText(fullShareText)
-                              .catch(() => {});
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-[#0084FF] hover:bg-[#0073E6] text-white text-[11px] font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <Send className="w-3.5 h-3.5 shrink-0" />
-                          <span>ماسنجر</span>
-                        </a>
-
-                        <a
-                          href={`https://t.me/share/url?url=${encodeURIComponent(
-                            shareUrl
-                          )}&text=${encodeURIComponent(shareSnippet)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2.5 py-1.5 rounded-lg bg-[#229ED9] hover:bg-[#1E8CC2] text-white text-[11px] font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <Send className="w-3.5 h-3.5 shrink-0" />
-                          <span>تليجرام</span>
-                        </a>
-                      </div>
-                    </div>
-                  );
-                })()}
 
               {/* Add Comment Input Row (Reply to Post) — Blocked when commentsDisabled is true */}
               {!post.commentsDisabled && openCommentInputForPost[post.id] && (
@@ -2958,7 +2956,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                 </div>
               )}
 
-              {/* Comments Section (Shows First or Pinned Comment immediately below Post) */}
+              {/* Comments Section: Shows First/Pinned Comment immediately below Post; clicking it opens the smooth popup modal with all comments */}
               {commentsToRender.length > 0 && (
                 <div className="space-y-2 pt-1.5">
                   {commentsToRender.map((cmt) => {
@@ -3010,7 +3008,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     return (
                       <div
                         key={cmt.id}
-                        className="p-2.5 rounded-xl bg-[#0A192F]/90 border border-[#334155] space-y-2"
+                        onClick={() => setActiveCommentsModalPostId(post.id)}
+                        title="اضغط لعرض جميع التعليقات في شاشة منبثقة"
+                        className="p-2.5 rounded-xl bg-[#0A192F]/90 hover:bg-[#0A192F] border border-[#334155] hover:border-sky-400/70 space-y-2 cursor-pointer transition-all"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -3029,9 +3029,15 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                                 liveTimeTick
                               )}
                             </span>
+                            <span className="text-[10px] font-bold text-sky-400/90 bg-sky-500/10 border border-sky-400/30 px-1.5 py-0.5 rounded">
+                              اضغط لعرض التعليقات ({visibleForViewerComments.length})
+                            </span>
                           </div>
 
-                          <div className="flex items-center gap-1.5 relative flex-wrap justify-end">
+                          <div
+                            className="flex items-center gap-1.5 relative flex-wrap justify-end"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             {/* تثبيت التعليق: من صلاحيات Admin وصاحب المنشور أيضاً */}
                             {canPinThisComment && (
                               <button
@@ -3119,7 +3125,10 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         </p>
 
                         {/* Comment Actions: Like Button + 3 Specific Emoji Reactions (❤️, 😂, 😢) + Reply */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                        <div
+                          className="flex flex-wrap items-center justify-between gap-2 pt-0.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <div className="flex flex-wrap items-center gap-1">
                             {/* زر لايك على التعليق */}
                             <button
@@ -3230,7 +3239,10 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
                         {/* Reply Input */}
                         {isReplyingToThis && (
-                          <div className="flex items-center gap-2 pt-1">
+                          <div
+                            className="flex items-center gap-2 pt-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <input
                               type="text"
                               value={replyDrafts[replyKey] || ''}
@@ -3310,6 +3322,451 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* شاشة جميع التعليقات المنبثقة بشكل انسيابي عند الضغط على التعليق الأول (تضم جميع التعليقات بنفس الأزرار والخيارات التي في أول كومنت) */}
+      {activeCommentsModalPostId &&
+        (() => {
+          const modalPost = posts.find((p) => p.id === activeCommentsModalPostId);
+          if (!modalPost) return null;
+          const isModalPostOwner =
+            modalPost.authorId === visitorId ||
+            Boolean(
+              currentUser &&
+                (modalPost.authorId === currentUser.id ||
+                  modalPost.authorUsername.trim().toLowerCase() ===
+                    currentUser.username.trim().toLowerCase())
+            );
+          const modalVisibleComments = [...modalPost.comments]
+            .filter(
+              (c) =>
+                !c.isHidden ||
+                isModalPostOwner ||
+                isAdmin ||
+                c.authorId === visitorId
+            )
+            .sort((a, b) => {
+              if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
+                return a.isPinned ? -1 : 1;
+              }
+              return 0;
+            });
+
+          return (
+            <FluentModal
+              isOpen={Boolean(modalPost)}
+              onClose={() => setActiveCommentsModalPostId(null)}
+              title={`تعليقات المنشور (${modalVisibleComments.length} تعليق)`}
+              subtitle={`منشور بواسطة: ${modalPost.authorUsername} (${modalPost.postType})`}
+              maxWidth="2xl"
+            >
+              <div className="space-y-4">
+                {/* ملخص المنشور بالأعلى */}
+                <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-extrabold text-sky-300">
+                      {modalPost.authorUsername}
+                    </span>
+                    <span className="text-[11px] text-[#94A3B8]">
+                      {formatTextualArabicElapsedTime(
+                        modalPost.createdAt,
+                        liveTimeTick
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line">
+                    {modalPost.content}
+                  </p>
+                </div>
+
+                {/* إضافة تعليق جديد داخل النافذة المنبثقة */}
+                {!modalPost.commentsDisabled && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={commentDrafts[modalPost.id] || ''}
+                      onChange={(e) =>
+                        setCommentDrafts((prev) => ({
+                          ...prev,
+                          [modalPost.id]: e.target.value,
+                        }))
+                      }
+                      placeholder="اكتب تعليقك هنا ليظهر للجميع..."
+                      className="flex-1 rounded-xl bg-[#0A192F] border border-sky-400/50 px-3 py-2 text-xs text-[#F8FAFC] outline-none"
+                    />
+                    <FluentButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        if (modalPost.commentsDisabled) return;
+                        const txt = (commentDrafts[modalPost.id] || '').trim();
+                        if (!txt) return;
+                        if (containsAbusiveWords(txt)) {
+                          setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                          return;
+                        }
+                        setProfanityAlert('');
+                        onAddCommentToPost(modalPost.id, {
+                          id: `cmt-${Date.now()}`,
+                          authorId: visitorId,
+                          authorUsername: visitorName,
+                          text: txt,
+                          isPinned: false,
+                          isHidden: false,
+                          likes: [],
+                          reactions: { heart: [], laugh: [], sad: [] },
+                          replies: [],
+                          reports: [],
+                          createdAt: new Date().toISOString(),
+                        });
+                        setCommentDrafts((prev) => ({
+                          ...prev,
+                          [modalPost.id]: '',
+                        }));
+                      }}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>إرسال التعليق</span>
+                    </FluentButton>
+                  </div>
+                )}
+
+                {/* قائمة جميع التعليقات بنفس الأزرار والخيارات التي في أول كومنت */}
+                <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+                  {modalVisibleComments.length === 0 ? (
+                    <div className="p-6 text-center text-xs font-bold text-[#94A3B8]">
+                      لا توجد تعليقات حتى الآن. كن أول من يعلق!
+                    </div>
+                  ) : (
+                    modalVisibleComments.map((cmt) => {
+                      const canManageThisComment = Boolean(
+                        isModalPostOwner || isAdmin || cmt.authorId === visitorId
+                      );
+                      const canPinThisComment = Boolean(
+                        isStrictAdmin || isAdmin || isModalPostOwner
+                      );
+
+                      if (cmt.isHidden) {
+                        if (!canManageThisComment) return null;
+                        return (
+                          <div
+                            key={cmt.id}
+                            className="p-2.5 rounded-xl bg-[#0A192F]/70 border border-dashed border-amber-400/50 flex items-center justify-between gap-2"
+                          >
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-[#94A3B8]">
+                              <EyeOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span>
+                                تم إخفاء هذا التعليق ({cmt.authorUsername}) عن
+                                جميع المستخدمين
+                              </span>
+                            </div>
+                            {onToggleHideComment && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onToggleHideComment(modalPost.id, cmt.id)
+                                }
+                                className="fluent-reveal px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 shadow"
+                              >
+                                <Eye className="w-3.5 h-3.5 shrink-0" />
+                                <span>إظهار</span>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      const hasLikedCmt = cmt.likes.includes(visitorId);
+                      const hasHeart = cmt.reactions.heart.includes(visitorId);
+                      const hasLaugh = cmt.reactions.laugh.includes(visitorId);
+                      const hasSad = cmt.reactions.sad.includes(visitorId);
+                      const replyKey = `${modalPost.id}_${cmt.id}`;
+                      const isReplyingToThis = replyingToCommentKey === replyKey;
+                      const isCmtReportOpen =
+                        openReportMenuId === `modal-cmt-${cmt.id}`;
+
+                      return (
+                        <div
+                          key={cmt.id}
+                          className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] space-y-2"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-extrabold text-sky-300">
+                                {cmt.authorUsername}
+                              </span>
+                              {cmt.isPinned && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-bold">
+                                  <Pin className="w-2.5 h-2.5" />
+                                  تعليق مثبت
+                                </span>
+                              )}
+                              <span className="text-[11px] text-[#94A3B8]">
+                                {formatTextualArabicElapsedTime(
+                                  cmt.createdAt,
+                                  liveTimeTick
+                                )}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 relative flex-wrap justify-end">
+                              {canPinThisComment && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onTogglePinComment(modalPost.id, cmt.id)
+                                  }
+                                  title="تثبيت التعليق"
+                                  className="text-[11px] font-bold text-amber-400 hover:underline cursor-pointer"
+                                >
+                                  {cmt.isPinned ? 'إلغاء التثبيت' : 'تثبيت'}
+                                </button>
+                              )}
+
+                              {canManageThisComment && onToggleHideComment && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onToggleHideComment(modalPost.id, cmt.id)
+                                  }
+                                  title="إخفاء التعليق عن جميع المستخدمين"
+                                  className="px-2 py-0.5 rounded-lg bg-[#112240] hover:bg-amber-500/20 text-amber-300 border border-amber-400/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                >
+                                  <EyeOff className="w-3 h-3" />
+                                  <span>إخفاء</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenReportMenuId(
+                                    isCmtReportOpen
+                                      ? null
+                                      : `modal-cmt-${cmt.id}`
+                                  )
+                                }
+                                className="text-[11px] text-[#94A3B8] hover:text-rose-400 flex items-center gap-0.5 cursor-pointer"
+                              >
+                                <Flag className="w-3 h-3" />
+                                <span>إبلاغ</span>
+                              </button>
+
+                              {isStrictAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onDeleteComment(modalPost.id, cmt.id)
+                                  }
+                                  title="حذف التعليق (صلاحية Admin فقط)"
+                                  className="px-2 py-0.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>حذف</span>
+                                </button>
+                              )}
+
+                              {isCmtReportOpen && (
+                                <div className="absolute left-0 top-full mt-1 w-52 max-w-[calc(100vw-2rem)] rounded-xl bg-[#112240] border border-rose-400/50 shadow-2xl z-50 py-1">
+                                  {REPORT_REASONS.map((reason) => (
+                                    <button
+                                      key={reason}
+                                      type="button"
+                                      onClick={() => {
+                                        onReportComment(
+                                          modalPost.id,
+                                          cmt.id,
+                                          reason
+                                        );
+                                        setOpenReportMenuId(null);
+                                        setReportFeedbackBanner(
+                                          `تم إرسال بلاغ عن التعليق ("${reason}") إلى الإدارة.`
+                                        );
+                                      }}
+                                      className="w-full text-right px-3 py-1.5 text-xs font-bold text-[#F8FAFC] hover:bg-rose-600/25 cursor-pointer block"
+                                    >
+                                      {reason}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-[#F8FAFC] leading-relaxed">
+                            {cmt.text}
+                          </p>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onToggleCommentLike(modalPost.id, cmt.id)
+                                }
+                                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-colors ${
+                                  hasLikedCmt
+                                    ? 'bg-sky-600 text-white border-sky-400'
+                                    : 'bg-[#112240] text-[#94A3B8] hover:text-white border-[#334155]'
+                                }`}
+                              >
+                                <ThumbsUp className="w-3 h-3" />
+                                <span>لايك ({cmt.likes.length})</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onToggleCommentEmoji(
+                                    modalPost.id,
+                                    cmt.id,
+                                    'heart'
+                                  )
+                                }
+                                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                                  hasHeart
+                                    ? 'bg-rose-500/25 border-rose-400 text-rose-200'
+                                    : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
+                                }`}
+                              >
+                                <span>❤️</span>
+                                <span>{cmt.reactions.heart.length}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onToggleCommentEmoji(
+                                    modalPost.id,
+                                    cmt.id,
+                                    'laugh'
+                                  )
+                                }
+                                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                                  hasLaugh
+                                    ? 'bg-amber-500/25 border-amber-400 text-amber-200'
+                                    : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
+                                }`}
+                              >
+                                <span>😂</span>
+                                <span>{cmt.reactions.laugh.length}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onToggleCommentEmoji(
+                                    modalPost.id,
+                                    cmt.id,
+                                    'sad'
+                                  )
+                                }
+                                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                                  hasSad
+                                    ? 'bg-indigo-500/25 border-indigo-400 text-indigo-200'
+                                    : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
+                                }`}
+                              >
+                                <span>😢</span>
+                                <span>{cmt.reactions.sad.length}</span>
+                              </button>
+                            </div>
+
+                            {!modalPost.commentsDisabled && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReplyingToCommentKey(
+                                    isReplyingToThis ? null : replyKey
+                                  )
+                                }
+                                className="text-[11px] font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
+                              >
+                                <CornerDownLeft className="w-3 h-3" />
+                                <span>رد ({cmt.replies.length})</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {cmt.replies.length > 0 && (
+                            <div className="mr-3 pr-2.5 border-r-2 border-[#334155] space-y-1.5 pt-1">
+                              {cmt.replies.map((rep) => (
+                                <div
+                                  key={rep.id}
+                                  className="p-2 rounded-lg bg-[#112240] border border-[#334155]/80 text-xs space-y-0.5"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-extrabold text-amber-300">
+                                      {rep.authorUsername}
+                                    </span>
+                                    <span className="text-[10px] text-[#94A3B8]">
+                                      {formatTextualArabicElapsedTime(
+                                        rep.createdAt,
+                                        liveTimeTick
+                                      )}
+                                    </span>
+                                  </div>
+                                  <p className="text-[#F8FAFC]">{rep.text}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {isReplyingToThis && (
+                            <div className="flex items-center gap-2 pt-1">
+                              <input
+                                type="text"
+                                value={replyDrafts[replyKey] || ''}
+                                onChange={(e) =>
+                                  setReplyDrafts((prev) => ({
+                                    ...prev,
+                                    [replyKey]: e.target.value,
+                                  }))
+                                }
+                                placeholder={`الرد على تعليق ${cmt.authorUsername}...`}
+                                className="flex-1 rounded-lg bg-[#112240] border border-sky-400/50 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
+                              />
+                              <FluentButton
+                                variant="primary"
+                                size="sm"
+                                onClick={() => {
+                                  const txt = (
+                                    replyDrafts[replyKey] || ''
+                                  ).trim();
+                                  if (!txt) return;
+                                  if (containsAbusiveWords(txt)) {
+                                    setProfanityAlert(
+                                      ABUSIVE_CONTENT_WARNING_MESSAGE
+                                    );
+                                    return;
+                                  }
+                                  setProfanityAlert('');
+                                  onAddReplyToComment(modalPost.id, cmt.id, {
+                                    id: `rep-c-${Date.now()}`,
+                                    authorId: visitorId,
+                                    authorUsername: visitorName,
+                                    text: txt,
+                                    createdAt: new Date().toISOString(),
+                                  });
+                                  setReplyDrafts((prev) => ({
+                                    ...prev,
+                                    [replyKey]: '',
+                                  }));
+                                  setReplyingToCommentKey(null);
+                                }}
+                              >
+                                إرسال الرد
+                              </FluentButton>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </FluentModal>
+          );
+        })()}
 
       {/* شاشة المنشورات المحفوظة ("عند الضغط على أي منشور محفوظ يتم التوجه إلى المنشور المختار مباشرة") */}
       {isSavedPostsModalOpen && (

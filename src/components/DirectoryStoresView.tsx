@@ -42,6 +42,7 @@ import {
 import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import {
   createSquareAdSvg,
+  createSuggestedStoreSvgPair,
   getOrCreateVisitorId,
   isPermanentDreamPlazaStore,
   normalizeCategoryString,
@@ -275,6 +276,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [storePhone, setStorePhone] = useState('');
   const [storeDetails, setStoreDetails] = useState('');
   const [menuImages, setMenuImages] = useState<string[]>([]);
+  const [selectedSuggestedVariant, setSelectedSuggestedVariant] = useState<1 | 2>(1);
   const [uploadingMenu, setUploadingMenu] = useState(false);
   const [uploadStatusMsg, setUploadStatusMsg] = useState('');
 
@@ -404,13 +406,26 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
     const cleanName = storeName.trim();
     const cleanStoreCategory = storeCategory.trim() || 'مول دريم بلازا';
+    const [freshSuggested1, freshSuggested2] = createSuggestedStoreSvgPair(
+      cleanName,
+      cleanStoreCategory
+    );
+    const chosenDefaultSvg =
+      selectedSuggestedVariant === 2 ? freshSuggested2 : freshSuggested1;
+
     const realUploadedImages = menuImages.filter(
       (img) => typeof img === 'string' && !img.startsWith('data:image/svg+xml')
     );
     const finalMenuImages =
       realUploadedImages.length > 0
         ? realUploadedImages
-        : [createSquareAdSvg(cleanName, cleanStoreCategory, '#0284C7')];
+        : menuImages.length > 0
+        ? menuImages.map((img) =>
+            img.includes('#0F172A') || img.includes('%230F172A')
+              ? freshSuggested2
+              : freshSuggested1
+          )
+        : [chosenDefaultSvg];
 
     // في حالة تسجيل صيدلية أو غيره لا يُكتب "محل" إلا في حالة كتابة "محل" فقط
     const fallbackDetails =
@@ -1551,6 +1566,97 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               </div>
             )}
 
+            {/* صورتان مقترحتان منسقتان باسم المحل والقسم (ولو في أقواس يكون اسم المحل في الأول وأسفله الأقواس) */}
+            {(() => {
+              const previewName = storeName.trim() || 'اسم المحل (الأقواس)';
+              const previewCat = storeCategory.trim() || 'مول دريم بلازا';
+              const [suggestedImg1, suggestedImg2] = createSuggestedStoreSvgPair(
+                previewName,
+                previewCat
+              );
+              const suggestedPair = [
+                {
+                  variant: 1 as const,
+                  label: 'صورة مقترحة (1) — تصميم كلاسيكي فاتح منسق',
+                  url: suggestedImg1,
+                },
+                {
+                  variant: 2 as const,
+                  label: 'صورة مقترحة (2) — تصميم ملكي داكن منسق',
+                  url: suggestedImg2,
+                },
+              ];
+
+              return (
+                <div className="p-3 rounded-xl bg-white border-2 border-sky-200 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-extrabold text-sky-900">
+                      صور مقترحة للمحل (2 صورة مقترحة منسقة باسم المحل والقسم — ولو في أقواس يظهر اسم المحل بالأعلى وأسفله الأقواس):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuImages((prev) => {
+                          const realOnly = prev.filter(
+                            (x) => !x.startsWith('data:image/svg+xml')
+                          );
+                          return [...realOnly, suggestedImg1, suggestedImg2];
+                        });
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300 text-[11px] font-extrabold cursor-pointer transition-colors"
+                    >
+                      إضافة الصورتين المقترحتين معاً
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {suggestedPair.map((sug) => {
+                      const isSelected = selectedSuggestedVariant === sug.variant;
+                      return (
+                        <div
+                          key={sug.variant}
+                          onClick={() => {
+                            setSelectedSuggestedVariant(sug.variant);
+                            setMenuImages((prev) => {
+                              const realOnly = prev.filter(
+                                (x) => !x.startsWith('data:image/svg+xml')
+                              );
+                              return realOnly.length > 0
+                                ? [sug.url, ...realOnly]
+                                : [sug.url];
+                            });
+                          }}
+                          className={`rounded-xl overflow-hidden border-2 p-2 flex flex-col items-center gap-2 cursor-pointer transition-all ${
+                            isSelected
+                              ? 'border-sky-600 bg-sky-50/70 ring-2 ring-sky-500/30 shadow-md'
+                              : 'border-slate-200 bg-slate-50 hover:border-sky-400'
+                          }`}
+                        >
+                          <img
+                            src={sug.url}
+                            alt={sug.label}
+                            className="w-28 h-28 sm:w-36 sm:h-36 object-contain rounded-lg border border-slate-200 bg-white"
+                          />
+                          <div className="w-full flex items-center justify-between gap-1 text-[11px] font-extrabold text-black">
+                            <span className="truncate">{sug.label}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] shrink-0 ${
+                                isSelected
+                                  ? 'bg-sky-600 text-white'
+                                  : 'bg-white border border-slate-300 text-slate-700'
+                              }`}
+                            >
+                              {isSelected ? 'تم الاختيار ✓' : 'اختر الصورة'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {menuImages.length > 0 && (
               <div className="space-y-2 pt-2">
                 <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-700">
@@ -1822,9 +1928,9 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
               );
             })()}
 
-            {/* شريط الإعجاب (لايك 👍) والديس لايك (👎) وزر المشاركة وعدد المشاهدات لحظياً داخل تفاصيل المحل */}
+            {/* شريط الإعجاب (لايك 👍) والديس لايك (👎) وزر المشاركة (قائمة منسدلة) وعدد المشاهدات لحظياً داخل تفاصيل المحل */}
             <div className="space-y-2">
-              <div className="p-2.5 sm:p-3 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap overflow-hidden">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap overflow-visible relative">
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
                   <button
                     type="button"
@@ -1858,22 +1964,105 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     </span>
                   </button>
 
-                  {/* زر مشاركة بجانب زر لم يعجبني */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsStoreShareMenuOpen((prev) => !prev);
-                      setStoreShareCopied(false);
-                    }}
-                    className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                      isStoreShareMenuOpen
-                        ? 'bg-sky-600 text-white border-sky-600 shadow'
-                        : 'bg-white text-black hover:bg-slate-100 border-slate-300'
-                    }`}
-                  >
-                    <Share2 className="w-3.5 h-3.5 shrink-0" />
-                    <span className="whitespace-nowrap">مشاركة</span>
-                  </button>
+                  {/* زر مشاركة بجانب زر لم يعجبني — عند الضغط عليه تظهر قائمة منسدلة بها الخيارات المتاحة */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsStoreShareMenuOpen((prev) => !prev);
+                        setStoreShareCopied(false);
+                      }}
+                      className={`px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 sm:gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                        isStoreShareMenuOpen
+                          ? 'bg-sky-600 text-white border-sky-600 shadow'
+                          : 'bg-white text-black hover:bg-slate-100 border-slate-300'
+                      }`}
+                    >
+                      <Share2 className="w-3.5 h-3.5 shrink-0" />
+                      <span className="whitespace-nowrap">مشاركة</span>
+                      <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                    </button>
+
+                    {isStoreShareMenuOpen &&
+                      (() => {
+                        const shareUrl = `${window.location.origin}/?section=directory&storeId=${encodeURIComponent(
+                          activeStore.id
+                        )}`;
+                        const shareTitle = `${activeStore.name} (${activeStore.category}) - هاتف: ${activeStore.phone}`;
+                        const fullShareText = `${shareTitle}\n${shareUrl}`;
+                        return (
+                          <div className="absolute right-0 sm:left-0 sm:right-auto top-full mt-1.5 w-52 rounded-xl bg-white border-2 border-sky-500 shadow-2xl z-50 py-1.5 space-y-1 text-black">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard
+                                  ?.writeText(shareUrl)
+                                  .catch(() => {});
+                                setStoreShareCopied(true);
+                                setTimeout(
+                                  () => setStoreShareCopied(false),
+                                  2500
+                                );
+                              }}
+                              className="w-full px-3 py-2 text-right hover:bg-slate-100 text-black text-xs font-extrabold flex items-center justify-between gap-2 cursor-pointer transition-colors"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <Copy className="w-3.5 h-3.5 text-sky-700 shrink-0" />
+                                <span>
+                                  {storeShareCopied
+                                    ? 'تم النسخ ✓'
+                                    : 'نسخ الرابط'}
+                                </span>
+                              </span>
+                            </button>
+
+                            <a
+                              href={`https://wa.me/?text=${encodeURIComponent(
+                                fullShareText
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => setIsStoreShareMenuOpen(false)}
+                              className="w-full px-3 py-2 text-right hover:bg-emerald-50 text-emerald-800 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>واتس اب</span>
+                            </a>
+
+                            <a
+                              href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+                                shareUrl
+                              )}&quote=${encodeURIComponent(shareTitle)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => {
+                                navigator.clipboard
+                                  ?.writeText(fullShareText)
+                                  .catch(() => {});
+                                setIsStoreShareMenuOpen(false);
+                              }}
+                              className="w-full px-3 py-2 text-right hover:bg-sky-50 text-sky-800 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+                            >
+                              <Send className="w-3.5 h-3.5 text-[#0084FF] shrink-0" />
+                              <span>ماسنجر</span>
+                            </a>
+
+                            <a
+                              href={`https://t.me/share/url?url=${encodeURIComponent(
+                                shareUrl
+                              )}&text=${encodeURIComponent(shareTitle)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => setIsStoreShareMenuOpen(false)}
+                              className="w-full px-3 py-2 text-right hover:bg-sky-50 text-sky-800 text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+                            >
+                              <Send className="w-3.5 h-3.5 text-[#229ED9] shrink-0" />
+                              <span>تليجرام</span>
+                            </a>
+                          </div>
+                        );
+                      })()}
+                  </div>
                 </div>
 
                 <span
@@ -1884,79 +2073,6 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   <span>{activeStore.viewsCount || 0}</span>
                 </span>
               </div>
-
-              {/* قائمة خيارات مشاركة المحل (نسخ الرابط، واتساب، ماسنجر، تليجرام) */}
-              {isStoreShareMenuOpen &&
-                (() => {
-                  const shareUrl = `${window.location.origin}/?section=directory&storeId=${encodeURIComponent(
-                    activeStore.id
-                  )}`;
-                  const shareTitle = `${activeStore.name} (${activeStore.category}) - هاتف: ${activeStore.phone}`;
-                  const fullShareText = `${shareTitle}\n${shareUrl}`;
-                  return (
-                    <div className="p-3 rounded-xl bg-white border-2 border-sky-400 shadow-md space-y-2">
-                      <div className="text-xs font-extrabold text-black flex items-center justify-between">
-                        <span>مشاركة بيانات المحل عبر:</span>
-                        {storeShareCopied && (
-                          <span className="text-emerald-700 text-[11px] font-extrabold">
-                            تم نسخ الرابط بنجاح ✓
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard?.writeText(shareUrl).catch(() => {});
-                            setStoreShareCopied(true);
-                            setTimeout(() => setStoreShareCopied(false), 2500);
-                          }}
-                          className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-black text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5 text-slate-700 shrink-0" />
-                          <span>{storeShareCopied ? 'تم النسخ ✓' : 'نسخ الرابط'}</span>
-                        </button>
-
-                        <a
-                          href={`https://wa.me/?text=${encodeURIComponent(fullShareText)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5 shrink-0" />
-                          <span>واتس اب</span>
-                        </a>
-
-                        <a
-                          href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
-                            shareUrl
-                          )}&quote=${encodeURIComponent(shareTitle)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => {
-                            navigator.clipboard?.writeText(fullShareText).catch(() => {});
-                          }}
-                          className="px-3 py-2 rounded-xl bg-[#0084FF] hover:bg-[#0073E6] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <Send className="w-3.5 h-3.5 shrink-0" />
-                          <span>ماسنجر</span>
-                        </a>
-
-                        <a
-                          href={`https://t.me/share/url?url=${encodeURIComponent(
-                            shareUrl
-                          )}&text=${encodeURIComponent(shareTitle)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-2 rounded-xl bg-[#229ED9] hover:bg-[#1E8CC2] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <Send className="w-3.5 h-3.5 shrink-0" />
-                          <span>تليجرام</span>
-                        </a>
-                      </div>
-                    </div>
-                  );
-                })()}
             </div>
 
             {/* Store Full Details (Only shown if non-empty after cleaning default "محل" text for pharmacies/clinics) */}

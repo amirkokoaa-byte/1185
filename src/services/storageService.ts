@@ -134,69 +134,143 @@ export const createBannerSvg = (
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
 
-export const createSquareAdSvg = (title: string, category: string, colorHex: string) => {
+export function splitStoreTitleWithParentheses(rawTitle: string): {
+  mainTitle: string;
+  parenPart: string;
+} {
+  const cleaned = String(rawTitle || '').trim();
+  const parenMatches = Array.from(cleaned.matchAll(/\(([^)]+)\)/g))
+    .map((m) => m[1].trim())
+    .filter(Boolean);
+  const withoutParens = cleaned
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (parenMatches.length > 0 && withoutParens.length > 0) {
+    return {
+      mainTitle: withoutParens,
+      parenPart: `(${parenMatches.join(' - ')})`,
+    };
+  }
+  return {
+    mainTitle: cleaned,
+    parenPart: '',
+  };
+}
+
+export const createSquareAdSvg = (
+  title: string,
+  category: string,
+  colorHex = '#0284C7',
+  styleVariant: 1 | 2 = 1
+) => {
   const cleanCat = (category || 'محل تجاري').trim();
   const cleanTitle = (title || cleanCat).trim();
-  const titleWords = cleanTitle.split(/\s+/).filter(Boolean);
+  const { mainTitle, parenPart } = splitStoreTitleWithParentheses(cleanTitle);
 
-  // اسم المحل داخل المستطيل (وإذا كان الاسم طويلاً يكون في سطرين أسفل بعض بخط بارز واضح)
+  // اسم المحل داخل المستطيل: إذا كان يوجد أقواس يكون اسم المحل في الأول وأسفله الأقواس بشكل منسق
   let titleInsideRectMarkup = '';
-  if (cleanTitle.length > 10 && titleWords.length >= 2) {
-    const mid = Math.ceil(titleWords.length / 2);
-    const line1 = escapeSvgXml(titleWords.slice(0, mid).join(' '));
-    const line2 = escapeSvgXml(titleWords.slice(mid).join(' '));
-    const maxLen = Math.max(line1.length, line2.length);
-    const lineFontSize = maxLen > 15 ? 44 : maxLen > 11 ? 52 : 60;
+  const textFill = styleVariant === 2 ? '#0F172A' : '#000000';
+  const parenFill = styleVariant === 2 ? '#0369A1' : '#1E293B';
+
+  if (parenPart) {
+    const mainFontSize =
+      mainTitle.length > 18 ? 40 : mainTitle.length > 13 ? 48 : mainTitle.length > 9 ? 56 : 62;
+    const parenFontSize =
+      parenPart.length > 20 ? 32 : parenPart.length > 14 ? 38 : 44;
     titleInsideRectMarkup = `
-      <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line1}</text>
-      <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line2}</text>
-    `;
-  } else if (cleanTitle.length > 13 && titleWords.length === 1) {
-    const half = Math.ceil(cleanTitle.length / 2);
-    const line1 = escapeSvgXml(cleanTitle.slice(0, half));
-    const line2 = escapeSvgXml(cleanTitle.slice(half));
-    titleInsideRectMarkup = `
-      <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="52" font-weight="900">${line1}</text>
-      <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="52" font-weight="900">${line2}</text>
+      <text x="250" y="134" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.1" font-family="Cairo, sans-serif" font-size="${mainFontSize}" font-weight="900">${escapeSvgXml(mainTitle)}</text>
+      <text x="250" y="212" text-anchor="middle" dominant-baseline="middle" fill="${parenFill}" stroke="${parenFill}" stroke-width="0.9" font-family="Cairo, sans-serif" font-size="${parenFontSize}" font-weight="900">${escapeSvgXml(parenPart)}</text>
     `;
   } else {
-    const singleFontSize = cleanTitle.length <= 7 ? 72 : cleanTitle.length <= 10 ? 60 : 50;
-    titleInsideRectMarkup = `
-      <text x="250" y="174" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.4" font-family="Cairo, sans-serif" font-size="${singleFontSize}" font-weight="900">${escapeSvgXml(cleanTitle)}</text>
-    `;
+    const titleWords = mainTitle.split(/\s+/).filter(Boolean);
+    if (mainTitle.length > 10 && titleWords.length >= 2) {
+      const mid = Math.ceil(titleWords.length / 2);
+      const line1 = escapeSvgXml(titleWords.slice(0, mid).join(' '));
+      const line2 = escapeSvgXml(titleWords.slice(mid).join(' '));
+      const maxLen = Math.max(line1.length, line2.length);
+      const lineFontSize = maxLen > 15 ? 44 : maxLen > 11 ? 52 : 60;
+      titleInsideRectMarkup = `
+        <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line1}</text>
+        <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="${lineFontSize}" font-weight="900">${line2}</text>
+      `;
+    } else if (mainTitle.length > 13 && titleWords.length === 1) {
+      const half = Math.ceil(mainTitle.length / 2);
+      const line1 = escapeSvgXml(mainTitle.slice(0, half));
+      const line2 = escapeSvgXml(mainTitle.slice(half));
+      titleInsideRectMarkup = `
+        <text x="250" y="138" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="52" font-weight="900">${line1}</text>
+        <text x="250" y="210" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.2" font-family="Cairo, sans-serif" font-size="52" font-weight="900">${line2}</text>
+      `;
+    } else {
+      const singleFontSize =
+        mainTitle.length <= 7 ? 70 : mainTitle.length <= 10 ? 58 : 48;
+      titleInsideRectMarkup = `
+        <text x="250" y="174" text-anchor="middle" dominant-baseline="middle" fill="${textFill}" stroke="${textFill}" stroke-width="1.4" font-family="Cairo, sans-serif" font-size="${singleFontSize}" font-weight="900">${escapeSvgXml(mainTitle)}</text>
+      `;
+    }
   }
 
-  // أسفل المستطيل: نوع المحل بخط بارز واضح
+  // أسفل المستطيل: القسم بخط بارز واضح ومنسق
   const catWords = cleanCat.split(/\s+/).filter(Boolean);
   let categoryBelowRectMarkup = '';
+  const catTextColor = styleVariant === 2 ? '#FFFFFF' : '#000000';
   if (cleanCat.length > 14 && catWords.length >= 2) {
     const midCat = Math.ceil(catWords.length / 2);
     const cLine1 = escapeSvgXml(catWords.slice(0, midCat).join(' '));
     const cLine2 = escapeSvgXml(catWords.slice(midCat).join(' '));
     categoryBelowRectMarkup = `
-      <text x="250" y="346" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="0.9" font-family="Cairo, sans-serif" font-size="42" font-weight="900">${cLine1}</text>
-      <text x="250" y="402" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="0.9" font-family="Cairo, sans-serif" font-size="42" font-weight="900">${cLine2}</text>
+      <text x="250" y="352" text-anchor="middle" dominant-baseline="middle" fill="${catTextColor}" stroke="${catTextColor}" stroke-width="0.9" font-family="Cairo, sans-serif" font-size="38" font-weight="900">${cLine1}</text>
+      <text x="250" y="404" text-anchor="middle" dominant-baseline="middle" fill="${catTextColor}" stroke="${catTextColor}" stroke-width="0.9" font-family="Cairo, sans-serif" font-size="38" font-weight="900">${cLine2}</text>
     `;
   } else {
-    const catFontSize = cleanCat.length <= 9 ? 54 : cleanCat.length <= 14 ? 46 : 38;
+    const catFontSize = cleanCat.length <= 9 ? 48 : cleanCat.length <= 14 ? 42 : 36;
     categoryBelowRectMarkup = `
-      <text x="250" y="372" text-anchor="middle" dominant-baseline="middle" fill="#000000" stroke="#000000" stroke-width="1.1" font-family="Cairo, sans-serif" font-size="${catFontSize}" font-weight="900">${escapeSvgXml(cleanCat)}</text>
+      <text x="250" y="376" text-anchor="middle" dominant-baseline="middle" fill="${catTextColor}" stroke="${catTextColor}" stroke-width="1.1" font-family="Cairo, sans-serif" font-size="${catFontSize}" font-weight="900">${escapeSvgXml(cleanCat)}</text>
     `;
+  }
+
+  if (styleVariant === 2) {
+    const svg2 = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
+      <rect width="500" height="500" rx="22" fill="#0F172A"/>
+      <rect x="14" y="14" width="472" height="472" rx="18" fill="#1E293B" stroke="#38BDF8" stroke-width="4"/>
+      <rect x="28" y="48" width="444" height="242" rx="20" fill="#F8FAFC" stroke="#F59E0B" stroke-width="6"/>
+      <rect x="40" y="60" width="420" height="218" rx="14" fill="#FFFFFF" stroke="#0284C7" stroke-width="2.5"/>
+      ${titleInsideRectMarkup}
+      <rect x="48" y="318" width="404" height="114" rx="18" fill="#0284C7" stroke="#38BDF8" stroke-width="3"/>
+      ${categoryBelowRectMarkup}
+      <rect x="90" y="454" width="320" height="8" rx="4" fill="#F59E0B"/>
+    </svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg2)}`;
   }
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
     <rect width="500" height="500" rx="22" fill="#FFFFFF"/>
     <rect x="14" y="14" width="472" height="472" rx="18" fill="#F8FAFC" stroke="#94A3B8" stroke-width="4"/>
-    <!-- إطار مستطيلي بارز بداخله اسم المحل (وفي سطرين أسفل بعض إذا كان الاسم طويلاً) -->
+    <!-- إطار مستطيلي بارز بداخله اسم المحل (وفي حالة وجود أقواس يكون اسم المحل في الأول وأسفله الأقواس) -->
     <rect x="24" y="56" width="452" height="236" rx="20" fill="${colorHex || '#0284C7'}" fill-opacity="0.14" stroke="#0284C7" stroke-width="8"/>
     <rect x="36" y="68" width="428" height="212" rx="14" fill="#FFFFFF" stroke="#0F172A" stroke-width="4"/>
     ${titleInsideRectMarkup}
-    <!-- أسفل المستطيل: نوع المحل بخط بارز واضح -->
+    <!-- أسفل المستطيل: القسم بخط بارز واضح ومنسق -->
+    <rect x="44" y="318" width="412" height="108" rx="16" fill="#E0F2FE" stroke="#0284C7" stroke-width="3"/>
     ${categoryBelowRectMarkup}
-    <rect x="70" y="444" width="360" height="8" rx="4" fill="#0284C7"/>
+    <rect x="70" y="448" width="360" height="8" rx="4" fill="#0284C7"/>
   </svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
+
+export function createSuggestedStoreSvgPair(
+  title: string,
+  category: string
+): [string, string] {
+  const safeTitle = (title || '').trim() || 'اسم المحل';
+  const safeCat = (category || '').trim() || 'القسم';
+  return [
+    createSquareAdSvg(safeTitle, safeCat, '#0284C7', 1),
+    createSquareAdSvg(safeTitle, safeCat, '#0F172A', 2),
+  ];
+}
 
 export const HIDDEN_DEFAULT_FIREBASE_CONFIG: FirebaseConfigSettings = {
   enabled: true,
@@ -1268,6 +1342,61 @@ function mergeServiceNumbersWithInteractions(
   );
 }
 
+function mergeCommunityPostsWithInteractions(
+  baseList: CommunityPostItem[] | undefined,
+  incomingList: CommunityPostItem[] | undefined,
+  deletedIds: string[] = [],
+  authoritativeCloud = false
+): CommunityPostItem[] {
+  const merged = mergeCollectionById(
+    baseList,
+    incomingList,
+    deletedIds,
+    authoritativeCloud
+  );
+  return normalizeCommunityPostsList(
+    merged.map((post) => {
+      const prevPost = (baseList || []).find((x) => x && x.id === post.id);
+      const incPost = (incomingList || []).find((x) => x && x.id === post.id);
+      if (!prevPost || !incPost) return post;
+
+      const mergedComments = mergeCollectionById(
+        prevPost.comments || [],
+        incPost.comments || [],
+        deletedIds
+      ).map((cmt) => {
+        const pCmt = (prevPost.comments || []).find((c) => c && c.id === cmt.id);
+        const iCmt = (incPost.comments || []).find((c) => c && c.id === cmt.id);
+        if (!pCmt || !iCmt) return cmt;
+        return {
+          ...pCmt,
+          ...iCmt,
+          replies: mergeCollectionById(
+            pCmt.replies || [],
+            iCmt.replies || [],
+            deletedIds
+          ),
+          reports: mergeCollectionById(
+            pCmt.reports || [],
+            iCmt.reports || [],
+            deletedIds
+          ),
+        };
+      });
+
+      return {
+        ...post,
+        comments: mergedComments,
+        reports: mergeCollectionById(
+          prevPost.reports || [],
+          incPost.reports || [],
+          deletedIds
+        ),
+      };
+    })
+  );
+}
+
 function mergePlatformSettings(
   baseSettings: PlatformSettings,
   incomingSettings?: Partial<PlatformSettings>
@@ -2049,26 +2178,20 @@ class HybridStorageEngine {
             mergedDeletedIds
           )
         ),
-        communityPosts: normalizeCommunityPostsList(
-          mergeCollectionById(
-            current.communityPosts,
-            idbCandidate.communityPosts,
-            mergedDeletedIds
-          )
+        communityPosts: mergeCommunityPostsWithInteractions(
+          current.communityPosts,
+          idbCandidate.communityPosts,
+          mergedDeletedIds
         ),
-        buySellPosts: normalizeCommunityPostsList(
-          mergeCollectionById(
-            current.buySellPosts || [],
-            idbCandidate.buySellPosts || [],
-            mergedDeletedIds
-          )
+        buySellPosts: mergeCommunityPostsWithInteractions(
+          current.buySellPosts || [],
+          idbCandidate.buySellPosts || [],
+          mergedDeletedIds
         ),
-        utilityPosts: normalizeCommunityPostsList(
-          mergeCollectionById(
-            current.utilityPosts || [],
-            idbCandidate.utilityPosts || [],
-            mergedDeletedIds
-          )
+        utilityPosts: mergeCommunityPostsWithInteractions(
+          current.utilityPosts || [],
+          idbCandidate.utilityPosts || [],
+          mergedDeletedIds
         ),
         utilitySubmissions: normalizeUtilitySubmissionsList(
           mergeCollectionById(
@@ -2668,7 +2791,7 @@ class HybridStorageEngine {
       mergedDeletedIds,
       true
     );
-    const mergedCommunityRaw = mergeCollectionById(
+    const mergedCommunityRaw = mergeCommunityPostsWithInteractions(
       base.communityPosts,
       Array.isArray(remoteData.communityPosts)
         ? (remoteData.communityPosts as CommunityPostItem[])
@@ -2684,7 +2807,7 @@ class HybridStorageEngine {
       mergedDeletedIds,
       true
     );
-    const mergedUtilityPostsRaw = mergeCollectionById(
+    const mergedUtilityPostsRaw = mergeCommunityPostsWithInteractions(
       base.utilityPosts || [],
       Array.isArray(remoteData.utilityPosts)
         ? (remoteData.utilityPosts as CommunityPostItem[])
@@ -2692,7 +2815,7 @@ class HybridStorageEngine {
       mergedDeletedIds,
       true
     );
-    const mergedBuySellRaw = mergeCollectionById(
+    const mergedBuySellRaw = mergeCommunityPostsWithInteractions(
       base.buySellPosts || [],
       Array.isArray(remoteData.buySellPosts)
         ? (remoteData.buySellPosts as CommunityPostItem[])
@@ -2930,33 +3053,27 @@ class HybridStorageEngine {
     const nextState: PlatformDatabaseState = {
       ...base,
       communityPosts: Array.isArray(data.communityPosts)
-        ? normalizeCommunityPostsList(
-            mergeCollectionById(
-              base.communityPosts,
-              data.communityPosts as CommunityPostItem[],
-              mergedDeletedIds,
-              true
-            )
+        ? mergeCommunityPostsWithInteractions(
+            base.communityPosts,
+            data.communityPosts as CommunityPostItem[],
+            mergedDeletedIds,
+            true
           )
         : base.communityPosts,
       buySellPosts: Array.isArray(data.buySellPosts)
-        ? normalizeCommunityPostsList(
-            mergeCollectionById(
-              base.buySellPosts || [],
-              data.buySellPosts as CommunityPostItem[],
-              mergedDeletedIds,
-              true
-            )
+        ? mergeCommunityPostsWithInteractions(
+            base.buySellPosts || [],
+            data.buySellPosts as CommunityPostItem[],
+            mergedDeletedIds,
+            true
           )
         : base.buySellPosts || [],
       utilityPosts: Array.isArray(data.utilityPosts)
-        ? normalizeCommunityPostsList(
-            mergeCollectionById(
-              base.utilityPosts || [],
-              data.utilityPosts as CommunityPostItem[],
-              mergedDeletedIds,
-              true
-            )
+        ? mergeCommunityPostsWithInteractions(
+            base.utilityPosts || [],
+            data.utilityPosts as CommunityPostItem[],
+            mergedDeletedIds,
+            true
           )
         : base.utilityPosts || [],
       utilitySubmissions: Array.isArray(data.utilitySubmissions)
@@ -3234,33 +3351,27 @@ class HybridStorageEngine {
           )
         : base.utilitySubmissions || [],
       utilityPosts: Array.isArray(chatPatch.utilityPosts)
-        ? normalizeCommunityPostsList(
-            mergeCollectionById(
-              base.utilityPosts || [],
-              chatPatch.utilityPosts as CommunityPostItem[],
-              mergedDeletedIds,
-              true
-            )
+        ? mergeCommunityPostsWithInteractions(
+            base.utilityPosts || [],
+            chatPatch.utilityPosts as CommunityPostItem[],
+            mergedDeletedIds,
+            true
           )
         : base.utilityPosts || [],
       buySellPosts: Array.isArray(chatPatch.buySellPosts)
-        ? normalizeCommunityPostsList(
-            mergeCollectionById(
-              base.buySellPosts || [],
-              chatPatch.buySellPosts as CommunityPostItem[],
-              mergedDeletedIds,
-              true
-            )
+        ? mergeCommunityPostsWithInteractions(
+            base.buySellPosts || [],
+            chatPatch.buySellPosts as CommunityPostItem[],
+            mergedDeletedIds,
+            true
           )
         : base.buySellPosts || [],
       communityPosts: Array.isArray(chatPatch.communityPosts)
-        ? normalizeCommunityPostsList(
-            mergeCollectionById(
-              base.communityPosts || [],
-              chatPatch.communityPosts as CommunityPostItem[],
-              mergedDeletedIds,
-              true
-            )
+        ? mergeCommunityPostsWithInteractions(
+            base.communityPosts || [],
+            chatPatch.communityPosts as CommunityPostItem[],
+            mergedDeletedIds,
+            true
           )
         : base.communityPosts,
       deletedRecordIds: mergedDeletedIds,

@@ -234,6 +234,7 @@ export interface CommunityCommentItem {
   };
   replies: CommunityCommentReply[]; // Nested replies to a comment
   reports: CommunityReportEntry[]; // Reports filed on this comment
+  updatedAt?: number | string;
   createdAt: string;
 }
 
@@ -252,6 +253,7 @@ export interface CommunityPostItem {
   dislikes: string[]; // User IDs for Dislike 👎
   comments: CommunityCommentItem[];
   reports: CommunityReportEntry[]; // Reports filed on this post
+  updatedAt?: number | string;
   createdAt: string;
 }
 

@@ -879,20 +879,6 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         <div key={`popup-seq-${currentPopupImageIndex}`} className="space-y-4">
           {popupAdImagesList[currentPopupImageIndex] && (
             <div className="relative w-full rounded-xl overflow-hidden bg-[#0A192F] border border-sky-400/40 flex items-center justify-center p-2">
-              {/* زر إغلاق X بارز على اليسار لكل صورة منبثقة */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCloseEntryPopup();
-                }}
-                aria-label="إغلاق الإعلان"
-                title="إغلاق الإعلان"
-                className="absolute top-3 left-3 z-20 w-9 h-9 rounded-full bg-rose-600 hover:bg-rose-500 text-white border-2 border-white/80 flex items-center justify-center shadow-xl cursor-pointer transition-transform hover:scale-105"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
               <img
                 src={popupAdImagesList[currentPopupImageIndex]}
                 alt={`${popupAd.title || 'إعلان'} - ${currentPopupImageIndex + 1}`}

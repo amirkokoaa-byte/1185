@@ -817,6 +817,30 @@ export const ServiceNumbersView: React.FC<ServiceNumbersViewProps> = ({
                         )}
                       </div>
                     </div>
+
+                    {/* عرض أول تعليق أسفل بطاقة الخدمة وعند الضغط عليه تفتح الشاشة المنبثقة بجميع التعليقات */}
+                    {Array.isArray(srv.comments) && srv.comments.length > 0 && (
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenWorkerModal(srv);
+                        }}
+                        className="mt-2.5 pt-2 border-t border-slate-200 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 cursor-pointer transition-all"
+                        title="اضغط لعرض جميع التعليقات في شاشة منبثقة"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className="text-[11px] font-extrabold text-sky-800 shrink-0">
+                            {srv.comments[0].authorUsername}:
+                          </span>
+                          <p className="text-[11px] font-bold text-slate-800 truncate">
+                            {srv.comments[0].text}
+                          </p>
+                        </div>
+                        <span className="text-[10px] font-extrabold text-sky-700 bg-sky-100 px-2 py-0.5 rounded-lg shrink-0">
+                          عرض كل التعليقات ({srv.comments.length})
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })}

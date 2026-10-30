@@ -526,6 +526,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [editingCommentText, setEditingCommentText] = useState<string>('');
   const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
   const [editingReplyText, setEditingReplyText] = useState<string>('');
+  const [openCommentMenuId, setOpenCommentMenuId] = useState<string | null>(null);
+  const [copiedCommentId, setCopiedCommentId] = useState<string | null>(null);
 
   const handleJumpToPost = (postId: string) => {
     setIsSavedPostsModalOpen(false);
@@ -557,9 +559,16 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     }
   }, [posts.length, chatOnlyOverlayMode]);
 
-  // Close "المزيد" menu and "مشاركة" dropdown menu when clicking anywhere outside
+  // Close "المزيد" menu, "مشاركة" dropdown menu, and comment 3-dots menu when clicking anywhere outside
   useEffect(() => {
-    if (!openMoreMenuPostId && !openShareMenuPostId) return;
+    if (
+      !openMoreMenuPostId &&
+      !openShareMenuPostId &&
+      !openCommentMenuId &&
+      !openReportMenuId
+    ) {
+      return;
+    }
     const handleDocClick = (ev: MouseEvent) => {
       const target = ev.target as HTMLElement | null;
       if (target && target.closest('[data-more-menu-container="true"]')) {
@@ -568,13 +577,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       if (target && target.closest('[data-share-dropdown-container="true"]')) {
         return;
       }
+      if (target && target.closest('[data-comment-menu-container="true"]')) {
+        return;
+      }
       setOpenMoreMenuPostId(null);
       setOpenReportSubMenuPostId(null);
       setOpenShareMenuPostId(null);
+      setOpenCommentMenuId(null);
+      setOpenReportMenuId(null);
     };
     document.addEventListener('mousedown', handleDocClick);
     return () => document.removeEventListener('mousedown', handleDocClick);
-  }, [openMoreMenuPostId, openShareMenuPostId]);
+  }, [openMoreMenuPostId, openShareMenuPostId, openCommentMenuId, openReportMenuId]);
 
   // ============================================================================
   // Persistent Bottom-Left Square Private Chat Box (Up to 2 Open Chats, Classic FB Minimize '-', Close 'x', Block, Report, Reactions, & 2s Notification)
@@ -2775,20 +2789,20 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                 </div>
               )}
 
-              {/* أزرار التفاعل الـ 4 بحجم صغير وفي سطر واحد: لايك + ديس لايك + تعليق + مشاركة (قائمة منسدلة) */}
-              <div className="pt-2 border-t border-[#334155]/80 flex flex-wrap items-center justify-between gap-1.5 overflow-visible relative">
-                <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {/* أزرار التفاعل الـ 4 بحجم صغير وفي سطر واحد على الهاتف والكمبيوتر بدون شريط تمرير: لايك + ديس لايك + تعليق + مشاركة */}
+              <div className="pt-2 border-t border-[#334155]/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 overflow-visible relative">
+                <div className="grid grid-cols-4 sm:flex items-center gap-1 sm:gap-1.5 w-full sm:w-auto">
                   {/* 1. زر لايك بحجم صغير */}
                   <button
                     type="button"
                     onClick={() => onTogglePostLike(post.id)}
-                    className={`fluent-reveal px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold flex items-center gap-1 border cursor-pointer transition-all whitespace-nowrap ${
+                    className={`fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 border cursor-pointer transition-all whitespace-nowrap ${
                       isPostLiked
                         ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-[0_0_10px_rgba(24,119,242,0.5)]'
                         : 'bg-[#0A192F] text-[#E2E8F0] hover:bg-[#1877F2]/20 border-[#334155]'
                     }`}
                   >
-                    <ThumbsUp className="w-3 h-3 shrink-0" />
+                    <ThumbsUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
                     <span>لايك ({post.likes.length})</span>
                   </button>
 
@@ -2796,13 +2810,13 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   <button
                     type="button"
                     onClick={() => onTogglePostDislike(post.id)}
-                    className={`fluent-reveal px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-extrabold flex items-center gap-1 border cursor-pointer transition-all whitespace-nowrap ${
+                    className={`fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 border cursor-pointer transition-all whitespace-nowrap ${
                       isPostDisliked
                         ? 'bg-rose-600 text-white border-rose-500 shadow-[0_0_10px_rgba(225,29,72,0.4)]'
                         : 'bg-[#0A192F] text-[#94A3B8] hover:bg-rose-600/20 border-[#334155]'
                     }`}
                   >
-                    <ThumbsDown className="w-3 h-3 shrink-0" />
+                    <ThumbsDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
                     <span>ديس لايك ({post.dislikes.length})</span>
                   </button>
 
@@ -2817,7 +2831,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         [post.id]: !prev[post.id],
                       }));
                     }}
-                    className={`fluent-reveal px-2.5 py-1 rounded-lg border text-[11px] sm:text-xs font-extrabold flex items-center gap-1 whitespace-nowrap ${
+                    className={`fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1 rounded-lg border text-[10px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 whitespace-nowrap ${
                       post.commentsDisabled
                         ? 'bg-[#0A192F]/50 text-amber-300/80 border-amber-500/30 cursor-not-allowed'
                         : 'bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border-[#334155] cursor-pointer'
@@ -2825,14 +2839,14 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   >
                     {post.commentsDisabled ? (
                       <>
-                        <MessageSquareOff className="w-3 h-3 shrink-0 text-amber-400" />
+                        <MessageSquareOff className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0 text-amber-400" />
                         <span>
-                          التعليقات متوقفة ({visibleForViewerComments.length})
+                          متوقفة ({visibleForViewerComments.length})
                         </span>
                       </>
                     ) : (
                       <>
-                        <MessageSquare className="w-3 h-3 shrink-0" />
+                        <MessageSquare className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
                         <span>تعليق ({visibleForViewerComments.length})</span>
                       </>
                     )}
@@ -2840,7 +2854,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
                   {/* 4. زر "مشاركة" يفتح قائمة منسدلة بها الخيارات المتاحة */}
                   <div
-                    className="relative"
+                    className="relative w-full sm:w-auto"
                     data-share-dropdown-container="true"
                   >
                     <button
@@ -2851,15 +2865,15 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         );
                         setCopiedSharePostId(null);
                       }}
-                      className={`fluent-reveal px-2.5 py-1 rounded-lg border text-[11px] sm:text-xs font-extrabold flex items-center gap-1 whitespace-nowrap cursor-pointer transition-all ${
+                      className={`fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1 rounded-lg border text-[10px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 whitespace-nowrap cursor-pointer transition-all ${
                         isShareDropdownOpen
                           ? 'bg-sky-600 text-white border-sky-400 shadow-[0_0_10px_rgba(2,132,199,0.5)]'
                           : 'bg-[#0A192F] hover:bg-[#1E293B] text-emerald-300 border-[#334155]'
                       }`}
                     >
-                      <Share2 className="w-3 h-3 shrink-0" />
+                      <Share2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
                       <span>مشاركة</span>
-                      <ChevronDown className="w-3 h-3 shrink-0" />
+                      <ChevronDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
                     </button>
 
                     {isShareDropdownOpen &&
@@ -3063,140 +3077,21 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                       isPostOwner || isStrictAdmin
                     );
                     const isEditingThisComment = editingCommentId === cmt.id;
+                    const isCommentMenuOpen =
+                      openCommentMenuId === `outside-cmt-${cmt.id}`;
+                    const isLongOutsideComment =
+                      cmt.text.length > 55 || cmt.text.includes('\n');
 
                     return (
                       <div
                         key={cmt.id}
                         onClick={() => setActiveCommentsModalPostId(post.id)}
                         title="اضغط لعرض جميع التعليقات والردود في شاشة منبثقة"
-                        className="p-2.5 rounded-xl bg-[#0A192F]/90 hover:bg-[#0A192F] border border-[#334155] hover:border-sky-400/70 space-y-2 cursor-pointer transition-all"
+                        className="px-2.5 py-1.5 rounded-xl bg-[#0A192F]/90 hover:bg-[#0A192F] border border-[#334155] hover:border-sky-400/70 space-y-1.5 cursor-pointer transition-all relative"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-extrabold text-sky-300">
-                              {cmt.authorUsername}
-                            </span>
-                            {cmt.isPinned && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-bold">
-                                <Pin className="w-2.5 h-2.5" />
-                                تعليق مثبت
-                              </span>
-                            )}
-                            <span className="text-[11px] text-[#94A3B8]">
-                              {formatTextualArabicElapsedTime(
-                                cmt.createdAt,
-                                liveTimeTick
-                              )}
-                            </span>
-                            <span className="text-[10px] font-bold text-sky-400/90 bg-sky-500/10 border border-sky-400/30 px-1.5 py-0.5 rounded">
-                              اضغط لعرض التعليقات ({visibleForViewerComments.length})
-                            </span>
-                          </div>
-
-                          <div
-                            className="flex items-center gap-1.5 relative flex-wrap justify-end"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {/* تثبيت التعليق: من صلاحيات Admin وصاحب المنشور أيضاً */}
-                            {canPinThisComment && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onTogglePinComment(post.id, cmt.id)
-                                }
-                                title="تثبيت التعليق"
-                                className="text-[11px] font-bold text-amber-400 hover:underline cursor-pointer"
-                              >
-                                {cmt.isPinned ? 'إلغاء التثبيت' : 'تثبيت'}
-                              </button>
-                            )}
-
-                            {/* إخفاء التعليق: يخفيه عن جميع المستخدمين ويظهر في مكانه زر إظهار */}
-                            {canManageThisComment && onToggleHideComment && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onToggleHideComment(post.id, cmt.id)
-                                }
-                                title="إخفاء التعليق عن جميع المستخدمين"
-                                className="px-2 py-0.5 rounded-lg bg-[#112240] hover:bg-amber-500/20 text-amber-300 border border-amber-400/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                              >
-                                <EyeOff className="w-3 h-3" />
-                                <span>إخفاء</span>
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setOpenReportMenuId(
-                                  isCmtReportOpen ? null : `cmt-${cmt.id}`
-                                )
-                              }
-                              className="text-[11px] text-[#94A3B8] hover:text-rose-400 flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <Flag className="w-3 h-3" />
-                              <span>إبلاغ</span>
-                            </button>
-
-                            {/* تعديل وحذف التعليق: يظهر لصاحب المنشور و Admin فقط */}
-                            {canOwnerOrAdminEditDelete && onEditComment && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingCommentId(cmt.id);
-                                  setEditingCommentText(cmt.text);
-                                }}
-                                title="تعديل التعليق (لصاحب المنشور و Admin فقط)"
-                                className="px-2 py-0.5 rounded-lg bg-sky-600/20 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                                <span>تعديل</span>
-                              </button>
-                            )}
-
-                            {canOwnerOrAdminEditDelete && (
-                              <button
-                                type="button"
-                                onClick={() => onDeleteComment(post.id, cmt.id)}
-                                title="حذف التعليق (لصاحب المنشور و Admin فقط)"
-                                className="px-2 py-0.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                <span>حذف</span>
-                              </button>
-                            )}
-
-                            {isCmtReportOpen && (
-                              <div className="absolute left-0 top-full mt-1 w-52 max-w-[calc(100vw-2rem)] rounded-xl bg-[#112240] border border-rose-400/50 shadow-2xl z-50 py-1">
-                                {REPORT_REASONS.map((reason) => (
-                                  <button
-                                    key={reason}
-                                    type="button"
-                                    onClick={() => {
-                                      onReportComment(
-                                        post.id,
-                                        cmt.id,
-                                        reason
-                                      );
-                                      setOpenReportMenuId(null);
-                                      setReportFeedbackBanner(
-                                        `تم إرسال بلاغ عن التعليق ("${reason}") إلى الإدارة.`
-                                      );
-                                    }}
-                                    className="w-full text-right px-3 py-1.5 text-xs font-bold text-[#F8FAFC] hover:bg-rose-600/25 cursor-pointer block"
-                                  >
-                                    {reason}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
                         {isEditingThisComment ? (
                           <div
-                            className="flex items-center gap-2 pt-1"
+                            className="flex items-center gap-2 py-0.5"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <input
@@ -3205,7 +3100,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onChange={(e) =>
                                 setEditingCommentText(e.target.value)
                               }
-                              className="flex-1 rounded-lg bg-[#112240] border border-sky-400 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
+                              className="flex-1 rounded-lg bg-[#112240] border border-sky-400 px-3 py-1 text-xs text-[#F8FAFC] outline-none"
                             />
                             <button
                               type="button"
@@ -3232,9 +3127,187 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                             </button>
                           </div>
                         ) : (
-                          <p className="text-xs text-[#F8FAFC] leading-relaxed">
-                            {cmt.text}
-                          </p>
+                          /* مستطيل التعليق الصغير: اسم صاحب التعليق + التعليق (سطر واحد) + زر إظهار المزيد (إن زاد عن سطر) + 3 نقاط على سطر واحد */
+                          <div className="flex items-center justify-between gap-2 min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                              <span className="text-xs font-extrabold text-sky-300 shrink-0">
+                                {cmt.authorUsername}:
+                              </span>
+                              {cmt.isPinned && (
+                                <Pin className="w-3 h-3 text-amber-400 shrink-0" />
+                              )}
+                              <span className="text-xs text-[#F8FAFC] truncate">
+                                {cmt.text.replace(/\s+/g, ' ')}
+                              </span>
+                              {isLongOutsideComment && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveCommentsModalPostId(post.id);
+                                  }}
+                                  className="text-[11px] font-extrabold text-amber-400 hover:text-amber-300 underline shrink-0 cursor-pointer"
+                                >
+                                  إظهار المزيد
+                                </button>
+                              )}
+                            </div>
+
+                            {/* زر الـ 3 نقاط (...) للقائمة المنسدلة (تعديل، حذف، إبلاغ، نسخ، إخفاء) */}
+                            <div
+                              className="relative shrink-0"
+                              data-comment-menu-container="true"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenCommentMenuId((prev) =>
+                                    prev === `outside-cmt-${cmt.id}`
+                                      ? null
+                                      : `outside-cmt-${cmt.id}`
+                                  );
+                                  setOpenReportMenuId(null);
+                                }}
+                                title="خيارات التعليق"
+                                className="p-1 rounded-lg bg-[#112240] hover:bg-[#1E293B] text-[#94A3B8] hover:text-white border border-[#334155] cursor-pointer transition-colors"
+                              >
+                                <MoreHorizontal className="w-3.5 h-3.5" />
+                              </button>
+
+                              {isCommentMenuOpen && (
+                                <div className="absolute left-0 top-full mt-1 w-44 rounded-xl bg-[#0A192F] border border-sky-400/60 shadow-2xl z-50 py-1 space-y-0.5">
+                                  {/* 1. تعديل (لصاحب المنشور و Admin) */}
+                                  {canOwnerOrAdminEditDelete && onEditComment && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingCommentId(cmt.id);
+                                        setEditingCommentText(cmt.text);
+                                        setOpenCommentMenuId(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-sky-300 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                                      <span>تعديل</span>
+                                    </button>
+                                  )}
+
+                                  {/* 2. حذف (لصاحب المنشور و Admin) */}
+                                  {canOwnerOrAdminEditDelete && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onDeleteComment(post.id, cmt.id);
+                                        setOpenCommentMenuId(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 text-right hover:bg-rose-600/20 text-rose-400 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                      <span>حذف</span>
+                                    </button>
+                                  )}
+
+                                  {/* 3. إبلاغ */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenReportMenuId(
+                                        isCmtReportOpen ? null : `cmt-${cmt.id}`
+                                      );
+                                    }}
+                                    className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-amber-300 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Flag className="w-3.5 h-3.5 shrink-0" />
+                                    <span>إبلاغ</span>
+                                  </button>
+
+                                  {/* 4. نسخ */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard
+                                        ?.writeText(cmt.text)
+                                        .catch(() => {});
+                                      setCopiedCommentId(cmt.id);
+                                      setTimeout(() => {
+                                        setCopiedCommentId((prev) =>
+                                          prev === cmt.id ? null : prev
+                                        );
+                                      }, 2000);
+                                      setOpenCommentMenuId(null);
+                                    }}
+                                    className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-[#F8FAFC] text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Copy className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                    <span>
+                                      {copiedCommentId === cmt.id
+                                        ? 'تم النسخ ✓'
+                                        : 'نسخ'}
+                                    </span>
+                                  </button>
+
+                                  {/* 5. إخفاء */}
+                                  {onToggleHideComment && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onToggleHideComment(post.id, cmt.id);
+                                        setOpenCommentMenuId(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-[#94A3B8] hover:text-white text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                                      <span>إخفاء</span>
+                                    </button>
+                                  )}
+
+                                  {/* تثبيت (لـ Admin وصاحب المنشور) */}
+                                  {canPinThisComment && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onTogglePinComment(post.id, cmt.id);
+                                        setOpenCommentMenuId(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-amber-400 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <Pin className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        {cmt.isPinned ? 'إلغاء التثبيت' : 'تثبيت'}
+                                      </span>
+                                    </button>
+                                  )}
+
+                                  {isCmtReportOpen && (
+                                    <div className="border-t border-[#334155] mt-1 pt-1 bg-[#112240]">
+                                      {REPORT_REASONS.map((reason) => (
+                                        <button
+                                          key={reason}
+                                          type="button"
+                                          onClick={() => {
+                                            onReportComment(
+                                              post.id,
+                                              cmt.id,
+                                              reason
+                                            );
+                                            setOpenReportMenuId(null);
+                                            setOpenCommentMenuId(null);
+                                            setReportFeedbackBanner(
+                                              `تم إرسال بلاغ عن التعليق ("${reason}") إلى الإدارة.`
+                                            );
+                                          }}
+                                          className="w-full text-right px-3 py-1.5 text-[11px] font-bold text-[#F8FAFC] hover:bg-rose-600/25 cursor-pointer block"
+                                        >
+                                          {reason}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         )}
 
                         {/* Comment Actions: Like Button + 3 Specific Emoji Reactions (❤️, 😂, 😢) + Reply (Opens Comments Modal) */}
@@ -3249,13 +3322,13 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onClick={() =>
                                 onToggleCommentLike(post.id, cmt.id)
                               }
-                              className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-colors ${
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 border cursor-pointer transition-colors ${
                                 hasLikedCmt
                                   ? 'bg-sky-600 text-white border-sky-400'
                                   : 'bg-[#112240] text-[#94A3B8] hover:text-white border-[#334155]'
                               }`}
                             >
-                              <ThumbsUp className="w-3 h-3" />
+                              <ThumbsUp className="w-2.5 h-2.5" />
                               <span>لايك ({cmt.likes.length})</span>
                             </button>
 
@@ -3265,7 +3338,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onClick={() =>
                                 onToggleCommentEmoji(post.id, cmt.id, 'heart')
                               }
-                              className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                              className={`px-1.5 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-0.5 border cursor-pointer transition-transform hover:scale-105 ${
                                 hasHeart
                                   ? 'bg-rose-500/25 border-rose-400 text-rose-200'
                                   : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
@@ -3281,7 +3354,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onClick={() =>
                                 onToggleCommentEmoji(post.id, cmt.id, 'laugh')
                               }
-                              className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                              className={`px-1.5 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-0.5 border cursor-pointer transition-transform hover:scale-105 ${
                                 hasLaugh
                                   ? 'bg-amber-500/25 border-amber-400 text-amber-200'
                                   : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
@@ -3297,7 +3370,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               onClick={() =>
                                 onToggleCommentEmoji(post.id, cmt.id, 'sad')
                               }
-                              className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1 border cursor-pointer transition-transform hover:scale-105 ${
+                              className={`px-1.5 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-0.5 border cursor-pointer transition-transform hover:scale-105 ${
                                 hasSad
                                   ? 'bg-indigo-500/25 border-indigo-400 text-indigo-200'
                                   : 'bg-[#112240] border-[#334155] text-[#94A3B8]'
@@ -3316,7 +3389,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                                 setActiveCommentsModalPostId(post.id);
                                 setReplyingToCommentKey(replyKey);
                               }}
-                              className="text-[11px] font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
+                              className="text-[10px] font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
                             >
                               <CornerDownLeft className="w-3 h-3" />
                               <span>رد ({cmt.replies.length})</span>
@@ -3561,101 +3634,168 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-1.5 relative flex-wrap justify-end">
-                              {canPinThisComment && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onTogglePinComment(modalPost.id, cmt.id)
-                                  }
-                                  title="تثبيت التعليق"
-                                  className="text-[11px] font-bold text-amber-400 hover:underline cursor-pointer"
-                                >
-                                  {cmt.isPinned ? 'إلغاء التثبيت' : 'تثبيت'}
-                                </button>
-                              )}
-
-                              {canManageThisComment && onToggleHideComment && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onToggleHideComment(modalPost.id, cmt.id)
-                                  }
-                                  title="إخفاء التعليق عن جميع المستخدمين"
-                                  className="px-2 py-0.5 rounded-lg bg-[#112240] hover:bg-amber-500/20 text-amber-300 border border-amber-400/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                                >
-                                  <EyeOff className="w-3 h-3" />
-                                  <span>إخفاء</span>
-                                </button>
-                              )}
-
+                            {/* زر الـ 3 نقاط (...) للقائمة المنسدلة داخل الشاشة المنبثقة للتعليقات */}
+                            <div
+                              className="relative shrink-0"
+                              data-comment-menu-container="true"
+                            >
                               <button
                                 type="button"
-                                onClick={() =>
-                                  setOpenReportMenuId(
-                                    isCmtReportOpen
+                                onClick={() => {
+                                  setOpenCommentMenuId((prev) =>
+                                    prev === `modal-cmt-menu-${cmt.id}`
                                       ? null
-                                      : `modal-cmt-${cmt.id}`
-                                  )
-                                }
-                                className="text-[11px] text-[#94A3B8] hover:text-rose-400 flex items-center gap-0.5 cursor-pointer"
+                                      : `modal-cmt-menu-${cmt.id}`
+                                  );
+                                  setOpenReportMenuId(null);
+                                }}
+                                title="خيارات التعليق"
+                                className="p-1.5 rounded-lg bg-[#112240] hover:bg-[#1E293B] text-[#94A3B8] hover:text-white border border-[#334155] cursor-pointer transition-colors"
                               >
-                                <Flag className="w-3 h-3" />
-                                <span>إبلاغ</span>
+                                <MoreHorizontal className="w-4 h-4" />
                               </button>
 
-                              {/* تعديل وحذف التعليق: يظهر لصاحب المنشور و Admin فقط */}
-                              {canModalOwnerOrAdminEditDelete && onEditComment && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingCommentId(cmt.id);
-                                    setEditingCommentText(cmt.text);
-                                  }}
-                                  title="تعديل التعليق (لصاحب المنشور و Admin فقط)"
-                                  className="px-2 py-0.5 rounded-lg bg-sky-600/20 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                  <span>تعديل</span>
-                                </button>
-                              )}
+                              {openCommentMenuId ===
+                                `modal-cmt-menu-${cmt.id}` && (
+                                <div className="absolute left-0 top-full mt-1 w-44 rounded-xl bg-[#0A192F] border border-sky-400/60 shadow-2xl z-50 py-1 space-y-0.5">
+                                  {/* 1. تعديل (لصاحب المنشور و Admin) */}
+                                  {canModalOwnerOrAdminEditDelete &&
+                                    onEditComment && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingCommentId(cmt.id);
+                                          setEditingCommentText(cmt.text);
+                                          setOpenCommentMenuId(null);
+                                        }}
+                                        className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-sky-300 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                                        <span>تعديل</span>
+                                      </button>
+                                    )}
 
-                              {canModalOwnerOrAdminEditDelete && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onDeleteComment(modalPost.id, cmt.id)
-                                  }
-                                  title="حذف التعليق (لصاحب المنشور و Admin فقط)"
-                                  className="px-2 py-0.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                  <span>حذف</span>
-                                </button>
-                              )}
-
-                              {isCmtReportOpen && (
-                                <div className="absolute left-0 top-full mt-1 w-52 max-w-[calc(100vw-2rem)] rounded-xl bg-[#112240] border border-rose-400/50 shadow-2xl z-50 py-1">
-                                  {REPORT_REASONS.map((reason) => (
+                                  {/* 2. حذف (لصاحب المنشور و Admin) */}
+                                  {canModalOwnerOrAdminEditDelete && (
                                     <button
-                                      key={reason}
                                       type="button"
                                       onClick={() => {
-                                        onReportComment(
-                                          modalPost.id,
-                                          cmt.id,
-                                          reason
-                                        );
-                                        setOpenReportMenuId(null);
-                                        setReportFeedbackBanner(
-                                          `تم إرسال بلاغ عن التعليق ("${reason}") إلى الإدارة.`
-                                        );
+                                        onDeleteComment(modalPost.id, cmt.id);
+                                        setOpenCommentMenuId(null);
                                       }}
-                                      className="w-full text-right px-3 py-1.5 text-xs font-bold text-[#F8FAFC] hover:bg-rose-600/25 cursor-pointer block"
+                                      className="w-full px-3 py-1.5 text-right hover:bg-rose-600/20 text-rose-400 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
                                     >
-                                      {reason}
+                                      <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                      <span>حذف</span>
                                     </button>
-                                  ))}
+                                  )}
+
+                                  {/* 3. إبلاغ */}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenReportMenuId(
+                                        isCmtReportOpen
+                                          ? null
+                                          : `modal-cmt-${cmt.id}`
+                                      )
+                                    }
+                                    className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-amber-300 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Flag className="w-3.5 h-3.5 shrink-0" />
+                                    <span>إبلاغ</span>
+                                  </button>
+
+                                  {/* 4. نسخ */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard
+                                        ?.writeText(cmt.text)
+                                        .catch(() => {});
+                                      setCopiedCommentId(cmt.id);
+                                      setTimeout(() => {
+                                        setCopiedCommentId((prev) =>
+                                          prev === cmt.id ? null : prev
+                                        );
+                                      }, 2000);
+                                      setOpenCommentMenuId(null);
+                                    }}
+                                    className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-[#F8FAFC] text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Copy className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                    <span>
+                                      {copiedCommentId === cmt.id
+                                        ? 'تم النسخ ✓'
+                                        : 'نسخ'}
+                                    </span>
+                                  </button>
+
+                                  {/* 5. إخفاء */}
+                                  {onToggleHideComment && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onToggleHideComment(
+                                          modalPost.id,
+                                          cmt.id
+                                        );
+                                        setOpenCommentMenuId(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-[#94A3B8] hover:text-white text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                                      <span>إخفاء</span>
+                                    </button>
+                                  )}
+
+                                  {/* تثبيت */}
+                                  {canPinThisComment && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onTogglePinComment(
+                                          modalPost.id,
+                                          cmt.id
+                                        );
+                                        setOpenCommentMenuId(null);
+                                      }}
+                                      className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-amber-400 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <Pin className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        {cmt.isPinned
+                                          ? 'إلغاء التثبيت'
+                                          : 'تثبيت'}
+                                      </span>
+                                    </button>
+                                  )}
+
+                                  {isCmtReportOpen && (
+                                    <div className="border-t border-[#334155] mt-1 pt-1 bg-[#112240]">
+                                      {REPORT_REASONS.map((reason) => (
+                                        <button
+                                          key={reason}
+                                          type="button"
+                                          onClick={() => {
+                                            onReportComment(
+                                              modalPost.id,
+                                              cmt.id,
+                                              reason
+                                            );
+                                            setOpenReportMenuId(null);
+                                            setOpenCommentMenuId(null);
+                                            setReportFeedbackBanner(
+                                              `تم إرسال بلاغ عن التعليق ("${reason}") إلى الإدارة.`
+                                            );
+                                          }}
+                                          className="w-full text-right px-3 py-1.5 text-[11px] font-bold text-[#F8FAFC] hover:bg-rose-600/25 cursor-pointer block"
+                                        >
+                                          {reason}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>

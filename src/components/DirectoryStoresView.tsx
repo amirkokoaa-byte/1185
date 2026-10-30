@@ -31,6 +31,9 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  MoreHorizontal,
+  EyeOff,
+  Flag,
 } from 'lucide-react';
 import {
   PlatformSettings,
@@ -344,6 +347,23 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [activeMenuPageIdx, setActiveMenuPageIdx] = useState<number>(0);
   const [menuPanOffsetX, setMenuPanOffsetX] = useState<number>(0);
   const [profanityWarning, setProfanityWarning] = useState<string>('');
+  const [openStoreCommentMenuId, setOpenStoreCommentMenuId] = useState<string | null>(null);
+  const [hiddenStoreCommentIds, setHiddenStoreCommentIds] = useState<string[]>([]);
+  const [editingStoreCommentId, setEditingStoreCommentId] = useState<string | null>(null);
+  const [editingStoreCommentText, setEditingStoreCommentText] = useState<string>('');
+
+  useEffect(() => {
+    if (!openStoreCommentMenuId) return;
+    const handleDocClick = (ev: MouseEvent) => {
+      const target = ev.target as HTMLElement | null;
+      if (target && target.closest('[data-store-comment-menu="true"]')) {
+        return;
+      }
+      setOpenStoreCommentMenuId(null);
+    };
+    document.addEventListener('mousedown', handleDocClick);
+    return () => document.removeEventListener('mousedown', handleDocClick);
+  }, [openStoreCommentMenuId]);
 
   const [isDuplicateStoresModalOpen, setIsDuplicateStoresModalOpen] =
     useState(false);
@@ -724,13 +744,42 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
   // Render single comment item (White background & black text for high visibility inside light modal)
   const renderCommentBlock = (store: StoreListingItem, comment: StoreCommentItem) => {
+    if (hiddenStoreCommentIds.includes(comment.id)) {
+      return (
+        <div
+          key={comment.id}
+          className="px-3 py-2 rounded-xl bg-slate-100 border border-slate-300 flex items-center justify-between text-xs text-slate-600"
+        >
+          <span>تم إخفاء هذا التعليق</span>
+          <button
+            type="button"
+            onClick={() =>
+              setHiddenStoreCommentIds((prev) => prev.filter((id) => id !== comment.id))
+            }
+            className="text-sky-700 font-extrabold hover:underline cursor-pointer"
+          >
+            إظهار
+          </button>
+        </div>
+      );
+    }
+
     const hasLikedComment = comment.likes.includes(currentVisitorId);
     const isReplyingHere = replyingToCommentId === comment.id;
+    const isMenuOpen = openStoreCommentMenuId === comment.id;
+    const isEditingThis = editingStoreCommentId === comment.id;
+    const canManageStoreComment = Boolean(
+      isStrictAdmin ||
+        (currentUser &&
+          (store.ownerId === currentUser.id ||
+            store.ownerUsername === currentUser.username ||
+            comment.authorUsername === currentUser.username))
+    );
 
     return (
       <div
         key={comment.id}
-        className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 space-y-2.5 text-black"
+        className="p-3 rounded-xl bg-slate-50 border border-slate-300 space-y-2 text-black relative"
       >
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -756,23 +805,139 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             </div>
           </div>
 
-          {/* Delete Comment Button: Visible to Strict Admin Only */}
-          {isStrictAdmin && (
+          {/* 3-Dots Dropdown Menu (تعديل، حذف، إبلاغ، نسخ، إخفاء) */}
+          <div className="relative" data-store-comment-menu="true">
             <button
               type="button"
-              onClick={() => onDeleteStoreComment(store.id, comment.id)}
-              title="حذف التعليق (صلاحية Admin)"
-              className="px-2 py-1 rounded-lg bg-rose-100 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+              onClick={() =>
+                setOpenStoreCommentMenuId((prev) =>
+                  prev === comment.id ? null : comment.id
+                )
+              }
+              title="خيارات التعليق"
+              className="p-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 border border-slate-300 cursor-pointer transition-colors"
             >
-              <Trash2 className="w-3 h-3" />
-              <span>حذف التعليق</span>
+              <MoreHorizontal className="w-4 h-4" />
             </button>
-          )}
+
+            {isMenuOpen && (
+              <div className="absolute left-0 top-full mt-1 w-40 rounded-xl bg-[#0A192F] border border-sky-400/60 shadow-2xl z-50 py-1 space-y-0.5 text-white">
+                {canManageStoreComment && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingStoreCommentId(comment.id);
+                      setEditingStoreCommentText(comment.text);
+                      setOpenStoreCommentMenuId(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-sky-300 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                    <span>تعديل</span>
+                  </button>
+                )}
+
+                {canManageStoreComment && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDeleteStoreComment(store.id, comment.id);
+                      setOpenStoreCommentMenuId(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-right hover:bg-rose-600/20 text-rose-400 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>حذف</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenStoreCommentMenuId(null);
+                    setRatingOnlySavedNotice('تم إرسال إبلاغ عن التعليق إلى الإدارة.');
+                    setTimeout(() => setRatingOnlySavedNotice(''), 3000);
+                  }}
+                  className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-amber-300 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                >
+                  <Flag className="w-3.5 h-3.5 shrink-0" />
+                  <span>إبلاغ</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(comment.text).catch(() => {});
+                    setOpenStoreCommentMenuId(null);
+                    setRatingOnlySavedNotice('تم نسخ نص التعليق بنجاح.');
+                    setTimeout(() => setRatingOnlySavedNotice(''), 2500);
+                  }}
+                  className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-[#F8FAFC] text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span>نسخ</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHiddenStoreCommentIds((prev) => [...prev, comment.id]);
+                    setOpenStoreCommentMenuId(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-right hover:bg-[#1E293B] text-[#94A3B8] hover:text-white text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+                >
+                  <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                  <span>إخفاء</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        <p className="text-xs sm:text-sm font-bold text-black leading-relaxed">
-          {comment.text}
-        </p>
+        {isEditingThis ? (
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="text"
+              value={editingStoreCommentText}
+              onChange={(e) => setEditingStoreCommentText(e.target.value)}
+              className="flex-1 rounded-lg bg-white border border-sky-500 px-3 py-1.5 text-xs text-black outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const trimmed = editingStoreCommentText.trim();
+                if (!trimmed) return;
+                const updatedStore: StoreListingItem = {
+                  ...store,
+                  comments: store.comments.map((c) =>
+                    c.id === comment.id ? { ...c, text: trimmed } : c
+                  ),
+                  updatedAt: Date.now(),
+                };
+                onUpdateStore?.(updatedStore);
+                setEditingStoreCommentId(null);
+                setEditingStoreCommentText('');
+              }}
+              className="px-2.5 py-1 rounded-lg bg-sky-600 text-white text-xs font-extrabold cursor-pointer"
+            >
+              حفظ
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingStoreCommentId(null);
+                setEditingStoreCommentText('');
+              }}
+              className="px-2.5 py-1 rounded-lg bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+            >
+              إلغاء
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs sm:text-sm font-bold text-black leading-relaxed">
+            {comment.text}
+          </p>
+        )}
 
         {/* Comment Actions: Like & Reply */}
         <div className="flex items-center gap-4 pt-1 text-xs">

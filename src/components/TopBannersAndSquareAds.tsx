@@ -11,6 +11,7 @@ import {
   X,
   Trash2,
   CheckSquare,
+  Eye,
 } from 'lucide-react';
 import {
   MainSectionId,
@@ -38,6 +39,11 @@ interface TopBannersAndSquareAdsProps {
   showBannersAndSquareAds?: boolean;
   onNavigateSection?: (section: MainSectionId) => void;
   onEntryPopupClosed?: () => void;
+  onTrackAdInteraction?: (
+    adType: 'top_banner' | 'square_ad' | 'popup_ad',
+    adId: string,
+    metric: 'view' | 'call' | 'whatsapp'
+  ) => void;
   onBulkDeleteAds?: (
     squareAdIds: string[],
     topBannerIds: string[],
@@ -54,6 +60,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   showBannersAndSquareAds = true,
   onNavigateSection,
   onEntryPopupClosed,
+  onTrackAdInteraction,
   onBulkDeleteAds,
 }) => {
   // Re-evaluate expiration every 30 seconds so expired ads automatically disappear
@@ -214,6 +221,10 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         description: s.details,
         isAdminPinned: true,
         active: true,
+        viewsCount: s.viewsCount || 0,
+        callClicksCount: s.callClicksCount || 0,
+        whatsappClicksCount: s.whatsappClicksCount || 0,
+        viewsByHour: s.viewsByHour,
         createdAt: s.createdAt,
       }));
 
@@ -231,6 +242,33 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
     return combinedPool;
   }, [squareAds, stores, nowTick]);
+
+  // Live synced versions of currently opened modal ads so counters update in real time inside the modal
+  const liveSelectedTopBanner = useMemo(() => {
+    if (!selectedTopBanner) return null;
+    return (
+      topBanners.find((b) => b.id === selectedTopBanner.id) || selectedTopBanner
+    );
+  }, [selectedTopBanner, topBanners]);
+
+  const liveSelectedSquareAd = useMemo(() => {
+    if (!selectedSquareAd) return null;
+    return (
+      displayedSquareAds.find((a) => a.id === selectedSquareAd.id) ||
+      squareAds.find((a) => a.id === selectedSquareAd.id) ||
+      selectedSquareAd
+    );
+  }, [selectedSquareAd, displayedSquareAds, squareAds]);
+
+  const handleOpenTopBannerModal = (banner: TopBannerAd) => {
+    setSelectedTopBanner(banner);
+    onTrackAdInteraction?.('top_banner', banner.id, 'view');
+  };
+
+  const handleOpenSquareAdModal = (ad: SquareMovingAd) => {
+    setSelectedSquareAd(ad);
+    onTrackAdInteraction?.('square_ad', ad.id, 'view');
+  };
 
   const handleConfirmExecuteBulkDelete = () => {
     if (!onBulkDeleteAds || selectedAdKeys.length === 0) return;
@@ -324,7 +362,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
             {/* Full Uncropped Banner Image Container */}
             <div
-              onClick={() => setSelectedTopBanner(currentBanner)}
+              onClick={() => handleOpenTopBannerModal(currentBanner)}
               className="relative w-full bg-white flex items-center justify-center cursor-pointer overflow-hidden"
             >
               <img
@@ -337,7 +375,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
 
             {/* Banner Full Text & Action Bar Below Image (White background + Black text) */}
             <div
-              onClick={() => setSelectedTopBanner(currentBanner)}
+              onClick={() => handleOpenTopBannerModal(currentBanner)}
               className="p-3 sm:p-4 bg-white border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 cursor-pointer"
             >
               <div className="space-y-0.5 flex-1 min-w-0">
@@ -358,6 +396,9 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                 {currentBanner.phone && (
                   <a
                     href={`tel:${currentBanner.phone}`}
+                    onClick={() =>
+                      onTrackAdInteraction?.('top_banner', currentBanner.id, 'call')
+                    }
                     className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow"
                   >
                     <Phone className="w-3.5 h-3.5" />
@@ -371,6 +412,9 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() =>
+                      onTrackAdInteraction?.('top_banner', currentBanner.id, 'whatsapp')
+                    }
                     className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
@@ -554,7 +598,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       if (isAdmin && isBulkSelectMode) {
                         toggleSelectAdKey(adKey);
                       } else {
-                        setSelectedSquareAd(ad);
+                        handleOpenSquareAdModal(ad);
                       }
                     }}
                     title="اضغط لعرض كافة البيانات والتفاصيل"
@@ -608,55 +652,80 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         </div>
       )}
 
-      {/* Modal when user clicks a Top Banner (White background + Black text + Full details) */}
-      {selectedTopBanner && (
+      {/* Modal when user clicks a Top Banner (White background + Black text + Full details + Live Views Counter) */}
+      {liveSelectedTopBanner && (
         <FluentModal
-          isOpen={!!selectedTopBanner}
+          isOpen={!!liveSelectedTopBanner}
           onClose={() => setSelectedTopBanner(null)}
-          title={selectedTopBanner.title}
-          subtitle={selectedTopBanner.subtitle || 'تفاصيل الإعلان والمنيو واللوكيشن'}
+          title={liveSelectedTopBanner.title}
+          subtitle={liveSelectedTopBanner.subtitle || 'تفاصيل الإعلان والمنيو واللوكيشن'}
           maxWidth="3xl"
           theme="light"
         >
           <div className="space-y-4 text-black">
+            {/* عداد المشاهدات اللحظي لمن ضغطوا على الإعلان وفتحوه */}
+            <div className="px-3.5 py-2 rounded-xl bg-sky-50 border border-sky-300 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-extrabold text-sky-900">
+                <Eye className="w-4 h-4 text-sky-600 shrink-0" />
+                <span>عدد المشاهدات (الذين ضغطوا على الإعلان وفتحوه لحظياً):</span>
+              </div>
+              <span className="px-3 py-0.5 rounded-full bg-sky-600 text-white text-xs font-mono-tabular font-extrabold">
+                {liveSelectedTopBanner.viewsCount || 1} مشاهدة
+              </span>
+            </div>
+
             <div
-              onClick={() => setFullImagePreviewUrl(selectedTopBanner.imageUrl)}
+              onClick={() => setFullImagePreviewUrl(liveSelectedTopBanner.imageUrl)}
               className="w-full rounded-xl overflow-hidden bg-white border border-slate-300 flex items-center justify-center p-2 cursor-zoom-in"
             >
               <img
-                src={selectedTopBanner.imageUrl}
-                alt={selectedTopBanner.title}
+                src={liveSelectedTopBanner.imageUrl}
+                alt={liveSelectedTopBanner.title}
                 referrerPolicy="no-referrer"
                 className="w-full max-h-[70vh] object-contain"
               />
             </div>
 
-            {selectedTopBanner.subtitle && (
+            {liveSelectedTopBanner.subtitle && (
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 text-sm font-bold text-black whitespace-pre-wrap break-words leading-relaxed">
-                {selectedTopBanner.subtitle}
+                {liveSelectedTopBanner.subtitle}
               </div>
             )}
 
-            {selectedTopBanner.phone && (
+            {liveSelectedTopBanner.phone && (
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold text-slate-800">
                   رقم الهاتف:{' '}
                   <strong className="text-black font-mono-tabular text-sm font-extrabold">
-                    {selectedTopBanner.phone}
+                    {liveSelectedTopBanner.phone}
                   </strong>
                 </span>
                 <div className="flex items-center gap-2">
                   <a
-                    href={`tel:${selectedTopBanner.phone}`}
+                    href={`tel:${liveSelectedTopBanner.phone}`}
+                    onClick={() =>
+                      onTrackAdInteraction?.(
+                        'top_banner',
+                        liveSelectedTopBanner.id,
+                        'call'
+                      )
+                    }
                     className="px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold flex items-center gap-1"
                   >
                     <Phone className="w-3.5 h-3.5" />
                     <span>اتصال</span>
                   </a>
                   <a
-                    href={`https://wa.me/${formatWhatsapp(selectedTopBanner.phone)}`}
+                    href={`https://wa.me/${formatWhatsapp(liveSelectedTopBanner.phone)}`}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() =>
+                      onTrackAdInteraction?.(
+                        'top_banner',
+                        liveSelectedTopBanner.id,
+                        'whatsapp'
+                      )
+                    }
                     className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
@@ -666,13 +735,13 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
               </div>
             )}
 
-            {selectedTopBanner.locationUrl && (
+            {liveSelectedTopBanner.locationUrl && (
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-slate-800 break-all">
-                  لوكيشن المكان: {selectedTopBanner.locationUrl}
+                  لوكيشن المكان: {liveSelectedTopBanner.locationUrl}
                 </span>
                 <a
-                  href={selectedTopBanner.locationUrl}
+                  href={liveSelectedTopBanner.locationUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center gap-1 shrink-0"
@@ -683,35 +752,36 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
               </div>
             )}
 
-            {selectedTopBanner.menuImages && selectedTopBanner.menuImages.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs font-extrabold text-black">
-                  صور إضافية / منيو المكان (اضغط على أي صورة لعرضها بالحجم الكامل):
+            {liveSelectedTopBanner.menuImages &&
+              liveSelectedTopBanner.menuImages.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-extrabold text-black">
+                    صور إضافية / منيو المكان (اضغط على أي صورة لعرضها بالحجم الكامل):
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {liveSelectedTopBanner.menuImages.map((img, i) => (
+                      <div
+                        key={i}
+                        onClick={() => setFullImagePreviewUrl(img)}
+                        className="w-full rounded-xl bg-white border border-slate-300 p-1.5 flex items-center justify-center cursor-zoom-in"
+                      >
+                        <img
+                          src={img}
+                          alt={`Menu ${i + 1}`}
+                          className="w-full max-h-72 object-contain rounded-lg"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedTopBanner.menuImages.map((img, i) => (
-                    <div
-                      key={i}
-                      onClick={() => setFullImagePreviewUrl(img)}
-                      className="w-full rounded-xl bg-white border border-slate-300 p-1.5 flex items-center justify-center cursor-zoom-in"
-                    >
-                      <img
-                        src={img}
-                        alt={`Menu ${i + 1}`}
-                        className="w-full max-h-72 object-contain rounded-lg"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
 
-            {selectedTopBanner.targetSection && (
+            {liveSelectedTopBanner.targetSection && (
               <div className="flex justify-end">
                 <FluentButton
                   variant="primary"
                   onClick={() => {
-                    handleNavigateInternalSection(selectedTopBanner.targetSection);
+                    handleNavigateInternalSection(liveSelectedTopBanner.targetSection);
                     setSelectedTopBanner(null);
                   }}
                 >
@@ -724,73 +794,102 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         </FluentModal>
       )}
 
-      {/* Modal when user clicks a Square Moving Ad (White background + Black text + All Details visible) */}
-      {selectedSquareAd && (
+      {/* Modal when user clicks a Square Moving Ad (White background + Black text + All Details visible + Live Views Counter) */}
+      {liveSelectedSquareAd && (
         <FluentModal
-          isOpen={!!selectedSquareAd}
+          isOpen={!!liveSelectedSquareAd}
           onClose={() => setSelectedSquareAd(null)}
-          title={selectedSquareAd.title}
-          subtitle={selectedSquareAd.category ? `القسم: ${selectedSquareAd.category}` : undefined}
+          title={liveSelectedSquareAd.title}
+          subtitle={
+            liveSelectedSquareAd.category
+              ? `القسم: ${liveSelectedSquareAd.category}`
+              : undefined
+          }
           maxWidth="2xl"
           theme="light"
         >
           <div className="space-y-4 text-black">
+            {/* عداد المشاهدات اللحظي لمن ضغطوا على الإعلان وفتحوه */}
+            <div className="px-3.5 py-2 rounded-xl bg-sky-50 border border-sky-300 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-extrabold text-sky-900">
+                <Eye className="w-4 h-4 text-sky-600 shrink-0" />
+                <span>عدد المشاهدات (الذين ضغطوا على الإعلان وفتحوه لحظياً):</span>
+              </div>
+              <span className="px-3 py-0.5 rounded-full bg-sky-600 text-white text-xs font-mono-tabular font-extrabold">
+                {liveSelectedSquareAd.viewsCount || 1} مشاهدة
+              </span>
+            </div>
+
             <div
-              onClick={() => setFullImagePreviewUrl(selectedSquareAd.imageUrl)}
+              onClick={() => setFullImagePreviewUrl(liveSelectedSquareAd.imageUrl)}
               className="w-full rounded-xl overflow-hidden bg-white border border-slate-300 flex items-center justify-center p-2 cursor-zoom-in"
             >
               <img
-                src={selectedSquareAd.imageUrl}
-                alt={selectedSquareAd.title}
+                src={liveSelectedSquareAd.imageUrl}
+                alt={liveSelectedSquareAd.title}
                 referrerPolicy="no-referrer"
                 className="w-full max-h-[70vh] object-contain"
               />
             </div>
 
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 space-y-1.5">
-              {selectedSquareAd.category && (
+              {liveSelectedSquareAd.category && (
                 <div className="text-xs font-extrabold text-sky-800 break-words whitespace-normal">
-                  {selectedSquareAd.category}
+                  {liveSelectedSquareAd.category}
                 </div>
               )}
               <div className="text-base font-extrabold text-black break-words whitespace-normal">
-                {selectedSquareAd.title}
+                {liveSelectedSquareAd.title}
               </div>
               {cleanAdDescription(
-                selectedSquareAd.title,
-                selectedSquareAd.category,
-                selectedSquareAd.description
+                liveSelectedSquareAd.title,
+                liveSelectedSquareAd.category,
+                liveSelectedSquareAd.description
               ) && (
                 <p className="text-sm font-semibold text-black whitespace-pre-wrap break-words leading-relaxed pt-1">
                   {cleanAdDescription(
-                    selectedSquareAd.title,
-                    selectedSquareAd.category,
-                    selectedSquareAd.description
+                    liveSelectedSquareAd.title,
+                    liveSelectedSquareAd.category,
+                    liveSelectedSquareAd.description
                   )}
                 </p>
               )}
             </div>
 
-            {selectedSquareAd.phone && (
+            {liveSelectedSquareAd.phone && (
               <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-xl bg-slate-50 border border-slate-300">
                 <span className="text-xs font-bold text-slate-800">
                   رقم الهاتف:{' '}
                   <strong className="text-black font-mono-tabular text-sm font-extrabold">
-                    {selectedSquareAd.phone}
+                    {liveSelectedSquareAd.phone}
                   </strong>
                 </span>
                 <div className="flex items-center gap-2">
                   <a
-                    href={`tel:${selectedSquareAd.phone}`}
+                    href={`tel:${liveSelectedSquareAd.phone}`}
+                    onClick={() =>
+                      onTrackAdInteraction?.(
+                        'square_ad',
+                        liveSelectedSquareAd.id,
+                        'call'
+                      )
+                    }
                     className="px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold flex items-center gap-1"
                   >
                     <Phone className="w-3.5 h-3.5" />
                     <span>اتصال</span>
                   </a>
                   <a
-                    href={`https://wa.me/${formatWhatsapp(selectedSquareAd.phone)}`}
+                    href={`https://wa.me/${formatWhatsapp(liveSelectedSquareAd.phone)}`}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() =>
+                      onTrackAdInteraction?.(
+                        'square_ad',
+                        liveSelectedSquareAd.id,
+                        'whatsapp'
+                      )
+                    }
                     className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center gap-1"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
@@ -800,15 +899,15 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
               </div>
             )}
 
-            {selectedSquareAd.locationUrl &&
-              selectedSquareAd.locationUrl.trim() !== '' &&
-              selectedSquareAd.locationUrl.trim() !== 'https://maps.google.com' && (
+            {liveSelectedSquareAd.locationUrl &&
+              liveSelectedSquareAd.locationUrl.trim() !== '' &&
+              liveSelectedSquareAd.locationUrl.trim() !== 'https://maps.google.com' && (
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-300 flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-slate-800 break-all">
-                    اللوكيشن: {selectedSquareAd.locationUrl}
+                    اللوكيشن: {liveSelectedSquareAd.locationUrl}
                   </span>
                   <a
-                    href={selectedSquareAd.locationUrl}
+                    href={liveSelectedSquareAd.locationUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center gap-1 shrink-0"
@@ -819,35 +918,36 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                 </div>
               )}
 
-            {selectedSquareAd.menuImages && selectedSquareAd.menuImages.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-xs font-extrabold text-black">
-                  صور المنيو / الإعلان (اضغط على أي صورة لعرضها كاملة):
+            {liveSelectedSquareAd.menuImages &&
+              liveSelectedSquareAd.menuImages.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-extrabold text-black">
+                    صور المنيو / الإعلان (اضغط على أي صورة لعرضها كاملة):
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {liveSelectedSquareAd.menuImages.map((img, i) => (
+                      <div
+                        key={i}
+                        onClick={() => setFullImagePreviewUrl(img)}
+                        className="w-full rounded-xl bg-white border border-slate-300 p-1.5 flex items-center justify-center cursor-zoom-in"
+                      >
+                        <img
+                          src={img}
+                          alt={`Menu ${i + 1}`}
+                          className="w-full max-h-72 object-contain rounded-lg"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedSquareAd.menuImages.map((img, i) => (
-                    <div
-                      key={i}
-                      onClick={() => setFullImagePreviewUrl(img)}
-                      className="w-full rounded-xl bg-white border border-slate-300 p-1.5 flex items-center justify-center cursor-zoom-in"
-                    >
-                      <img
-                        src={img}
-                        alt={`Menu ${i + 1}`}
-                        className="w-full max-h-72 object-contain rounded-lg"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
 
-            {selectedSquareAd.targetSection && (
+            {liveSelectedSquareAd.targetSection && (
               <div className="flex justify-end">
                 <FluentButton
                   variant="primary"
                   onClick={() => {
-                    handleNavigateInternalSection(selectedSquareAd.targetSection);
+                    handleNavigateInternalSection(liveSelectedSquareAd.targetSection);
                     setSelectedSquareAd(null);
                   }}
                 >
@@ -860,7 +960,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         </FluentModal>
       )}
 
-      {/* 3. Entry Pop-up Ad Modal (Each uploaded image appears as a separate sequential popup with an X close button on the left) */}
+      {/* 3. Entry Pop-up Ad Modal (Each uploaded image appears as a separate sequential popup with an X close button on the left + Live Views Counter when clicked) */}
       <FluentModal
         isOpen={
           showEntryPopup &&
@@ -877,22 +977,37 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         maxWidth="lg"
       >
         <div key={`popup-seq-${currentPopupImageIndex}`} className="space-y-4">
+          {/* عداد المشاهدات اللحظي لمن ضغطوا على الإعلان وفتحوه */}
+          <div className="px-3.5 py-2 rounded-xl bg-[#0A192F] border border-sky-400/50 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-extrabold text-sky-300">
+              <Eye className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>عدد المشاهدات (الذين ضغطوا على الإعلان وفتحوه لحظياً):</span>
+            </div>
+            <span className="px-3 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-200 text-xs font-mono-tabular font-extrabold">
+              {popupAd.viewsCount || 0} مشاهدة
+            </span>
+          </div>
+
           {popupAdImagesList[currentPopupImageIndex] && (
             <div className="relative w-full rounded-xl overflow-hidden bg-[#0A192F] border border-sky-400/40 flex items-center justify-center p-2">
               <img
                 src={popupAdImagesList[currentPopupImageIndex]}
                 alt={`${popupAd.title || 'إعلان'} - ${currentPopupImageIndex + 1}`}
                 referrerPolicy="no-referrer"
-                onClick={() =>
-                  setFullImagePreviewUrl(popupAdImagesList[currentPopupImageIndex])
-                }
+                onClick={() => {
+                  onTrackAdInteraction?.('popup_ad', popupAd.id, 'view');
+                  setFullImagePreviewUrl(popupAdImagesList[currentPopupImageIndex]);
+                }}
                 className="w-full max-h-[60vh] object-contain cursor-zoom-in"
               />
             </div>
           )}
 
           {popupAd.description && (
-            <p className="text-sm text-[#F8FAFC] whitespace-pre-wrap break-words leading-relaxed">
+            <p
+              onClick={() => onTrackAdInteraction?.('popup_ad', popupAd.id, 'view')}
+              className="text-sm text-[#F8FAFC] whitespace-pre-wrap break-words leading-relaxed cursor-pointer"
+            >
               {popupAd.description}
             </p>
           )}
@@ -914,6 +1029,10 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                   <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-center gap-3">
                     <a
                       href={`tel:${popupContactPhone}`}
+                      onClick={() => {
+                        onTrackAdInteraction?.('popup_ad', popupAd.id, 'view');
+                        onTrackAdInteraction?.('popup_ad', popupAd.id, 'call');
+                      }}
                       className="fluent-reveal flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-extrabold shadow"
                     >
                       <Phone className="w-4 h-4 shrink-0" />
@@ -925,6 +1044,10 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => {
+                        onTrackAdInteraction?.('popup_ad', popupAd.id, 'view');
+                        onTrackAdInteraction?.('popup_ad', popupAd.id, 'whatsapp');
+                      }}
                       className="fluent-reveal flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold shadow"
                     >
                       <MessageCircle className="w-4 h-4 shrink-0" />
@@ -940,6 +1063,9 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                       href={popupAd.locationUrl}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() =>
+                        onTrackAdInteraction?.('popup_ad', popupAd.id, 'view')
+                      }
                       className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center gap-1"
                     >
                       <ExternalLink className="w-3 h-3" />
@@ -982,3 +1108,4 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     </section>
   );
 };
+

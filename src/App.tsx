@@ -3522,11 +3522,22 @@ export default function App() {
   };
 
   const handleAddTopBanner = (banner: TopBannerAd) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => {
-      const exists = prev.topBanners.some((b) => b.id === banner.id);
-      const nextBanners = exists
-        ? prev.topBanners.map((b) => (b.id === banner.id ? banner : b))
-        : [banner, ...prev.topBanners];
+      const existing = prev.topBanners.find((b) => b.id === banner.id);
+      const mergedBanner: TopBannerAd = {
+        ...existing,
+        ...banner,
+        viewsCount: banner.viewsCount ?? existing?.viewsCount ?? 0,
+        callClicksCount: banner.callClicksCount ?? existing?.callClicksCount ?? 0,
+        whatsappClicksCount:
+          banner.whatsappClicksCount ?? existing?.whatsappClicksCount ?? 0,
+        viewsByHour: banner.viewsByHour ?? existing?.viewsByHour ?? {},
+        updatedAt: nowTs,
+      };
+      const nextBanners = existing
+        ? prev.topBanners.map((b) => (b.id === banner.id ? mergedBanner : b))
+        : [mergedBanner, ...prev.topBanners];
       return {
         ...prev,
         topBanners: nextBanners,
@@ -3535,18 +3546,29 @@ export default function App() {
         ),
         settings: {
           ...prev.settings,
-          updatedAt: Date.now(),
+          updatedAt: nowTs,
         },
       };
     });
   };
 
   const handleUpdateTopBanner = (banner: TopBannerAd) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => {
-      const exists = prev.topBanners.some((b) => b.id === banner.id);
-      const nextBanners = exists
-        ? prev.topBanners.map((b) => (b.id === banner.id ? banner : b))
-        : [banner, ...prev.topBanners];
+      const existing = prev.topBanners.find((b) => b.id === banner.id);
+      const mergedBanner: TopBannerAd = {
+        ...existing,
+        ...banner,
+        viewsCount: banner.viewsCount ?? existing?.viewsCount ?? 0,
+        callClicksCount: banner.callClicksCount ?? existing?.callClicksCount ?? 0,
+        whatsappClicksCount:
+          banner.whatsappClicksCount ?? existing?.whatsappClicksCount ?? 0,
+        viewsByHour: banner.viewsByHour ?? existing?.viewsByHour ?? {},
+        updatedAt: nowTs,
+      };
+      const nextBanners = existing
+        ? prev.topBanners.map((b) => (b.id === banner.id ? mergedBanner : b))
+        : [mergedBanner, ...prev.topBanners];
       return {
         ...prev,
         topBanners: nextBanners,
@@ -3555,7 +3577,7 @@ export default function App() {
         ),
         settings: {
           ...prev.settings,
-          updatedAt: Date.now(),
+          updatedAt: nowTs,
         },
       };
     });
@@ -3576,17 +3598,29 @@ export default function App() {
   };
 
   const handleAddSquareAd = (ad: SquareMovingAd) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => {
-      const exists = prev.squareAds.some(
+      const existing = prev.squareAds.find(
         (s) => s.id === ad.id || (ad.storeId && s.storeId === ad.storeId)
       );
-      const nextSquareAds = exists
+      const mergedAd: SquareMovingAd = {
+        ...existing,
+        ...ad,
+        id: existing ? existing.id : ad.id,
+        viewsCount: ad.viewsCount ?? existing?.viewsCount ?? 0,
+        callClicksCount: ad.callClicksCount ?? existing?.callClicksCount ?? 0,
+        whatsappClicksCount:
+          ad.whatsappClicksCount ?? existing?.whatsappClicksCount ?? 0,
+        viewsByHour: ad.viewsByHour ?? existing?.viewsByHour ?? {},
+        updatedAt: nowTs,
+      };
+      const nextSquareAds = existing
         ? prev.squareAds.map((s) =>
             s.id === ad.id || (ad.storeId && s.storeId === ad.storeId)
-              ? { ...ad, id: s.id }
+              ? mergedAd
               : s
           )
-        : [ad, ...prev.squareAds];
+        : [mergedAd, ...prev.squareAds];
       return {
         ...prev,
         squareAds: nextSquareAds,
@@ -3601,18 +3635,29 @@ export default function App() {
         ),
         settings: {
           ...prev.settings,
-          updatedAt: Date.now(),
+          updatedAt: nowTs,
         },
       };
     });
   };
 
   const handleUpdateSquareAd = (ad: SquareMovingAd) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => {
-      const exists = prev.squareAds.some((s) => s.id === ad.id);
-      const nextSquareAds = exists
-        ? prev.squareAds.map((s) => (s.id === ad.id ? ad : s))
-        : [ad, ...prev.squareAds];
+      const existing = prev.squareAds.find((s) => s.id === ad.id);
+      const mergedAd: SquareMovingAd = {
+        ...existing,
+        ...ad,
+        viewsCount: ad.viewsCount ?? existing?.viewsCount ?? 0,
+        callClicksCount: ad.callClicksCount ?? existing?.callClicksCount ?? 0,
+        whatsappClicksCount:
+          ad.whatsappClicksCount ?? existing?.whatsappClicksCount ?? 0,
+        viewsByHour: ad.viewsByHour ?? existing?.viewsByHour ?? {},
+        updatedAt: nowTs,
+      };
+      const nextSquareAds = existing
+        ? prev.squareAds.map((s) => (s.id === ad.id ? mergedAd : s))
+        : [mergedAd, ...prev.squareAds];
       return {
         ...prev,
         squareAds: nextSquareAds,
@@ -3627,21 +3672,24 @@ export default function App() {
         ),
         settings: {
           ...prev.settings,
-          updatedAt: Date.now(),
+          updatedAt: nowTs,
         },
       };
     });
   };
 
   const handleTogglePinSquareAd = (id: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       squareAds: prev.squareAds.map((ad) =>
-        ad.id === id ? { ...ad, isAdminPinned: !ad.isAdminPinned } : ad
+        ad.id === id
+          ? { ...ad, isAdminPinned: !ad.isAdminPinned, updatedAt: nowTs }
+          : ad
       ),
       settings: {
         ...prev.settings,
-        updatedAt: Date.now(),
+        updatedAt: nowTs,
       },
     }));
   };
@@ -3661,14 +3709,145 @@ export default function App() {
   };
 
   const handleUpdatePopupAd = (popup: PopupAdConfig) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
-      popupAd: popup,
+      popupAd: {
+        ...prev.popupAd,
+        ...popup,
+        viewsCount: popup.viewsCount ?? prev.popupAd.viewsCount ?? 0,
+        callClicksCount: popup.callClicksCount ?? prev.popupAd.callClicksCount ?? 0,
+        whatsappClicksCount:
+          popup.whatsappClicksCount ?? prev.popupAd.whatsappClicksCount ?? 0,
+        viewsByHour: popup.viewsByHour ?? prev.popupAd.viewsByHour ?? {},
+        updatedAt: nowTs,
+      },
       settings: {
         ...prev.settings,
-        updatedAt: Date.now(),
+        updatedAt: nowTs,
       },
     }));
+  };
+
+  const handleTrackAdInteraction = (
+    adType: 'top_banner' | 'square_ad' | 'popup_ad',
+    adId: string,
+    metric: 'view' | 'call' | 'whatsapp'
+  ) => {
+    const nowTs = Date.now();
+    const hourKey = String(new Date().getHours());
+    updateAndPersist((prev) => {
+      if (adType === 'top_banner') {
+        return {
+          ...prev,
+          topBanners: prev.topBanners.map((b) => {
+            if (b.id !== adId) return b;
+            const prevHourMap = b.viewsByHour || {};
+            return {
+              ...b,
+              viewsCount:
+                metric === 'view' ? (b.viewsCount || 0) + 1 : b.viewsCount || 0,
+              callClicksCount:
+                metric === 'call'
+                  ? (b.callClicksCount || 0) + 1
+                  : b.callClicksCount || 0,
+              whatsappClicksCount:
+                metric === 'whatsapp'
+                  ? (b.whatsappClicksCount || 0) + 1
+                  : b.whatsappClicksCount || 0,
+              viewsByHour:
+                metric === 'view'
+                  ? { ...prevHourMap, [hourKey]: (prevHourMap[hourKey] || 0) + 1 }
+                  : prevHourMap,
+              updatedAt: nowTs,
+            };
+          }),
+        };
+      }
+
+      if (adType === 'popup_ad') {
+        const p = prev.popupAd;
+        const prevHourMap = p.viewsByHour || {};
+        return {
+          ...prev,
+          popupAd: {
+            ...p,
+            viewsCount:
+              metric === 'view' ? (p.viewsCount || 0) + 1 : p.viewsCount || 0,
+            callClicksCount:
+              metric === 'call'
+                ? (p.callClicksCount || 0) + 1
+                : p.callClicksCount || 0,
+            whatsappClicksCount:
+              metric === 'whatsapp'
+                ? (p.whatsappClicksCount || 0) + 1
+                : p.whatsappClicksCount || 0,
+            viewsByHour:
+              metric === 'view'
+                ? { ...prevHourMap, [hourKey]: (prevHourMap[hourKey] || 0) + 1 }
+                : prevHourMap,
+            updatedAt: nowTs,
+          },
+        };
+      }
+
+      // square_ad (also sync store if it's a store-sq-* or linked via storeId)
+      const linkedStoreId = adId.startsWith('store-sq-')
+        ? adId.slice('store-sq-'.length)
+        : prev.squareAds.find((a) => a.id === adId)?.storeId;
+
+      return {
+        ...prev,
+        squareAds: prev.squareAds.map((a) => {
+          if (a.id !== adId && (!linkedStoreId || a.storeId !== linkedStoreId)) {
+            return a;
+          }
+          const prevHourMap = a.viewsByHour || {};
+          return {
+            ...a,
+            viewsCount:
+              metric === 'view' ? (a.viewsCount || 0) + 1 : a.viewsCount || 0,
+            callClicksCount:
+              metric === 'call'
+                ? (a.callClicksCount || 0) + 1
+                : a.callClicksCount || 0,
+            whatsappClicksCount:
+              metric === 'whatsapp'
+                ? (a.whatsappClicksCount || 0) + 1
+                : a.whatsappClicksCount || 0,
+            viewsByHour:
+              metric === 'view'
+                ? { ...prevHourMap, [hourKey]: (prevHourMap[hourKey] || 0) + 1 }
+                : prevHourMap,
+            updatedAt: nowTs,
+          };
+        }),
+        stores: linkedStoreId
+          ? prev.stores.map((s) => {
+              if (s.id !== linkedStoreId) return s;
+              const prevHourMap = s.viewsByHour || {};
+              return {
+                ...s,
+                viewsCount:
+                  metric === 'view' ? (s.viewsCount || 0) + 1 : s.viewsCount || 0,
+                callClicksCount:
+                  metric === 'call'
+                    ? (s.callClicksCount || 0) + 1
+                    : s.callClicksCount || 0,
+                whatsappClicksCount:
+                  metric === 'whatsapp'
+                    ? (s.whatsappClicksCount || 0) + 1
+                    : s.whatsappClicksCount || 0,
+                viewsByHour:
+                  metric === 'view'
+                    ? { ...prevHourMap, [hourKey]: (prevHourMap[hourKey] || 0) + 1 }
+                    : prevHourMap,
+                updatedAt: nowTs,
+              };
+            })
+          : prev.stores,
+      };
+    });
   };
 
   const handleMarkMessageRead = (id: string) => {
@@ -4070,6 +4249,7 @@ export default function App() {
               activeSection === 'buy_sell'
             }
             onNavigateSection={setActiveSection}
+            onTrackAdInteraction={handleTrackAdInteraction}
             onBulkDeleteAds={(squareAdIds, topBannerIds, storeIds) => {
               const sqSet = new Set(squareAdIds);
               const tbSet = new Set(topBannerIds);

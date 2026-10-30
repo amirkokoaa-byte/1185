@@ -96,11 +96,25 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
-          navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api\//],
+          navigateFallback: null,
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globPatterns: ['**/*.{ico,png,svg,woff,woff2}'],
           runtimeCaching: [
+            {
+              urlPattern: ({ request }) =>
+                request.mode === 'navigate' ||
+                request.destination === 'document' ||
+                request.destination === 'script' ||
+                request.destination === 'style',
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'live-app-shell-network-first-v3',
+                networkTimeoutSeconds: 3,
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',

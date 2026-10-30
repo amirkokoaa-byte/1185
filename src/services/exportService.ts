@@ -980,3 +980,264 @@ export async function parseServiceNumbersFromExcelFile(
   };
 }
 
+/**
+ * Helper: Format the Peak Viewing Hour in Arabic from viewsByHour map
+ */
+export function getPeakViewingHourLabel(viewsByHour?: Record<string, number>): string {
+  if (!viewsByHour || typeof viewsByHour !== 'object') {
+    return 'لا توجد مشاهدات مسجلة بعد';
+  }
+  const entries = Object.entries(viewsByHour).filter(
+    ([, count]) => typeof count === 'number' && count > 0
+  );
+  if (entries.length === 0) {
+    return 'لا توجد مشاهدات مسجلة بعد';
+  }
+  entries.sort((a, b) => b[1] - a[1]);
+  const [topHourRaw, topCount] = entries[0];
+  const hourNum = Number(topHourRaw);
+  if (Number.isNaN(hourNum) || hourNum < 0 || hourNum > 23) {
+    return `${topHourRaw} (${topCount} مشاهدة)`;
+  }
+  const formatHourArabic = (h: number) => {
+    const normalized = ((h % 24) + 24) % 24;
+    const period = normalized >= 12 ? 'م' : 'ص';
+    const hour12 = normalized % 12 === 0 ? 12 : normalized % 12;
+    return `${hour12}:00 ${period}`;
+  };
+  const startLabel = formatHourArabic(hourNum);
+  const endLabel = formatHourArabic((hourNum + 1) % 24);
+  return `من ${startLabel} إلى ${endLabel} (${topCount} مشاهدة)`;
+}
+
+export interface AdSummaryLandscapePdfPayload {
+  title: string;
+  packageLabel: string;
+  categoryOrSubtitle?: string;
+  phone?: string;
+  locationUrl?: string;
+  durationDays?: number;
+  statusLabel?: string;
+  expiresAt?: string;
+  viewsCount: number;
+  callClicksCount: number;
+  whatsappClicksCount: number;
+  peakHourLabel: string;
+}
+
+/**
+ * Export Ad Summary & Details in A4 Landscape PDF ("تحميل التفاصيل في ملف PDF A4 عرضية")
+ * Contains:
+ * - تفاصيل الإعلان
+ * - مدة الإعلان وتاريخ الانتهاء
+ * - عدد مشاهدات الإعلان (الذين ضغطوا على الإعلان وفتحوه)
+ * - عدد الذين ضغطوا على زر اتصال
+ * - عدد الذين ضغطوا على زر المراسلة
+ * - أكثر وقت كان فيه مشاهدة للإعلان
+ */
+export function exportAdSummaryToLandscapePDF(payload: AdSummaryLandscapePdfPayload) {
+  const pdf = new jsPDF({
+    orientation: 'landscape',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  // High-DPI A4 Landscape Canvas (1754 x 1240 px = 150 DPI A4 landscape)
+  const pageWidth = 1754;
+  const pageHeight = 1240;
+  const marginX = 64;
+  const contentWidth = pageWidth - marginX * 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = pageWidth;
+  canvas.height = pageHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  // Clean White A4 Landscape Sheet Background
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, pageWidth, pageHeight);
+  ctx.direction = 'rtl';
+  ctx.textBaseline = 'middle';
+
+  // Outer Frame Border
+  ctx.strokeStyle = '#0A192F';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(36, 36, pageWidth - 72, pageHeight - 72);
+
+  // 1. Top Header Banner
+  const topY = 64;
+  const headerH = 92;
+  ctx.fillStyle = '#0A192F';
+  ctx.fillRect(marginX, topY, contentWidth, headerH);
+  ctx.strokeStyle = '#0284C7';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(marginX, topY, contentWidth, headerH);
+
+  ctx.fillStyle = '#38BDF8';
+  ctx.font = 'bold 22px Cairo, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('تقرير ملخص وتفاصيل الإعلان — ورقة A4 عرضية', pageWidth / 2, topY + 28);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 30px Cairo, sans-serif';
+  ctx.fillText(
+    truncateCanvasText(ctx, `الإعلان: ${payload.title || 'إعلان مميز'}`, contentWidth - 40),
+    pageWidth / 2,
+    topY + 66
+  );
+
+  // 2. KPI Summary Cards Row (4 Cards across Landscape Width)
+  const cardsY = topY + headerH + 34;
+  const cardsH = 150;
+  const gap = 22;
+  const cardW = (contentWidth - gap * 3) / 4;
+
+  const kpiCards = [
+    {
+      label: 'عدد مشاهدات الإعلان (الذين فتحوه)',
+      value: `${payload.viewsCount || 0} مشاهدة`,
+      bg: '#F0F9FF',
+      border: '#0284C7',
+      valColor: '#0369A1',
+    },
+    {
+      label: 'عدد الذين ضغطوا على زر اتصال',
+      value: `${payload.callClicksCount || 0} ضغطة اتصال`,
+      bg: '#ECFDF5',
+      border: '#059669',
+      valColor: '#047857',
+    },
+    {
+      label: 'عدد الذين ضغطوا على زر المراسلة',
+      value: `${payload.whatsappClicksCount || 0} ضغطة مراسلة`,
+      bg: '#F0FDF4',
+      border: '#16A34A',
+      valColor: '#15803D',
+    },
+    {
+      label: 'أكثر وقت كان فيه مشاهدة للإعلان',
+      value: payload.peakHourLabel || 'لا توجد مشاهدات مسجلة بعد',
+      bg: '#FFFBEB',
+      border: '#D97706',
+      valColor: '#B45309',
+    },
+  ];
+
+  kpiCards.forEach((card, idx) => {
+    // RTL order from right to left
+    const cardRightX = pageWidth - marginX - idx * (cardW + gap);
+    const cardLeftX = cardRightX - cardW;
+
+    ctx.fillStyle = card.bg;
+    ctx.fillRect(cardLeftX, cardsY, cardW, cardsH);
+    ctx.strokeStyle = card.border;
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(cardLeftX, cardsY, cardW, cardsH);
+
+    ctx.fillStyle = '#0F172A';
+    ctx.font = 'bold 19px Cairo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      truncateCanvasText(ctx, card.label, cardW - 20),
+      cardLeftX + cardW / 2,
+      cardsY + 46
+    );
+
+    ctx.fillStyle = card.valColor;
+    ctx.font = 'bold 24px Cairo, sans-serif';
+    ctx.fillText(
+      truncateCanvasText(ctx, card.value, cardW - 20),
+      cardLeftX + cardW / 2,
+      cardsY + 102
+    );
+  });
+
+  // 3. Detailed Ad Information Table (Landscape Full-Width Table)
+  const tableTitleY = cardsY + cardsH + 38;
+  ctx.fillStyle = '#112240';
+  ctx.fillRect(marginX, tableTitleY, contentWidth, 54);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 22px Cairo, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('جدول البيانات التفصيلية وملخص تفاعل الإعلان', pageWidth / 2, tableTitleY + 27);
+
+  const formattedExpiry = payload.expiresAt
+    ? new Date(payload.expiresAt).toLocaleString('ar-EG')
+    : 'مفتوح المدة';
+
+  const detailRows: Array<[string, string]> = [
+    ['اسم المكان / عنوان الإعلان', payload.title || '-'],
+    ['نوع باقة الإعلان', payload.packageLabel || '-'],
+    ['التصنيف / الوصف الفرعي', payload.categoryOrSubtitle || '-'],
+    ['مدة الإعلان المحددة', payload.durationDays ? `${payload.durationDays} يوم` : 'مفتوح المدة'],
+    ['حالة الإعلان وتاريخ الانتهاء', `${payload.statusLabel || 'نشط'} — (${formattedExpiry})`],
+    ['رقم الهاتف المسجل للإعلان', payload.phone || 'غير مسجل'],
+    ['رابط اللوكيشن (Google Maps)', payload.locationUrl || 'غير مسجل'],
+    [
+      'إجمالي المشاهدات (الذين ضغطوا على الإعلان وشاهدوا البيانات)',
+      `${payload.viewsCount || 0} مشاهدة فعلية`,
+    ],
+    [
+      'إجمالي النقرات على زر الاتصال وزر المراسلة',
+      `اتصال: ${payload.callClicksCount || 0}  |  مراسلة: ${payload.whatsappClicksCount || 0}`,
+    ],
+    ['أكثر وقت كان فيه مشاهدة للإعلان (ذروة المشاهدات)', payload.peakHourLabel],
+  ];
+
+  const firstRowY = tableTitleY + 54;
+  const rowH = 62;
+  const labelColW = 540;
+  const valColW = contentWidth - labelColW;
+
+  detailRows.forEach(([label, val], rIdx) => {
+    const y = firstRowY + rIdx * rowH;
+    ctx.fillStyle = rIdx % 2 === 0 ? '#F8FAFC' : '#F1F5F9';
+    ctx.fillRect(marginX, y, contentWidth, rowH);
+
+    // Right cell: Label
+    const labelLeftX = pageWidth - marginX - labelColW;
+    ctx.fillStyle = '#E2E8F0';
+    ctx.fillRect(labelLeftX, y, labelColW, rowH);
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(labelLeftX, y, labelColW, rowH);
+
+    ctx.fillStyle = '#0F172A';
+    ctx.font = 'bold 20px Cairo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      truncateCanvasText(ctx, label, labelColW - 24),
+      labelLeftX + labelColW / 2,
+      y + rowH / 2
+    );
+
+    // Left cell: Value
+    const valLeftX = marginX;
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(valLeftX, y, valColW, rowH);
+
+    ctx.fillStyle = '#0F172A';
+    ctx.font = 'bold 20px Cairo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      truncateCanvasText(ctx, String(val || '-'), valColW - 28),
+      valLeftX + valColW / 2,
+      y + rowH / 2
+    );
+  });
+
+  // 4. Bottom Page Numbering Strictly ("صفحة 1")
+  ctx.fillStyle = '#0F172A';
+  ctx.font = 'bold 20px Cairo, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('صفحة 1', pageWidth / 2, pageHeight - 58);
+
+  const imgData = canvas.toDataURL('image/jpeg', 0.94);
+  pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210);
+  const safeName = (payload.title || 'Ad_Summary').replace(/[^\w\u0600-\u06FF-]+/g, '_');
+  pdf.save(`ملخص_إعلان_${safeName}_A4_عرضية_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+

@@ -923,6 +923,23 @@ export function mergeStoresWithImages(
           : [],
         ratings: { ...(prevSt?.ratings || {}), ...(incSt?.ratings || {}) },
         viewsCount: Math.max(prevSt?.viewsCount || 0, incSt?.viewsCount || 0),
+        callClicksCount: Math.max(
+          prevSt?.callClicksCount || 0,
+          incSt?.callClicksCount || 0
+        ),
+        whatsappClicksCount: Math.max(
+          prevSt?.whatsappClicksCount || 0,
+          incSt?.whatsappClicksCount || 0
+        ),
+        viewsByHour: (() => {
+          const ph = prevSt?.viewsByHour || {};
+          const ih = incSt?.viewsByHour || {};
+          const out: Record<string, number> = { ...ph };
+          Object.keys(ih).forEach((k) => {
+            out[k] = Math.max(ph[k] || 0, ih[k] || 0);
+          });
+          return out;
+        })(),
         comments: mergeCollectionById(
           prevSt?.comments || [],
           incSt?.comments || [],
@@ -1302,8 +1319,31 @@ function isAdCampaignExpired(expiresAt?: string): boolean {
   return expMs <= Date.now();
 }
 
+function mergeViewsByHourMaps(
+  a?: Record<string, number>,
+  b?: Record<string, number>
+): Record<string, number> | undefined {
+  if (!a && !b) return undefined;
+  const out: Record<string, number> = { ...(a || {}) };
+  if (b && typeof b === 'object') {
+    Object.keys(b).forEach((k) => {
+      out[k] = Math.max(out[k] || 0, Number(b[k]) || 0);
+    });
+  }
+  return out;
+}
+
 function mergeAdCampaignsById<
-  T extends { id: string; expiresAt?: string; active?: boolean }
+  T extends {
+    id: string;
+    expiresAt?: string;
+    active?: boolean;
+    viewsCount?: number;
+    callClicksCount?: number;
+    whatsappClicksCount?: number;
+    viewsByHour?: Record<string, number>;
+    updatedAt?: number;
+  }
 >(
   baseList: T[] | undefined,
   incomingList: T[] | undefined,
@@ -1312,10 +1352,38 @@ function mergeAdCampaignsById<
   const merged = mergeCollectionById(baseList, incomingList, deletedIds);
   return merged
     .filter((item) => !isAdCampaignExpired(item.expiresAt))
-    .map((item) => ({
-      ...item,
-      active: item.active !== false,
-    }));
+    .map((item) => {
+      const prevItem = (baseList || []).find((x) => x && x.id === item.id);
+      const incItem = (incomingList || []).find((x) => x && x.id === item.id);
+      return {
+        ...item,
+        active: item.active !== false,
+        viewsCount: Math.max(
+          prevItem?.viewsCount || 0,
+          incItem?.viewsCount || 0,
+          item.viewsCount || 0
+        ),
+        callClicksCount: Math.max(
+          prevItem?.callClicksCount || 0,
+          incItem?.callClicksCount || 0,
+          item.callClicksCount || 0
+        ),
+        whatsappClicksCount: Math.max(
+          prevItem?.whatsappClicksCount || 0,
+          incItem?.whatsappClicksCount || 0,
+          item.whatsappClicksCount || 0
+        ),
+        viewsByHour: mergeViewsByHourMaps(
+          prevItem?.viewsByHour,
+          incItem?.viewsByHour || item.viewsByHour
+        ),
+        updatedAt: Math.max(
+          prevItem?.updatedAt || 0,
+          incItem?.updatedAt || 0,
+          item.updatedAt || 0
+        ),
+      };
+    });
 }
 
 function mergePopupAdCampaign(
@@ -1330,10 +1398,25 @@ function mergePopupAdCampaign(
   const incHasCustomCampaign = Boolean(
     incomingPopup.expiresAt && !isAdCampaignExpired(incomingPopup.expiresAt)
   );
-  if (bHasCustomCampaign && !incHasCustomCampaign) {
-    return b;
-  }
-  return incomingPopup;
+  const bTs = typeof b.updatedAt === 'number' ? b.updatedAt : 0;
+  const incTs = typeof incomingPopup.updatedAt === 'number' ? incomingPopup.updatedAt : 0;
+  const preferIncoming =
+    incTs > bTs || (incTs === bTs && (!bHasCustomCampaign || incHasCustomCampaign));
+  const primary = preferIncoming ? { ...b, ...incomingPopup } : { ...incomingPopup, ...b };
+  return {
+    ...primary,
+    viewsCount: Math.max(b.viewsCount || 0, incomingPopup.viewsCount || 0),
+    callClicksCount: Math.max(
+      b.callClicksCount || 0,
+      incomingPopup.callClicksCount || 0
+    ),
+    whatsappClicksCount: Math.max(
+      b.whatsappClicksCount || 0,
+      incomingPopup.whatsappClicksCount || 0
+    ),
+    viewsByHour: mergeViewsByHourMaps(b.viewsByHour, incomingPopup.viewsByHour),
+    updatedAt: Math.max(bTs, incTs),
+  };
 }
 
 function ensureStoreCategoriesWithDreamPlaza(cats?: string[]): string[] {
@@ -2140,9 +2223,6 @@ class HybridStorageEngine {
   public async pullLatestDeltaNow() {
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return;
     this.pullFromFirebaseCloudNow();
-    // Wait for initial Firebase onSnapshot response first when Firebase is enabled
-    const waitForFirebaseFirst =
-      this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated;
     try {
       const [stateRes, chatRes] = await Promise.all([
         fetch(`/api/realtime/state?t=${Date.now()}`, { cache: 'no-store' }).catch(
@@ -2158,12 +2238,8 @@ class HybridStorageEngine {
         if (sData && sData.onlineStats && typeof sData.onlineStats.totalOnline === 'number') {
           updateLatestServerOnlineStats(sData.onlineStats);
         }
-        if (
-          !waitForFirebaseFirst &&
-          sData &&
-          sData.state &&
-          typeof sData.state === 'object'
-        ) {
+        if (sData && sData.state && typeof sData.state === 'object') {
+          this.isCloudHydrated = true;
           this.applyIncomingRemoteState(sData.state as Record<string, unknown>);
         }
       }
@@ -2175,7 +2251,7 @@ class HybridStorageEngine {
         if (data && data.onlineStats && typeof data.onlineStats.totalOnline === 'number') {
           updateLatestServerOnlineStats(data.onlineStats);
         }
-        if (!waitForFirebaseFirst && data && data.changed && data.chatPatch) {
+        if (data && data.changed && data.chatPatch) {
           this.applyIncomingFastChatPatch(data.chatPatch);
         }
       }
@@ -3481,7 +3557,6 @@ class HybridStorageEngine {
             updateLatestServerOnlineStats(data.onlineStats);
           }
           if (
-            !(this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated) &&
             data &&
             data.changed &&
             data.chatPatch &&
@@ -3510,8 +3585,8 @@ class HybridStorageEngine {
             this.lastChatVersion = parsed.version;
           }
           if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
-          if (this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated) return;
           if (parsed.state) {
+            this.isCloudHydrated = true;
             this.applyIncomingRemoteState(parsed.state);
           }
         } catch {
@@ -3529,7 +3604,6 @@ class HybridStorageEngine {
             updateLatestServerOnlineStats(parsed.onlineStats);
           }
           if (!parsed || parsed.senderTabId === getOrCreateTabSessionId()) return;
-          if (this.isFirebaseConfiguredAndEnabled() && !this.isCloudHydrated) return;
           if (parsed.chatPatch) {
             this.applyIncomingFastChatPatch(parsed.chatPatch);
           }
@@ -3712,6 +3786,8 @@ class HybridStorageEngine {
         if (this.firebaseCloudPollTimer) {
           clearInterval(this.firebaseCloudPollTimer);
         }
+        // Pull immediately on startup/refresh so mobile browsers get the latest Firebase state right away
+        this.pullFromFirebaseCloudNow();
         this.firebaseCloudPollTimer = setInterval(() => {
           if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
           this.pullFromFirebaseCloudNow();

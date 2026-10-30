@@ -35,6 +35,11 @@ export interface TopBannerAd {
   durationDays?: number;
   active: boolean;
   expiresAt?: string;
+  viewsCount?: number; // عدد الذين ضغطوا على الإعلان وفتحوه لحظياً
+  callClicksCount?: number; // عدد الذين ضغطوا على زر اتصال لحظياً
+  whatsappClicksCount?: number; // عدد الذين ضغطوا على زر المراسلة لحظياً
+  viewsByHour?: Record<string, number>; // توزيع المشاهدات بالساعة لمعرفة أكثر وقت مشاهدة
+  updatedAt?: number;
   createdAt: string;
 }
 
@@ -54,6 +59,11 @@ export interface SquareMovingAd {
   durationDays?: number;
   expiresAt?: string;
   active: boolean;
+  viewsCount?: number; // عدد الذين ضغطوا على الإعلان وفتحوه لحظياً
+  callClicksCount?: number; // عدد الذين ضغطوا على زر اتصال لحظياً
+  whatsappClicksCount?: number; // عدد الذين ضغطوا على زر المراسلة لحظياً
+  viewsByHour?: Record<string, number>; // توزيع المشاهدات بالساعة لمعرفة أكثر وقت مشاهدة
+  updatedAt?: number;
   createdAt: string;
 }
 
@@ -72,6 +82,12 @@ export interface PopupAdConfig {
   menuImages?: string[]; // صور إضافية أو منيو
   durationDays?: number;
   expiresAt?: string;
+  viewsCount?: number; // عدد الذين ضغطوا على الإعلان وفتحوه لحظياً
+  callClicksCount?: number; // عدد الذين ضغطوا على زر اتصال لحظياً
+  whatsappClicksCount?: number; // عدد الذين ضغطوا على زر المراسلة لحظياً
+  viewsByHour?: Record<string, number>; // توزيع المشاهدات بالساعة لمعرفة أكثر وقت مشاهدة
+  updatedAt?: number;
+  createdAt?: string;
 }
 
 export interface AdminMessageThreadEntry {
@@ -138,6 +154,9 @@ export interface StoreListingItem {
   ratingsResetV2?: boolean;
   comments: StoreCommentItem[];
   viewsCount?: number; // عدد المشاهدات لجميع المستخدمين
+  callClicksCount?: number; // عدد الذين ضغطوا على زر اتصال
+  whatsappClicksCount?: number; // عدد الذين ضغطوا على زر المراسلة
+  viewsByHour?: Record<string, number>;
   address?: string;
   lat?: number;
   lng?: number;

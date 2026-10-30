@@ -72,7 +72,7 @@
           };
         }
 
-        // 3. Self-heal corrupted or outdated Service Worker caches in APK WebView
+        // 3. Self-heal corrupted or outdated Service Worker caches on mobile browsers & APK WebView on every refresh
         try {
           if ('serviceWorker' in navigator) {
             var protocol = window.location && window.location.protocol;
@@ -82,12 +82,22 @@
                 return Promise.resolve({});
               };
             } else {
-              var healedFlag = sessionStorage.getItem('__nakhil_apk_sw_checked_v2__');
-              if (!healedFlag) {
-                sessionStorage.setItem('__nakhil_apk_sw_checked_v2__', '1');
-                navigator.serviceWorker.getRegistrations().then(function (regs) {
-                  for (var i = 0; i < regs.length; i++) {
-                    regs[i].update().catch(function () {});
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                for (var i = 0; i < regs.length; i++) {
+                  regs[i].update().catch(function () {});
+                  if (regs[i].waiting) {
+                    try {
+                      regs[i].waiting.postMessage({ type: 'SKIP_WAITING' });
+                    } catch (_) {}
+                  }
+                }
+              }).catch(function () {});
+              if ('caches' in window) {
+                caches.keys().then(function (keys) {
+                  for (var j = 0; j < keys.length; j++) {
+                    if (keys[j].indexOf('workbox-precache') !== -1) {
+                      caches.delete(keys[j]).catch(function () {});
+                    }
                   }
                 }).catch(function () {});
               }

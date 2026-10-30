@@ -69,8 +69,10 @@ import {
   uploadImageDynamic,
 } from '../services/storageService';
 import {
+  exportAdSummaryToLandscapePDF,
   exportPlatformSummaryToPDF,
   exportUsersAndMessagesToExcel,
+  getPeakViewingHourLabel,
 } from '../services/exportService';
 
 export type AdminSettingsSubSectionId =
@@ -495,6 +497,12 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   const [uploadingAdMain, setUploadingAdMain] = useState<boolean>(false);
   const [uploadingAdExtra, setUploadingAdExtra] = useState<boolean>(false);
   const [adSelectedStoreId, setAdSelectedStoreId] = useState<string>('');
+  const [inspectedAdModal, setInspectedAdModal] = useState<{
+    pkgType: 'moving_square' | 'top_banner' | 'popup_entry';
+    adId: string;
+  } | null>(null);
+  const [isEditingInsideAdModal, setIsEditingInsideAdModal] = useState<boolean>(false);
+  const [renewDaysDraft, setRenewDaysDraft] = useState<number>(5);
 
   const resetAdForm = () => {
     setEditingAdId(null);
@@ -511,11 +519,55 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     setAdPinned(true);
   };
 
+  const loadSquareAdIntoForm = (ad: SquareMovingAd) => {
+    setActiveAdPackageTab('moving_square');
+    setEditingAdId(ad.id);
+    setAdSelectedStoreId(ad.storeId || '');
+    setAdPlaceName(ad.title);
+    setAdCategoryOrSub(ad.category);
+    setAdLocationUrl(ad.locationUrl || '');
+    setAdPhone(ad.phone || '');
+    setAdDurationDays(ad.durationDays || 5);
+    setRenewDaysDraft(ad.durationDays || 5);
+    if (ad.linkUrl) {
+      setAdNavMode('external_link');
+      setAdExternalLink(ad.linkUrl);
+    } else {
+      setAdNavMode('internal_section');
+      setAdInternalSection((ad.targetSection as MainSectionId) || 'directory');
+    }
+    setAdMainImage(ad.imageUrl);
+    setAdMenuImages(ad.menuImages || []);
+    setAdPinned(ad.isAdminPinned);
+  };
+
+  const loadTopBannerIntoForm = (b: TopBannerAd) => {
+    setActiveAdPackageTab('top_banner');
+    setEditingAdId(b.id);
+    setAdPlaceName(b.title);
+    setAdCategoryOrSub(b.subtitle || '');
+    setAdLocationUrl(b.locationUrl || '');
+    setAdPhone(b.phone || b.whatsappPhone || '');
+    setAdDurationDays(b.durationDays || 5);
+    setRenewDaysDraft(b.durationDays || 5);
+    if (b.linkUrl) {
+      setAdNavMode('external_link');
+      setAdExternalLink(b.linkUrl);
+    } else {
+      setAdNavMode('internal_section');
+      setAdInternalSection((b.targetSection as MainSectionId) || 'directory');
+    }
+    setAdMainImage(b.imageUrl);
+    setAdMenuImages(b.menuImages || []);
+  };
+
   const loadPopupIntoForm = () => {
     const p = state.popupAd;
+    setActiveAdPackageTab('popup_entry');
     setEditingAdId(p.id);
     setAdPopupActive(p.active);
     setAdDurationDays(p.durationDays || 7);
+    setRenewDaysDraft(p.durationDays || 7);
     setAdPlaceName(p.title || '');
     setAdCategoryOrSub(p.description || '');
     setAdLocationUrl(p.locationUrl || '');
@@ -529,6 +581,24 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     }
     setAdMainImage(p.imageUrl || '');
     setAdMenuImages(p.menuImages || []);
+  };
+
+  const openInspectSquareAdModal = (ad: SquareMovingAd, startEdit = false) => {
+    loadSquareAdIntoForm(ad);
+    setIsEditingInsideAdModal(startEdit);
+    setInspectedAdModal({ pkgType: 'moving_square', adId: ad.id });
+  };
+
+  const openInspectTopBannerModal = (b: TopBannerAd, startEdit = false) => {
+    loadTopBannerIntoForm(b);
+    setIsEditingInsideAdModal(startEdit);
+    setInspectedAdModal({ pkgType: 'top_banner', adId: b.id });
+  };
+
+  const openInspectPopupAdModal = (startEdit = false) => {
+    loadPopupIntoForm();
+    setIsEditingInsideAdModal(startEdit);
+    setInspectedAdModal({ pkgType: 'popup_entry', adId: state.popupAd.id });
   };
 
   const combinedAdImages: string[] = [
@@ -631,6 +701,9 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       adNavMode === 'internal_section' ? adInternalSection : undefined;
 
     if (activeAdPackageTab === 'moving_square') {
+      const existingSq = editingAdId
+        ? state.squareAds.find((item) => item.id === editingAdId)
+        : undefined;
       const finalImg =
         adMainImage.trim() ||
         createSquareAdSvg(effectiveTitle, adCategoryOrSub || 'إعلان مميز', '#F59E0B');
@@ -639,7 +712,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         id:
           editingAdId ||
           (adSelectedStoreId ? `sq-store-${adSelectedStoreId}` : `sq-${Date.now()}`),
-        storeId: adSelectedStoreId || undefined,
+        storeId: adSelectedStoreId || existingSq?.storeId || undefined,
         title: effectiveTitle,
         category: adCategoryOrSub.trim() || 'عام',
         imageUrl: finalImg,
@@ -649,24 +722,33 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         targetSection: targetSectionVal,
         menuImages: adMenuImages,
         description: `إعلان نشط لمدة ${days} يوم`,
-        isAdminPinned: true,
+        isAdminPinned: existingSq ? existingSq.isAdminPinned : true,
         durationDays: days,
         expiresAt: expiresAtIso,
         active: true,
-        createdAt: new Date().toISOString(),
+        createdAt: existingSq?.createdAt || new Date().toISOString(),
+        viewsCount: existingSq?.viewsCount || 0,
+        callClicksCount: existingSq?.callClicksCount || 0,
+        whatsappClicksCount: existingSq?.whatsappClicksCount || 0,
+        viewsByHour: existingSq?.viewsByHour || {},
+        updatedAt: Date.now(),
       };
 
       if (editingAdId) {
         onUpdateSquareAd(sqPayload);
         showToast(`تم تعديل الإعلان المربع "${sqPayload.title}" بنجاح!`);
+        setIsEditingInsideAdModal(false);
       } else {
         onAddSquareAd(sqPayload);
         showToast(
           `تم نشر الإعلان المربع "${sqPayload.title}" لمدة ${days} أيام (يظل متواجداً في قاعدة البيانات حتى انتهاء المدة).`
         );
+        resetAdForm();
       }
-      resetAdForm();
     } else if (activeAdPackageTab === 'top_banner') {
+      const existingBnr = editingAdId
+        ? state.topBanners.find((item) => item.id === editingAdId)
+        : undefined;
       const finalImg =
         adMainImage.trim() ||
         createBannerSvg(
@@ -691,19 +773,25 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         durationDays: days,
         expiresAt: expiresAtIso,
         active: true,
-        createdAt: new Date().toISOString(),
+        createdAt: existingBnr?.createdAt || new Date().toISOString(),
+        viewsCount: existingBnr?.viewsCount || 0,
+        callClicksCount: existingBnr?.callClicksCount || 0,
+        whatsappClicksCount: existingBnr?.whatsappClicksCount || 0,
+        viewsByHour: existingBnr?.viewsByHour || {},
+        updatedAt: Date.now(),
       };
 
       if (editingAdId) {
         onUpdateTopBanner(bnrPayload);
         showToast(`تم تحديث البانر العلوي "${bnrPayload.title}" بنجاح!`);
+        setIsEditingInsideAdModal(false);
       } else {
         onAddTopBanner(bnrPayload);
         showToast(
           `تم إضافة وتفعيل البانر العلوي "${bnrPayload.title}" لمدة ${days} أيام بنجاح!`
         );
+        resetAdForm();
       }
-      resetAdForm();
     } else if (activeAdPackageTab === 'popup_entry') {
       const finalImg =
         adMainImage.trim() ||
@@ -733,9 +821,15 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         menuImages: adMenuImages,
         durationDays: days,
         expiresAt: expiresAtIso,
+        viewsCount: state.popupAd.viewsCount || 0,
+        callClicksCount: state.popupAd.callClicksCount || 0,
+        whatsappClicksCount: state.popupAd.whatsappClicksCount || 0,
+        viewsByHour: state.popupAd.viewsByHour || {},
+        updatedAt: Date.now(),
       };
 
       onUpdatePopupAd(popupPayload);
+      setIsEditingInsideAdModal(false);
       showToast(
         `تم تحديث إعلان الشاشة المنبثقة عند الدخول لمدة ${days} أيام بنجاح!`
       );
@@ -2761,16 +2855,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                         return (
                           <div
                             key={ad.id}
-                            className={`p-3 rounded-xl bg-[#0A192F] border flex items-center justify-between gap-3 ${
+                            onClick={() => openInspectSquareAdModal(ad, false)}
+                            title="اضغط لعرض شاشة تفاصيل الإعلان وملخص المشاهدات والتعديل وتجديد المدة"
+                            className={`p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
                               isChecked
                                 ? 'border-rose-500 ring-1 ring-rose-500/40'
-                                : 'border-[#334155]'
+                                : 'border-[#334155] hover:border-sky-400/60'
                             }`}
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <input
                                 type="checkbox"
                                 checked={isChecked}
+                                onClick={(e) => e.stopPropagation()}
                                 onChange={() => {
                                   setSelectedSquareAdIds((prev) =>
                                     prev.includes(ad.id)
@@ -2793,10 +2890,18 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                 <div className="text-[11px] text-sky-400">
                                   {ad.category} · {getDaysRemainingBadge(ad.expiresAt)}
                                 </div>
+                                <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
+                                  <span>مشاهدات: {ad.viewsCount || 0}</span>
+                                  <span>· اتصال: {ad.callClicksCount || 0}</span>
+                                  <span>· مراسلة: {ad.whatsappClicksCount || 0}</span>
+                                </div>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0">
+                            <div
+                              className="flex items-center gap-1.5 shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <button
                                 type="button"
                                 onClick={() => onTogglePinSquareAd(ad.id)}
@@ -2810,27 +2915,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setEditingAdId(ad.id);
-                                  setAdPlaceName(ad.title);
-                                  setAdCategoryOrSub(ad.category);
-                                  setAdLocationUrl(ad.locationUrl || '');
-                                  setAdPhone(ad.phone || '');
-                                  setAdDurationDays(ad.durationDays || 5);
-                                  if (ad.linkUrl) {
-                                    setAdNavMode('external_link');
-                                    setAdExternalLink(ad.linkUrl);
-                                  } else {
-                                    setAdNavMode('internal_section');
-                                    setAdInternalSection(
-                                      (ad.targetSection as MainSectionId) || 'directory'
-                                    );
-                                  }
-                                  setAdMainImage(ad.imageUrl);
-                                  setAdMenuImages(ad.menuImages || []);
-                                  setAdPinned(ad.isAdminPinned);
-                                  showToast(`جاري تعديل بيانات وصور الإعلان "${ad.title}" في النموذج أعلاه.`);
-                                }}
+                                onClick={() => openInspectSquareAdModal(ad, true)}
                                 className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
@@ -2925,16 +3010,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                         return (
                           <div
                             key={b.id}
-                            className={`p-3 rounded-xl bg-[#0A192F] border flex items-center justify-between gap-3 ${
+                            onClick={() => openInspectTopBannerModal(b, false)}
+                            title="اضغط لعرض شاشة تفاصيل الإعلان وملخص المشاهدات والتعديل وتجديد المدة"
+                            className={`p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
                               isChecked
                                 ? 'border-rose-500 ring-1 ring-rose-500/40'
-                                : 'border-[#334155]'
+                                : 'border-[#334155] hover:border-sky-400/60'
                             }`}
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               <input
                                 type="checkbox"
                                 checked={isChecked}
+                                onClick={(e) => e.stopPropagation()}
                                 onChange={() => {
                                   setSelectedTopBannerIds((prev) =>
                                     prev.includes(b.id)
@@ -2957,32 +3045,21 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                 <div className="text-[11px] text-sky-400 truncate">
                                   {getDaysRemainingBadge(b.expiresAt)} · {b.subtitle}
                                 </div>
+                                <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
+                                  <span>مشاهدات: {b.viewsCount || 0}</span>
+                                  <span>· اتصال: {b.callClicksCount || 0}</span>
+                                  <span>· مراسلة: {b.whatsappClicksCount || 0}</span>
+                                </div>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0">
+                            <div
+                              className="flex items-center gap-1.5 shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setEditingAdId(b.id);
-                                  setAdPlaceName(b.title);
-                                  setAdCategoryOrSub(b.subtitle || '');
-                                  setAdLocationUrl(b.locationUrl || '');
-                                  setAdPhone(b.phone || b.whatsappPhone || '');
-                                  setAdDurationDays(b.durationDays || 5);
-                                  if (b.linkUrl) {
-                                    setAdNavMode('external_link');
-                                    setAdExternalLink(b.linkUrl);
-                                  } else {
-                                    setAdNavMode('internal_section');
-                                    setAdInternalSection(
-                                      (b.targetSection as MainSectionId) || 'directory'
-                                    );
-                                  }
-                                  setAdMainImage(b.imageUrl);
-                                  setAdMenuImages(b.menuImages || []);
-                                  showToast(`جاري تعديل بيانات وصور البانر "${b.title}" في النموذج أعلاه.`);
-                                }}
+                                onClick={() => openInspectTopBannerModal(b, true)}
                                 className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
@@ -3009,7 +3086,11 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     <div className="text-xs font-extrabold text-[#94A3B8]">
                       إعلان الشاشة المنبثقة الحالي:
                     </div>
-                    <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-3">
+                    <div
+                      onClick={() => openInspectPopupAdModal(false)}
+                      title="اضغط لعرض شاشة تفاصيل الإعلان وملخص المشاهدات والتعديل وتجديد المدة"
+                      className="p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border border-[#334155] hover:border-sky-400/60 flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                    >
                       <div className="flex items-center gap-3 min-w-0">
                         <img
                           src={state.popupAd.imageUrl}
@@ -3024,16 +3105,21 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             {state.popupAd.active ? 'مفعّل للزوار' : 'متوقف'} ·{' '}
                             {getDaysRemainingBadge(state.popupAd.expiresAt)}
                           </div>
+                          <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
+                            <span>مشاهدات: {state.popupAd.viewsCount || 0}</span>
+                            <span>· اتصال: {state.popupAd.callClicksCount || 0}</span>
+                            <span>· مراسلة: {state.popupAd.whatsappClicksCount || 0}</span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div
+                        className="flex items-center gap-1.5 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
                           type="button"
-                          onClick={() => {
-                            loadPopupIntoForm();
-                            showToast('تم تحميل بيانات وصور إعلان الشاشة المنبثقة للتعديل في النموذج أعلاه.');
-                          }}
+                          onClick={() => openInspectPopupAdModal(true)}
                           className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
@@ -5170,6 +5256,476 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
             </FluentButton>
           </div>
         </form>
+      </FluentModal>
+
+      {/* الشاشة المنبثقة لتفاصيل الإعلان، التعديل الكامل، تجديد فترة الإعلان، وملخص الإعلان + تحميل PDF A4 عرضية */}
+      <FluentModal
+        isOpen={Boolean(inspectedAdModal)}
+        onClose={() => {
+          setInspectedAdModal(null);
+          setIsEditingInsideAdModal(false);
+        }}
+        title="إدارة الإعلان وملخص المشاهدات والتفاعل اللحظي"
+        subtitle="يمكنك تعديل أي بيانات في الإعلان، تجديد فترته، أو تحميل ملخص الإعلان بصيغة PDF A4 عرضية"
+        maxWidth="lg"
+      >
+        {inspectedAdModal &&
+          (() => {
+            const liveSquare =
+              inspectedAdModal.pkgType === 'moving_square'
+                ? state.squareAds.find((x) => x.id === inspectedAdModal.adId)
+                : undefined;
+            const liveBanner =
+              inspectedAdModal.pkgType === 'top_banner'
+                ? state.topBanners.find((x) => x.id === inspectedAdModal.adId)
+                : undefined;
+            const livePopup =
+              inspectedAdModal.pkgType === 'popup_entry' ? state.popupAd : undefined;
+
+            const adTitle =
+              liveSquare?.title ||
+              liveBanner?.title ||
+              livePopup?.title ||
+              adPlaceName ||
+              'إعلان مميز';
+            const adCategoryOrDesc =
+              liveSquare?.category ||
+              liveBanner?.subtitle ||
+              livePopup?.description ||
+              adCategoryOrSub ||
+              'عام';
+            const adTypeLabel =
+              inspectedAdModal.pkgType === 'moving_square'
+                ? 'لوحة الإعلانات والخصومات المتحركة'
+                : inspectedAdModal.pkgType === 'top_banner'
+                ? 'إعلان البانر العلوي'
+                : 'إعلان الشاشة المنبثقة VIP';
+            const adImg =
+              liveSquare?.imageUrl ||
+              liveBanner?.imageUrl ||
+              livePopup?.imageUrl ||
+              adMainImage;
+            const adPhoneVal =
+              liveSquare?.phone ||
+              liveBanner?.phone ||
+              liveBanner?.whatsappPhone ||
+              livePopup?.phone ||
+              livePopup?.whatsappPhone ||
+              adPhone ||
+              '';
+            const adLocVal =
+              liveSquare?.locationUrl ||
+              liveBanner?.locationUrl ||
+              livePopup?.locationUrl ||
+              adLocationUrl ||
+              '';
+            const adDurationVal =
+              liveSquare?.durationDays ||
+              liveBanner?.durationDays ||
+              livePopup?.durationDays ||
+              adDurationDays ||
+              5;
+            const adExpiresVal =
+              liveSquare?.expiresAt ||
+              liveBanner?.expiresAt ||
+              livePopup?.expiresAt;
+            const adCreatedAtVal =
+              liveSquare?.createdAt || liveBanner?.createdAt;
+
+            const liveViewsCount =
+              (liveSquare?.viewsCount ??
+                liveBanner?.viewsCount ??
+                livePopup?.viewsCount) ||
+              0;
+            const liveCallClicks =
+              (liveSquare?.callClicksCount ??
+                liveBanner?.callClicksCount ??
+                livePopup?.callClicksCount) ||
+              0;
+            const liveWhatsappClicks =
+              (liveSquare?.whatsappClicksCount ??
+                liveBanner?.whatsappClicksCount ??
+                livePopup?.whatsappClicksCount) ||
+              0;
+            const liveViewsByHour =
+              liveSquare?.viewsByHour ||
+              liveBanner?.viewsByHour ||
+              livePopup?.viewsByHour ||
+              {};
+            const peakHourLabel = getPeakViewingHourLabel(liveViewsByHour);
+            const remainingBadgeText = getDaysRemainingBadge(adExpiresVal);
+
+            const handleRenewDurationNow = () => {
+              const daysToRenew = Math.max(1, Number(renewDaysDraft) || 5);
+              const newExpiresAt = new Date(
+                Date.now() + daysToRenew * 24 * 60 * 60 * 1000
+              ).toISOString();
+
+              if (inspectedAdModal.pkgType === 'moving_square' && liveSquare) {
+                onUpdateSquareAd({
+                  ...liveSquare,
+                  durationDays: daysToRenew,
+                  expiresAt: newExpiresAt,
+                  active: true,
+                  description: `إعلان نشط لمدة ${daysToRenew} يوم`,
+                  updatedAt: Date.now(),
+                });
+                setAdDurationDays(daysToRenew);
+                showToast(
+                  `تم تجديد فترة الإعلان "${liveSquare.title}" لمدة ${daysToRenew} أيام بنجاح!`
+                );
+              } else if (inspectedAdModal.pkgType === 'top_banner' && liveBanner) {
+                onUpdateTopBanner({
+                  ...liveBanner,
+                  durationDays: daysToRenew,
+                  expiresAt: newExpiresAt,
+                  active: true,
+                  updatedAt: Date.now(),
+                });
+                setAdDurationDays(daysToRenew);
+                showToast(
+                  `تم تجديد فترة البانر "${liveBanner.title}" لمدة ${daysToRenew} أيام بنجاح!`
+                );
+              } else if (inspectedAdModal.pkgType === 'popup_entry' && livePopup) {
+                onUpdatePopupAd({
+                  ...livePopup,
+                  durationDays: daysToRenew,
+                  expiresAt: newExpiresAt,
+                  active: true,
+                  updatedAt: Date.now(),
+                });
+                setAdDurationDays(daysToRenew);
+                setAdPopupActive(true);
+                showToast(
+                  `تم تجديد فترة إعلان الشاشة المنبثقة "${livePopup.title}" لمدة ${daysToRenew} أيام بنجاح!`
+                );
+              }
+            };
+
+            return (
+              <div className="space-y-4">
+                {/* 1. بطاقة معلومات الإعلان الحالية + زر التعديل */}
+                <div className="p-3.5 rounded-2xl bg-[#0A192F] border border-[#334155] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {adImg && (
+                      <img
+                        src={adImg}
+                        alt={adTitle}
+                        className="w-16 h-16 rounded-xl object-cover border border-sky-400/50 shrink-0"
+                      />
+                    )}
+                    <div className="min-w-0 space-y-1">
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[11px] font-extrabold">
+                        <Crown className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{adTypeLabel}</span>
+                      </div>
+                      <h4 className="text-sm sm:text-base font-extrabold text-[#F8FAFC] truncate">
+                        {adTitle}
+                      </h4>
+                      <p className="text-xs text-[#94A3B8] truncate">
+                        {adCategoryOrDesc} · {remainingBadgeText}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingInsideAdModal((prev) => !prev)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-extrabold inline-flex items-center gap-1.5 border cursor-pointer transition-all ${
+                        isEditingInsideAdModal
+                          ? 'bg-amber-500 text-[#0A192F] border-amber-300 shadow-lg'
+                          : 'bg-sky-600 hover:bg-sky-500 text-white border-sky-400 shadow-md'
+                      }`}
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      <span>
+                        {isEditingInsideAdModal
+                          ? 'إخفاء نموذج التعديل'
+                          : 'تعديل بيانات الإعلان'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. قسم تجديد فترة الإعلان بشكل فوري */}
+                <div className="p-3.5 rounded-2xl bg-[#0A192F]/90 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-extrabold text-emerald-300 flex items-center gap-1.5">
+                      <RotateCcw className="w-4 h-4 text-emerald-400" />
+                      <span>تجديد فترة الإعلان وتنشيطه فوراً</span>
+                    </div>
+                    <p className="text-[11px] text-[#94A3B8]">
+                      الحالة الحالية: <strong className="text-white">{remainingBadgeText}</strong> — اختر عدد الأيام لتجديد صلاحية الإعلان من الآن:
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={renewDaysDraft}
+                      onChange={(e) =>
+                        setRenewDaysDraft(Math.max(1, Number(e.target.value) || 1))
+                      }
+                      className="w-20 rounded-xl bg-[#112240] border border-emerald-400/60 px-2.5 py-1.5 text-xs font-extrabold text-white text-center font-mono-tabular outline-none"
+                    />
+                    <span className="text-xs font-bold text-[#94A3B8]">يوم</span>
+                    <button
+                      type="button"
+                      onClick={handleRenewDurationNow}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold inline-flex items-center gap-1.5 border border-emerald-400/60 shadow-md cursor-pointer transition-all"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>تجديد فترة الإعلان</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. نموذج تعديل أي شيء في الإعلان (يظهر عند الضغط على زر التعديل) */}
+                {isEditingInsideAdModal && (
+                  <form
+                    onSubmit={handleSaveAdPackageItem}
+                    className="p-4 rounded-2xl bg-[#0A192F] border border-sky-400/60 space-y-3"
+                  >
+                    <div className="flex items-center justify-between border-b border-[#334155] pb-2">
+                      <span className="text-xs font-extrabold text-sky-300 flex items-center gap-1.5">
+                        <Edit3 className="w-4 h-4" />
+                        <span>تعديل كامل بيانات وصور الإعلان</span>
+                      </span>
+                      <span className="text-[11px] text-[#94A3B8]">
+                        يتم التحديث لجميع المستخدمين لحظياً فور الحفظ
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#94A3B8] mb-1">
+                          اسم المحل / عنوان الإعلان
+                        </label>
+                        <input
+                          type="text"
+                          value={adPlaceName}
+                          onChange={(e) => setAdPlaceName(e.target.value)}
+                          className="w-full rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs font-bold text-white outline-none"
+                          placeholder="اسم المكان أو العرض..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#94A3B8] mb-1">
+                          القسم / الوصف الفرعي للإعلان
+                        </label>
+                        <input
+                          type="text"
+                          value={adCategoryOrSub}
+                          onChange={(e) => setAdCategoryOrSub(e.target.value)}
+                          className="w-full rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs font-bold text-white outline-none"
+                          placeholder="مطعم، كافيه، خصم 30%..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#94A3B8] mb-1">
+                          رقم الهاتف والواتساب
+                        </label>
+                        <input
+                          type="text"
+                          value={adPhone}
+                          onChange={(e) => setAdPhone(e.target.value)}
+                          dir="ltr"
+                          className="w-full rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs font-bold text-white outline-none"
+                          placeholder="010xxxxxxxx"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#94A3B8] mb-1">
+                          مدة الإعلان (بالأيام)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={adDurationDays}
+                          onChange={(e) =>
+                            setAdDurationDays(Math.max(1, Number(e.target.value) || 1))
+                          }
+                          className="w-full rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs font-bold text-white font-mono-tabular outline-none"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold text-[#94A3B8] mb-1">
+                          رابط اللوكيشن (خرائط جوجل)
+                        </label>
+                        <input
+                          type="text"
+                          value={adLocationUrl}
+                          onChange={(e) => setAdLocationUrl(e.target.value)}
+                          dir="ltr"
+                          className="w-full rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-2 text-xs font-bold text-white outline-none"
+                          placeholder="https://maps.google.com/..."
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold text-[#94A3B8] mb-1">
+                          تغيير أو إضافة صور الإعلان والمنيو
+                        </label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="px-3 py-1.5 rounded-xl bg-sky-600/25 hover:bg-sky-600 text-sky-200 hover:text-white border border-sky-400/50 text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer transition-colors">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>
+                              {uploadingAdMain ? 'جاري الرفع...' : 'رفع صورة رئيسية / صور جديدة'}
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={handleUploadAdMainFile}
+                              className="hidden"
+                            />
+                          </label>
+                          {combinedAdImages.length > 0 && (
+                            <span className="text-[11px] text-emerald-300 font-bold">
+                              إجمالي الصور المرفقة: {combinedAdImages.length}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#334155]">
+                      <FluentButton
+                        type="button"
+                        variant="secondary"
+                        onClick={() => setIsEditingInsideAdModal(false)}
+                      >
+                        إلغاء
+                      </FluentButton>
+                      <FluentButton type="submit" variant="primary">
+                        <Save className="w-4 h-4" />
+                        <span>حفظ التعديلات لحظياً</span>
+                      </FluentButton>
+                    </div>
+                  </form>
+                )}
+
+                {/* 4. قسم ملخص الإعلان بالأسفل (محدث لحظياً) + زر تحميل PDF A4 عرضية */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-[#0A192F] via-[#112240] to-[#0A192F] border-2 border-amber-400/60 shadow-xl space-y-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#334155] pb-2.5">
+                    <div>
+                      <h5 className="text-sm font-extrabold text-amber-300 flex items-center gap-1.5">
+                        <Eye className="w-4 h-4 text-amber-400" />
+                        <span>قسم ملخص الإعلان (إحصائيات حقيقية لحظية)</span>
+                      </h5>
+                      <p className="text-[11px] text-[#94A3B8]">
+                        يعرض فقط المستخدمين الذين ضغطوا فعلياً على الإعلان وفتحوا بياناته أو تفاعلوا مع أزراره لحظياً
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[10px] font-extrabold">
+                      مزامنة لحظية نشطة
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* عدد المشاهدات الفعلية للإعلان */}
+                    <div className="p-3 rounded-xl bg-[#0A192F] border border-amber-400/40 flex items-center justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-extrabold text-amber-300 flex items-center gap-1.5">
+                          <Eye className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>عدد مشاهدات الإعلان</span>
+                        </div>
+                        <p className="text-[10px] text-[#94A3B8]">
+                          الذين ضغطوا على الإعلان وشاهدوا بيانات المحل لحظياً
+                        </p>
+                      </div>
+                      <span className="text-xl font-extrabold text-amber-300 font-mono-tabular px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/30">
+                        {liveViewsCount}
+                      </span>
+                    </div>
+
+                    {/* عدد الذين ضغطوا على زر اتصال */}
+                    <div className="p-3 rounded-xl bg-[#0A192F] border border-sky-400/40 flex items-center justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-extrabold text-sky-300 flex items-center gap-1.5">
+                          <Phone className="w-4 h-4 text-sky-400 shrink-0" />
+                          <span>عدد الذين ضغطوا على زر اتصال</span>
+                        </div>
+                        <p className="text-[10px] text-[#94A3B8]">
+                          إجمالي النقرات على زر الاتصال الهاتفي لحظياً
+                        </p>
+                      </div>
+                      <span className="text-xl font-extrabold text-sky-300 font-mono-tabular px-2.5 py-1 rounded-lg bg-sky-500/15 border border-sky-400/30">
+                        {liveCallClicks}
+                      </span>
+                    </div>
+
+                    {/* عدد الذين ضغطوا على زر المراسلة */}
+                    <div className="p-3 rounded-xl bg-[#0A192F] border border-emerald-400/40 flex items-center justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-extrabold text-emerald-300 flex items-center gap-1.5">
+                          <MessageCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>عدد الذين ضغطوا على زر المراسلة</span>
+                        </div>
+                        <p className="text-[10px] text-[#94A3B8]">
+                          إجمالي النقرات على زر مراسلة واتساب لحظياً
+                        </p>
+                      </div>
+                      <span className="text-xl font-extrabold text-emerald-300 font-mono-tabular px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/30">
+                        {liveWhatsappClicks}
+                      </span>
+                    </div>
+
+                    {/* أكثر وقت كان فيه مشاهدة للإعلان */}
+                    <div className="p-3 rounded-xl bg-[#0A192F] border border-indigo-400/40 flex items-center justify-between gap-2">
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="text-xs font-extrabold text-indigo-300 flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-indigo-400 shrink-0" />
+                          <span>أكثر وقت كان فيه مشاهدة للإعلان</span>
+                        </div>
+                        <p className="text-[11px] font-extrabold text-white truncate pt-0.5">
+                          {peakHourLabel}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* زر تحميل التفاصيل في ملف PDF A4 عرضية */}
+                  <div className="pt-2 border-t border-[#334155] flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] text-[#94A3B8]">
+                      يشمل التقرير: تفاصيل الإعلان، فترة الإعلان، عدد المشاهدات، عدد الاتصال، عدد المراسلة، وأكثر وقت مشاهدة
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        showToast('جاري تجهيز وتحميل ملف ملخص الإعلان PDF (ورقة A4 عرضية)...');
+                        exportAdSummaryToLandscapePDF({
+                          title: adTitle,
+                          packageLabel: adTypeLabel,
+                          categoryOrSubtitle: adCategoryOrDesc,
+                          phone: adPhoneVal,
+                          locationUrl: adLocVal,
+                          durationDays: adDurationVal,
+                          expiresAt: adExpiresVal,
+                          statusLabel: remainingBadgeText,
+                          viewsCount: liveViewsCount,
+                          callClicksCount: liveCallClicks,
+                          whatsappClicksCount: liveWhatsappClicks,
+                          peakHourLabel,
+                        });
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-xs font-extrabold inline-flex items-center gap-2 shadow-lg cursor-pointer transition-all"
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span>تحميل التفاصيل في ملف PDF (ورقة A4 عرضية)</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
       </FluentModal>
     </div>
   );

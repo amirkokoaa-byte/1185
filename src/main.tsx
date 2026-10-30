@@ -4,12 +4,22 @@ import {registerSW} from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
 
-// Register Service Worker immediately for full offline PWA browsing and instant cache
+// Register Service Worker with immediate update checks so mobile refresh always loads the latest live version
 try {
-  registerSW({
+  const updateSW = registerSW({
     immediate: true,
-    onRegisteredSW() {
-      // Service worker active for offline PWA browsing
+    onNeedRefresh() {
+      updateSW(true).catch(() => {});
+    },
+    onRegisteredSW(_swUrl, registration) {
+      if (registration) {
+        registration.update().catch(() => {});
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            registration.update().catch(() => {});
+          }
+        });
+      }
     },
     onOfflineReady() {
       // App ready to work 100% offline

@@ -94,6 +94,150 @@ function escapeSvgXml(raw: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function normalizeAdStoreNameKey(raw: string | undefined): string {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ');
+}
+
+function extractPhoneTails(rawPhone: string | undefined): string[] {
+  if (!rawPhone) return [];
+  return String(rawPhone)
+    .split(/[-/,،|]+|\s+/)
+    .map((part) => part.replace(/[^0-9]/g, ''))
+    .filter((digits) => digits.length >= 9 && !/^0+$/.test(digits) && !/^1000000000$/.test(digits))
+    .map((digits) => digits.slice(-9));
+}
+
+export function isAdLinkedToStore(
+  ad:
+    | {
+        id?: string;
+        storeId?: string;
+        title?: string;
+        phone?: string;
+        whatsappPhone?: string;
+      }
+    | null
+    | undefined,
+  store: StoreListingItem | null | undefined
+): boolean {
+  if (!ad || !store) return false;
+  if (ad.storeId && ad.storeId === store.id) return true;
+  if (
+    ad.id &&
+    (ad.id === `sq-store-${store.id}` ||
+      ad.id === `store-sq-${store.id}` ||
+      ad.id === `bnr-store-${store.id}`)
+  ) {
+    return true;
+  }
+
+  const adTitleNorm = normalizeAdStoreNameKey(ad.title);
+  const storeNameNorm = normalizeAdStoreNameKey(store.name);
+  if (adTitleNorm && storeNameNorm) {
+    if (adTitleNorm === storeNameNorm) return true;
+    const adBase = adTitleNorm.split('(')[0].trim();
+    const storeBase = storeNameNorm.split('(')[0].trim();
+    if (adBase.length >= 3 && storeBase.length >= 3 && adBase === storeBase) {
+      return true;
+    }
+  }
+
+  const adPhones = [
+    ...extractPhoneTails(ad.phone),
+    ...extractPhoneTails(ad.whatsappPhone),
+  ];
+  const storePhones = extractPhoneTails(store.phone);
+  if (
+    adPhones.length > 0 &&
+    storePhones.length > 0 &&
+    adPhones.some((p) => storePhones.includes(p))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export function findLinkedStoreForAd(
+  stores: StoreListingItem[] | undefined,
+  ad:
+    | {
+        id?: string;
+        storeId?: string;
+        title?: string;
+        phone?: string;
+        whatsappPhone?: string;
+      }
+    | null
+    | undefined
+): StoreListingItem | undefined {
+  if (!ad || !Array.isArray(stores) || stores.length === 0) return undefined;
+  // Priority 1: Explicit storeId or ID pattern
+  const byId = stores.find(
+    (s) =>
+      (ad.storeId && ad.storeId === s.id) ||
+      ad.id === `sq-store-${s.id}` ||
+      ad.id === `store-sq-${s.id}` ||
+      ad.id === `bnr-store-${s.id}`
+  );
+  if (byId) return byId;
+
+  // Priority 2: Exact or base name match
+  const adTitleNorm = normalizeAdStoreNameKey(ad.title);
+  if (adTitleNorm) {
+    const byExactName = stores.find(
+      (s) => normalizeAdStoreNameKey(s.name) === adTitleNorm
+    );
+    if (byExactName) return byExactName;
+
+    const adBase = adTitleNorm.split('(')[0].trim();
+    if (adBase.length >= 3) {
+      const byBaseName = stores.find(
+        (s) => normalizeAdStoreNameKey(s.name).split('(')[0].trim() === adBase
+      );
+      if (byBaseName) return byBaseName;
+    }
+  }
+
+  // Priority 3: Phone match
+  const adPhones = [
+    ...extractPhoneTails(ad.phone),
+    ...extractPhoneTails(ad.whatsappPhone),
+  ];
+  if (adPhones.length > 0) {
+    const byPhone = stores.find((s) => {
+      const sp = extractPhoneTails(s.phone);
+      return sp.some((tail) => adPhones.includes(tail));
+    });
+    if (byPhone) return byPhone;
+  }
+
+  return undefined;
+}
+
+export function mergeViewsByHourMaps(
+  ...maps: Array<Record<string, number> | undefined>
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const mp of maps) {
+    if (!mp || typeof mp !== 'object') continue;
+    for (const [hr, val] of Object.entries(mp)) {
+      const num = Number(val) || 0;
+      if (num > (merged[hr] || 0)) {
+        merged[hr] = num;
+      }
+    }
+  }
+  return merged;
+}
+
 // High-resolution embedded SVG banners & menu visuals
 export const createBannerSvg = (
   headline: string,
@@ -1317,20 +1461,6 @@ function isAdCampaignExpired(expiresAt?: string): boolean {
   const expMs = new Date(expiresAt).getTime();
   if (Number.isNaN(expMs)) return false;
   return expMs <= Date.now();
-}
-
-function mergeViewsByHourMaps(
-  a?: Record<string, number>,
-  b?: Record<string, number>
-): Record<string, number> | undefined {
-  if (!a && !b) return undefined;
-  const out: Record<string, number> = { ...(a || {}) };
-  if (b && typeof b === 'object') {
-    Object.keys(b).forEach((k) => {
-      out[k] = Math.max(out[k] || 0, Number(b[k]) || 0);
-    });
-  }
-  return out;
 }
 
 function mergeAdCampaignsById<
@@ -2886,9 +3016,149 @@ class HybridStorageEngine {
     this.connectionStatusListeners.forEach((cb) => cb(status, message));
   }
 
+  private reconcileStoreAndAdCounters(
+    state: PlatformDatabaseState
+  ): PlatformDatabaseState {
+    if (!state || !Array.isArray(state.stores) || state.stores.length === 0) {
+      return state;
+    }
+    const storesList = state.stores;
+    const squareAdsList = Array.isArray(state.squareAds) ? state.squareAds : [];
+    const topBannersList = Array.isArray(state.topBanners) ? state.topBanners : [];
+    const popupObj = state.popupAd;
+
+    const unifiedByStoreId = new Map<
+      string,
+      {
+        viewsCount: number;
+        callClicksCount: number;
+        whatsappClicksCount: number;
+        viewsByHour: Record<string, number>;
+      }
+    >();
+
+    for (const store of storesList) {
+      const linkedSq = squareAdsList.filter((a) => isAdLinkedToStore(a, store));
+      const linkedBnr = topBannersList.filter((b) => isAdLinkedToStore(b, store));
+      const popupLinked = isAdLinkedToStore(popupObj, store);
+
+      if (linkedSq.length === 0 && linkedBnr.length === 0 && !popupLinked) {
+        continue;
+      }
+
+      const maxViews = Math.max(
+        store.viewsCount || 0,
+        ...linkedSq.map((a) => a.viewsCount || 0),
+        ...linkedBnr.map((b) => b.viewsCount || 0),
+        popupLinked ? popupObj?.viewsCount || 0 : 0
+      );
+      const maxCalls = Math.max(
+        store.callClicksCount || 0,
+        ...linkedSq.map((a) => a.callClicksCount || 0),
+        ...linkedBnr.map((b) => b.callClicksCount || 0),
+        popupLinked ? popupObj?.callClicksCount || 0 : 0
+      );
+      const maxWa = Math.max(
+        store.whatsappClicksCount || 0,
+        ...linkedSq.map((a) => a.whatsappClicksCount || 0),
+        ...linkedBnr.map((b) => b.whatsappClicksCount || 0),
+        popupLinked ? popupObj?.whatsappClicksCount || 0 : 0
+      );
+      const mergedHours = mergeViewsByHourMaps(
+        store.viewsByHour,
+        ...linkedSq.map((a) => a.viewsByHour),
+        ...linkedBnr.map((b) => b.viewsByHour),
+        popupLinked ? popupObj?.viewsByHour : undefined
+      );
+
+      unifiedByStoreId.set(store.id, {
+        viewsCount: maxViews,
+        callClicksCount: maxCalls,
+        whatsappClicksCount: maxWa,
+        viewsByHour: mergedHours,
+      });
+    }
+
+    if (unifiedByStoreId.size === 0) return state;
+
+    const nextStores = storesList.map((s) => {
+      const u = unifiedByStoreId.get(s.id);
+      if (!u) return s;
+      if (
+        (s.viewsCount || 0) === u.viewsCount &&
+        (s.callClicksCount || 0) === u.callClicksCount &&
+        (s.whatsappClicksCount || 0) === u.whatsappClicksCount
+      ) {
+        return s;
+      }
+      return {
+        ...s,
+        viewsCount: u.viewsCount,
+        callClicksCount: u.callClicksCount,
+        whatsappClicksCount: u.whatsappClicksCount,
+        viewsByHour: u.viewsByHour,
+      };
+    });
+
+    const nextSquareAds = squareAdsList.map((a) => {
+      const linkedStore = findLinkedStoreForAd(storesList, a);
+      const u = linkedStore ? unifiedByStoreId.get(linkedStore.id) : undefined;
+      if (!u || !linkedStore) return a;
+      return {
+        ...a,
+        storeId: a.storeId || linkedStore.id,
+        viewsCount: u.viewsCount,
+        callClicksCount: u.callClicksCount,
+        whatsappClicksCount: u.whatsappClicksCount,
+        viewsByHour: u.viewsByHour,
+      };
+    });
+
+    const nextTopBanners = topBannersList.map((b) => {
+      const linkedStore = findLinkedStoreForAd(storesList, b);
+      const u = linkedStore ? unifiedByStoreId.get(linkedStore.id) : undefined;
+      if (!u || !linkedStore) return b;
+      return {
+        ...b,
+        storeId: b.storeId || linkedStore.id,
+        viewsCount: u.viewsCount,
+        callClicksCount: u.callClicksCount,
+        whatsappClicksCount: u.whatsappClicksCount,
+        viewsByHour: u.viewsByHour,
+      };
+    });
+
+    const popupLinkedStore = popupObj
+      ? findLinkedStoreForAd(storesList, popupObj)
+      : undefined;
+    const popupUnified = popupLinkedStore
+      ? unifiedByStoreId.get(popupLinkedStore.id)
+      : undefined;
+    const nextPopupAd =
+      popupObj && popupUnified && popupLinkedStore
+        ? {
+            ...popupObj,
+            storeId: popupObj.storeId || popupLinkedStore.id,
+            viewsCount: popupUnified.viewsCount,
+            callClicksCount: popupUnified.callClicksCount,
+            whatsappClicksCount: popupUnified.whatsappClicksCount,
+            viewsByHour: popupUnified.viewsByHour,
+          }
+        : popupObj;
+
+    return {
+      ...state,
+      stores: nextStores,
+      squareAds: nextSquareAds,
+      topBanners: nextTopBanners,
+      popupAd: nextPopupAd,
+    };
+  }
+
   private notifyData(state: PlatformDatabaseState) {
-    this.latestState = state;
-    this.listeners.forEach((cb) => cb(state));
+    const unifiedState = this.reconcileStoreAndAdCounters(state);
+    this.latestState = unifiedState;
+    this.listeners.forEach((cb) => cb(unifiedState));
   }
 
   private applyIncomingRemoteState(remoteData: Record<string, unknown>) {

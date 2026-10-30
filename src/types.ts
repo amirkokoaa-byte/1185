@@ -23,6 +23,7 @@ export interface UserAccount {
 
 export interface TopBannerAd {
   id: string;
+  storeId?: string; // معرف المحل المرتبط في الدليل لمزامنة عداد المشاهدات والتفاعل لحظياً
   title: string; // اسم المكان
   subtitle?: string;
   imageUrl: string; // الصورة الرئيسية للإعلان
@@ -69,6 +70,7 @@ export interface SquareMovingAd {
 
 export interface PopupAdConfig {
   id: string;
+  storeId?: string; // معرف المحل المرتبط في الدليل لمزامنة عداد المشاهدات والتفاعل لحظياً
   active: boolean;
   title: string; // اسم المكان
   description: string;

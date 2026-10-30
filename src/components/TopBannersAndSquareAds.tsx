@@ -21,7 +21,7 @@ import {
   TopBannerAd,
 } from '../types';
 import { FluentButton, FluentModal } from './FluentUI';
-import { createSquareAdSvg } from '../services/storageService';
+import { createSquareAdSvg, findLinkedStoreForAd } from '../services/storageService';
 
 const normalizeWhiteAdSvg = (imgUrl: string | undefined, title: string, category: string) => {
   if (!imgUrl || imgUrl.startsWith('data:image/svg+xml')) {
@@ -135,6 +135,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   const [currentPopupImageIndex, setCurrentPopupImageIndex] = useState<number>(0);
 
   // Reset sequential popup index and re-open when popup campaign images/id change
+  const trackedPopupSessionRef = useRef<string | null>(null);
   useEffect(() => {
     if (!popupAd || !popupAd.active) return;
     if (popupAd.expiresAt && new Date(popupAd.expiresAt).getTime() <= Date.now()) {
@@ -143,6 +144,19 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     setCurrentPopupImageIndex(0);
     setShowEntryPopup(true);
   }, [popupAd?.id, popupAd?.imageUrl, popupAd?.menuImages?.length, popupAd?.active]);
+
+  // Increment unified view counter (both in Popup Ad and linked Store in Sections) when the Entry Popup Ad opens
+  useEffect(() => {
+    const isPopupOpen =
+      showEntryPopup &&
+      popupAd?.active &&
+      (!popupAd.expiresAt || new Date(popupAd.expiresAt).getTime() > nowTick);
+    if (!isPopupOpen || !popupAd?.id) return;
+    const sessionKey = `${popupAd.id}:${popupAd.title || ''}:${currentPopupImageIndex}`;
+    if (trackedPopupSessionRef.current === sessionKey) return;
+    trackedPopupSessionRef.current = sessionKey;
+    onTrackAdInteraction?.('popup_ad', popupAd.id, 'view');
+  }, [showEntryPopup, popupAd?.id, popupAd?.title, popupAd?.active, popupAd?.expiresAt, currentPopupImageIndex]);
 
   const handleCloseEntryPopup = () => {
     if (currentPopupImageIndex + 1 < popupAdImagesList.length) {
@@ -244,21 +258,55 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
   }, [squareAds, stores, nowTick]);
 
   // Live synced versions of currently opened modal ads so counters update in real time inside the modal
+  // Always unify viewsCount with the store's actual viewsCount in Sections
   const liveSelectedTopBanner = useMemo(() => {
     if (!selectedTopBanner) return null;
-    return (
-      topBanners.find((b) => b.id === selectedTopBanner.id) || selectedTopBanner
-    );
-  }, [selectedTopBanner, topBanners]);
+    const raw =
+      topBanners.find((b) => b.id === selectedTopBanner.id) || selectedTopBanner;
+    const linkedStore = findLinkedStoreForAd(stores, raw);
+    if (!linkedStore) return raw;
+    return {
+      ...raw,
+      storeId: raw.storeId || linkedStore.id,
+      viewsCount: Math.max(raw.viewsCount || 0, linkedStore.viewsCount || 0),
+      callClicksCount: Math.max(
+        raw.callClicksCount || 0,
+        linkedStore.callClicksCount || 0
+      ),
+      whatsappClicksCount: Math.max(
+        raw.whatsappClicksCount || 0,
+        linkedStore.whatsappClicksCount || 0
+      ),
+    };
+  }, [selectedTopBanner, topBanners, stores]);
 
   const liveSelectedSquareAd = useMemo(() => {
     if (!selectedSquareAd) return null;
-    return (
+    const raw =
       displayedSquareAds.find((a) => a.id === selectedSquareAd.id) ||
       squareAds.find((a) => a.id === selectedSquareAd.id) ||
-      selectedSquareAd
-    );
-  }, [selectedSquareAd, displayedSquareAds, squareAds]);
+      selectedSquareAd;
+    const linkedStore = findLinkedStoreForAd(stores, raw);
+    if (!linkedStore) return raw;
+    return {
+      ...raw,
+      storeId: raw.storeId || linkedStore.id,
+      viewsCount: Math.max(raw.viewsCount || 0, linkedStore.viewsCount || 0),
+      callClicksCount: Math.max(
+        raw.callClicksCount || 0,
+        linkedStore.callClicksCount || 0
+      ),
+      whatsappClicksCount: Math.max(
+        raw.whatsappClicksCount || 0,
+        linkedStore.whatsappClicksCount || 0
+      ),
+    };
+  }, [selectedSquareAd, displayedSquareAds, squareAds, stores]);
+
+  const livePopupViewsCount = useMemo(() => {
+    const linkedStore = findLinkedStoreForAd(stores, popupAd);
+    return Math.max(popupAd?.viewsCount || 0, linkedStore?.viewsCount || 0);
+  }, [popupAd, stores]);
 
   const handleOpenTopBannerModal = (banner: TopBannerAd) => {
     setSelectedTopBanner(banner);
@@ -977,14 +1025,14 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         maxWidth="lg"
       >
         <div key={`popup-seq-${currentPopupImageIndex}`} className="space-y-4">
-          {/* عداد المشاهدات اللحظي لمن ضغطوا على الإعلان وفتحوه */}
+          {/* عداد المشاهدات اللحظي لمن ضغطوا على الإعلان وفتحوه (مرتبط بسجل المحل في الأقسام) */}
           <div className="px-3.5 py-2 rounded-xl bg-[#0A192F] border border-sky-400/50 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-xs font-extrabold text-sky-300">
               <Eye className="w-4 h-4 text-sky-400 shrink-0" />
-              <span>عدد المشاهدات (الذين ضغطوا على الإعلان وفتحوه لحظياً):</span>
+              <span>عدد المشاهدات الفعلي (مرتبط بسجل المحل في الأقسام لحظياً):</span>
             </div>
             <span className="px-3 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-200 text-xs font-mono-tabular font-extrabold">
-              {popupAd.viewsCount || 0} مشاهدة
+              {livePopupViewsCount || 1} مشاهدة
             </span>
           </div>
 

@@ -61,8 +61,10 @@ import {
   createBannerSvg,
   createSquareAdSvg,
   createSuggestedStoreSvgPair,
+  findLinkedStoreForAd,
   getEffectiveOnlineDisplayCount,
   isPermanentDreamPlazaStore,
+  mergeViewsByHourMaps,
   RealOnlinePresenceStats,
   setGlobalDefaultStoreSvgStyle,
   storageEngine,
@@ -544,6 +546,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   const loadTopBannerIntoForm = (b: TopBannerAd) => {
     setActiveAdPackageTab('top_banner');
     setEditingAdId(b.id);
+    setAdSelectedStoreId(b.storeId || '');
     setAdPlaceName(b.title);
     setAdCategoryOrSub(b.subtitle || '');
     setAdLocationUrl(b.locationUrl || '');
@@ -565,6 +568,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     const p = state.popupAd;
     setActiveAdPackageTab('popup_entry');
     setEditingAdId(p.id);
+    setAdSelectedStoreId(p.storeId || '');
     setAdPopupActive(p.active);
     setAdDurationDays(p.durationDays || 7);
     setRenewDaysDraft(p.durationDays || 7);
@@ -708,11 +712,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         adMainImage.trim() ||
         createSquareAdSvg(effectiveTitle, adCategoryOrSub || 'إعلان مميز', '#F59E0B');
 
+      const matchedStore =
+        state.stores.find((s) => s.id === (adSelectedStoreId || existingSq?.storeId)) ||
+        findLinkedStoreForAd(state.stores, {
+          storeId: adSelectedStoreId || existingSq?.storeId,
+          title: effectiveTitle,
+          phone: adPhone.trim(),
+        });
+
       const sqPayload: SquareMovingAd = {
         id:
           editingAdId ||
           (adSelectedStoreId ? `sq-store-${adSelectedStoreId}` : `sq-${Date.now()}`),
-        storeId: adSelectedStoreId || existingSq?.storeId || undefined,
+        storeId: adSelectedStoreId || existingSq?.storeId || matchedStore?.id || undefined,
         title: effectiveTitle,
         category: adCategoryOrSub.trim() || 'عام',
         imageUrl: finalImg,
@@ -727,10 +739,22 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         expiresAt: expiresAtIso,
         active: true,
         createdAt: existingSq?.createdAt || new Date().toISOString(),
-        viewsCount: existingSq?.viewsCount || 0,
-        callClicksCount: existingSq?.callClicksCount || 0,
-        whatsappClicksCount: existingSq?.whatsappClicksCount || 0,
-        viewsByHour: existingSq?.viewsByHour || {},
+        viewsCount: Math.max(
+          existingSq?.viewsCount || 0,
+          matchedStore?.viewsCount || 0
+        ),
+        callClicksCount: Math.max(
+          existingSq?.callClicksCount || 0,
+          matchedStore?.callClicksCount || 0
+        ),
+        whatsappClicksCount: Math.max(
+          existingSq?.whatsappClicksCount || 0,
+          matchedStore?.whatsappClicksCount || 0
+        ),
+        viewsByHour: mergeViewsByHourMaps(
+          existingSq?.viewsByHour,
+          matchedStore?.viewsByHour
+        ),
         updatedAt: Date.now(),
       };
 
@@ -749,6 +773,13 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       const existingBnr = editingAdId
         ? state.topBanners.find((item) => item.id === editingAdId)
         : undefined;
+      const matchedStore =
+        state.stores.find((s) => s.id === (adSelectedStoreId || existingBnr?.storeId)) ||
+        findLinkedStoreForAd(state.stores, {
+          storeId: adSelectedStoreId || existingBnr?.storeId,
+          title: effectiveTitle,
+          phone: adPhone.trim(),
+        });
       const finalImg =
         adMainImage.trim() ||
         createBannerSvg(
@@ -761,6 +792,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
       const bnrPayload: TopBannerAd = {
         id: editingAdId || `bnr-${Date.now()}`,
+        storeId: adSelectedStoreId || existingBnr?.storeId || matchedStore?.id || undefined,
         title: effectiveTitle,
         subtitle: adCategoryOrSub.trim() || 'إعلان بانر علوي مميز',
         imageUrl: finalImg,
@@ -774,10 +806,22 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         expiresAt: expiresAtIso,
         active: true,
         createdAt: existingBnr?.createdAt || new Date().toISOString(),
-        viewsCount: existingBnr?.viewsCount || 0,
-        callClicksCount: existingBnr?.callClicksCount || 0,
-        whatsappClicksCount: existingBnr?.whatsappClicksCount || 0,
-        viewsByHour: existingBnr?.viewsByHour || {},
+        viewsCount: Math.max(
+          existingBnr?.viewsCount || 0,
+          matchedStore?.viewsCount || 0
+        ),
+        callClicksCount: Math.max(
+          existingBnr?.callClicksCount || 0,
+          matchedStore?.callClicksCount || 0
+        ),
+        whatsappClicksCount: Math.max(
+          existingBnr?.whatsappClicksCount || 0,
+          matchedStore?.whatsappClicksCount || 0
+        ),
+        viewsByHour: mergeViewsByHourMaps(
+          existingBnr?.viewsByHour,
+          matchedStore?.viewsByHour
+        ),
         updatedAt: Date.now(),
       };
 
@@ -793,6 +837,13 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         resetAdForm();
       }
     } else if (activeAdPackageTab === 'popup_entry') {
+      const matchedStore =
+        state.stores.find((s) => s.id === (adSelectedStoreId || state.popupAd.storeId)) ||
+        findLinkedStoreForAd(state.stores, {
+          storeId: adSelectedStoreId || state.popupAd.storeId,
+          title: effectiveTitle,
+          phone: adPhone.trim(),
+        });
       const finalImg =
         adMainImage.trim() ||
         state.popupAd.imageUrl ||
@@ -806,6 +857,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
 
       const popupPayload: PopupAdConfig = {
         id: 'popup-main-1',
+        storeId: adSelectedStoreId || matchedStore?.id || state.popupAd.storeId || undefined,
         active: adPopupActive,
         title: effectiveTitle,
         description:
@@ -821,10 +873,22 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         menuImages: adMenuImages,
         durationDays: days,
         expiresAt: expiresAtIso,
-        viewsCount: state.popupAd.viewsCount || 0,
-        callClicksCount: state.popupAd.callClicksCount || 0,
-        whatsappClicksCount: state.popupAd.whatsappClicksCount || 0,
-        viewsByHour: state.popupAd.viewsByHour || {},
+        viewsCount: Math.max(
+          state.popupAd.viewsCount || 0,
+          matchedStore?.viewsCount || 0
+        ),
+        callClicksCount: Math.max(
+          state.popupAd.callClicksCount || 0,
+          matchedStore?.callClicksCount || 0
+        ),
+        whatsappClicksCount: Math.max(
+          state.popupAd.whatsappClicksCount || 0,
+          matchedStore?.whatsappClicksCount || 0
+        ),
+        viewsByHour: mergeViewsByHourMaps(
+          state.popupAd.viewsByHour,
+          matchedStore?.viewsByHour
+        ),
         updatedAt: Date.now(),
       };
 
@@ -2264,18 +2328,34 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     )}
                   </div>
 
-                  {activeAdPackageTab === 'moving_square' && (
-                    <div className="p-3 rounded-xl bg-[#112240] border border-amber-400/40 space-y-1.5">
-                      <label className="block text-xs font-extrabold text-amber-300">
-                        اختيار محل من المحلات المسجلة لعمل إعلان له في الباقة الأولى (يظل موجوداً دائماً حتى انتهاء فترة الإعلان):
-                      </label>
-                      <select
-                        value={adSelectedStoreId}
-                        onChange={(e) => {
-                          const storeId = e.target.value;
-                          setAdSelectedStoreId(storeId);
-                          const found = state.stores.find((s) => s.id === storeId);
-                          if (found) {
+                  {/* اختيار محل من المحلات المسجلة لربط الإعلان وسجل مشاهداته وتفاعلاته لحظياً مع قسم المحلات */}
+                  <div className="p-3 rounded-xl bg-[#112240] border border-amber-400/40 space-y-1.5">
+                    <label className="block text-xs font-extrabold text-amber-300">
+                      اختيار محل من المحلات المسجلة لعمل إعلان له وربط عداد مشاهداته مع سجل المحل في الأقسام لحظياً:
+                    </label>
+                    <select
+                      value={adSelectedStoreId}
+                      onChange={(e) => {
+                        const storeId = e.target.value;
+                        setAdSelectedStoreId(storeId);
+                        const found = state.stores.find((s) => s.id === storeId);
+                        if (found) {
+                          const days = Math.max(1, Number(adDurationDays) || 5);
+                          const expiresAtIso = new Date(
+                            Date.now() + days * 24 * 60 * 60 * 1000
+                          ).toISOString();
+                          const storeImgs = found.menuImages || [];
+                          const primaryImg =
+                            storeImgs[0] ||
+                            createSquareAdSvg(found.name, found.category, '#F59E0B');
+
+                          setAdPlaceName(found.name);
+                          setAdCategoryOrSub(found.category);
+                          setAdLocationUrl(found.locationUrl || '');
+                          setAdPhone(found.phone || '');
+                          applyCombinedAdImages(storeImgs);
+
+                          if (activeAdPackageTab === 'moving_square') {
                             const existingAd = state.squareAds.find(
                               (a) =>
                                 a.storeId === found.id ||
@@ -2284,21 +2364,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             const targetAdId = existingAd
                               ? existingAd.id
                               : `sq-store-${found.id}`;
-                            const days = Math.max(1, Number(adDurationDays) || 5);
-                            const expiresAtIso = new Date(
-                              Date.now() + days * 24 * 60 * 60 * 1000
-                            ).toISOString();
-                            const storeImgs = found.menuImages || [];
-                            const primaryImg =
-                              storeImgs[0] ||
-                              createSquareAdSvg(found.name, found.category, '#F59E0B');
-
                             setEditingAdId(targetAdId);
-                            setAdPlaceName(found.name);
-                            setAdCategoryOrSub(found.category);
-                            setAdLocationUrl(found.locationUrl || '');
-                            setAdPhone(found.phone || '');
-                            applyCombinedAdImages(storeImgs);
                             setAdPinned(true);
 
                             const autoSqPayload: SquareMovingAd = {
@@ -2317,25 +2383,45 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                               durationDays: days,
                               expiresAt: expiresAtIso,
                               active: true,
+                              viewsCount: Math.max(
+                                existingAd?.viewsCount || 0,
+                                found.viewsCount || 0
+                              ),
+                              callClicksCount: Math.max(
+                                existingAd?.callClicksCount || 0,
+                                found.callClicksCount || 0
+                              ),
+                              whatsappClicksCount: Math.max(
+                                existingAd?.whatsappClicksCount || 0,
+                                found.whatsappClicksCount || 0
+                              ),
+                              viewsByHour: mergeViewsByHourMaps(
+                                existingAd?.viewsByHour,
+                                found.viewsByHour
+                              ),
                               createdAt: existingAd?.createdAt || new Date().toISOString(),
                             };
                             onAddSquareAd(autoSqPayload);
                             showToast(
-                              `تم اختيار المحل "${found.name}" وتفعيل ظهوره فوراً في لوحة الإعلانات والخصومات لمدة ${days} أيام (يمكنك تعديل المدة أو الصور بالأسفل ثم الضغط على حفظ).`
+                              `تم اختيار المحل "${found.name}" وتفعيل ظهوره فوراً في لوحة الإعلانات والخصومات بنفس عداد مشاهدات المحل (${autoSqPayload.viewsCount || 0} مشاهدة).`
+                            );
+                          } else {
+                            showToast(
+                              `تم تعبئة بيانات المحل "${found.name}" وربط عداد مشاهداته (${found.viewsCount || 0} مشاهدة) — اضغط حفظ لنشر الإعلان.`
                             );
                           }
-                        }}
-                        className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-amber-400 px-3 py-2 text-xs sm:text-sm text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
-                      >
-                        <option value="">-- اختر محلاً مسجلاً أو أدخل بيانات الإعلان يدوياً بالأسفل --</option>
-                        {state.stores.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name} ({s.category})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+                        }
+                      }}
+                      className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-amber-400 px-3 py-2 text-xs sm:text-sm text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
+                    >
+                      <option value="">-- اختر محلاً مسجلاً أو أدخل بيانات الإعلان يدوياً بالأسفل --</option>
+                      {state.stores.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.category}) — المشاهدات المسجلة: {s.viewsCount || 0}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                     {/* 1. تحديد مدة الإعلان بالأيام */}
@@ -2891,9 +2977,28 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                   {ad.category} · {getDaysRemainingBadge(ad.expiresAt)}
                                 </div>
                                 <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
-                                  <span>مشاهدات: {ad.viewsCount || 0}</span>
-                                  <span>· اتصال: {ad.callClicksCount || 0}</span>
-                                  <span>· مراسلة: {ad.whatsappClicksCount || 0}</span>
+                                  {(() => {
+                                    const linkedSt = findLinkedStoreForAd(state.stores, ad);
+                                    const unifiedViews = Math.max(
+                                      ad.viewsCount || 0,
+                                      linkedSt?.viewsCount || 0
+                                    );
+                                    const unifiedCalls = Math.max(
+                                      ad.callClicksCount || 0,
+                                      linkedSt?.callClicksCount || 0
+                                    );
+                                    const unifiedWa = Math.max(
+                                      ad.whatsappClicksCount || 0,
+                                      linkedSt?.whatsappClicksCount || 0
+                                    );
+                                    return (
+                                      <>
+                                        <span>مشاهدات: {unifiedViews}</span>
+                                        <span>· اتصال: {unifiedCalls}</span>
+                                        <span>· مراسلة: {unifiedWa}</span>
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             </div>
@@ -3046,9 +3151,28 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                   {getDaysRemainingBadge(b.expiresAt)} · {b.subtitle}
                                 </div>
                                 <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
-                                  <span>مشاهدات: {b.viewsCount || 0}</span>
-                                  <span>· اتصال: {b.callClicksCount || 0}</span>
-                                  <span>· مراسلة: {b.whatsappClicksCount || 0}</span>
+                                  {(() => {
+                                    const linkedSt = findLinkedStoreForAd(state.stores, b);
+                                    const unifiedViews = Math.max(
+                                      b.viewsCount || 0,
+                                      linkedSt?.viewsCount || 0
+                                    );
+                                    const unifiedCalls = Math.max(
+                                      b.callClicksCount || 0,
+                                      linkedSt?.callClicksCount || 0
+                                    );
+                                    const unifiedWa = Math.max(
+                                      b.whatsappClicksCount || 0,
+                                      linkedSt?.whatsappClicksCount || 0
+                                    );
+                                    return (
+                                      <>
+                                        <span>مشاهدات: {unifiedViews}</span>
+                                        <span>· اتصال: {unifiedCalls}</span>
+                                        <span>· مراسلة: {unifiedWa}</span>
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             </div>
@@ -3106,9 +3230,31 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             {getDaysRemainingBadge(state.popupAd.expiresAt)}
                           </div>
                           <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
-                            <span>مشاهدات: {state.popupAd.viewsCount || 0}</span>
-                            <span>· اتصال: {state.popupAd.callClicksCount || 0}</span>
-                            <span>· مراسلة: {state.popupAd.whatsappClicksCount || 0}</span>
+                            {(() => {
+                              const linkedSt = findLinkedStoreForAd(
+                                state.stores,
+                                state.popupAd
+                              );
+                              const unifiedViews = Math.max(
+                                state.popupAd.viewsCount || 0,
+                                linkedSt?.viewsCount || 0
+                              );
+                              const unifiedCalls = Math.max(
+                                state.popupAd.callClicksCount || 0,
+                                linkedSt?.callClicksCount || 0
+                              );
+                              const unifiedWa = Math.max(
+                                state.popupAd.whatsappClicksCount || 0,
+                                linkedSt?.whatsappClicksCount || 0
+                              );
+                              return (
+                                <>
+                                  <span>مشاهدات: {unifiedViews}</span>
+                                  <span>· اتصال: {unifiedCalls}</span>
+                                  <span>· مراسلة: {unifiedWa}</span>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -5332,26 +5478,36 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
             const adCreatedAtVal =
               liveSquare?.createdAt || liveBanner?.createdAt;
 
-            const liveViewsCount =
+            const currentAdObj = liveSquare || liveBanner || livePopup;
+            const linkedStore = findLinkedStoreForAd(state.stores, currentAdObj);
+
+            const liveViewsCount = Math.max(
               (liveSquare?.viewsCount ??
                 liveBanner?.viewsCount ??
                 livePopup?.viewsCount) ||
-              0;
-            const liveCallClicks =
+                0,
+              linkedStore?.viewsCount || 0
+            );
+            const liveCallClicks = Math.max(
               (liveSquare?.callClicksCount ??
                 liveBanner?.callClicksCount ??
                 livePopup?.callClicksCount) ||
-              0;
-            const liveWhatsappClicks =
+                0,
+              linkedStore?.callClicksCount || 0
+            );
+            const liveWhatsappClicks = Math.max(
               (liveSquare?.whatsappClicksCount ??
                 liveBanner?.whatsappClicksCount ??
                 livePopup?.whatsappClicksCount) ||
-              0;
-            const liveViewsByHour =
-              liveSquare?.viewsByHour ||
-              liveBanner?.viewsByHour ||
-              livePopup?.viewsByHour ||
-              {};
+                0,
+              linkedStore?.whatsappClicksCount || 0
+            );
+            const liveViewsByHour = mergeViewsByHourMaps(
+              liveSquare?.viewsByHour,
+              liveBanner?.viewsByHour,
+              livePopup?.viewsByHour,
+              linkedStore?.viewsByHour
+            );
             const peakHourLabel = getPeakViewingHourLabel(liveViewsByHour);
             const remainingBadgeText = getDaysRemainingBadge(adExpiresVal);
 

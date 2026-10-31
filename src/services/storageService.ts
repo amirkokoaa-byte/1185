@@ -1349,11 +1349,20 @@ function mergeUsersLists(
     const mapKey = prev
       ? (prev.accountName || prev.username).trim().toLowerCase()
       : k;
+    const prevTs = typeof prev?.updatedAt === 'number' ? prev.updatedAt : 0;
+    const incTs = typeof u.updatedAt === 'number' ? u.updatedAt : 0;
+    const newer = incTs >= prevTs ? u : prev || u;
+    const older = incTs >= prevTs ? prev || {} : u;
     byKey.set(mapKey, {
-      ...(prev || {}),
-      ...u,
+      ...older,
+      ...newer,
+      profile: {
+        ...((older as UserAccount).profile || {}),
+        ...((newer as UserAccount).profile || {}),
+      },
       isOnline:
         typeof u.isOnline === 'boolean' ? u.isOnline : prev?.isOnline,
+      updatedAt: Math.max(prevTs, incTs),
     });
   });
   const merged = Array.from(byKey.values()).filter(
@@ -1469,6 +1478,8 @@ function mergeAdCampaignsById<
     expiresAt?: string;
     active?: boolean;
     viewsCount?: number;
+    adViewsSinceCreation?: number;
+    baselineViewsAtCreation?: number;
     callClicksCount?: number;
     whatsappClicksCount?: number;
     viewsByHour?: Record<string, number>;
@@ -1493,6 +1504,15 @@ function mergeAdCampaignsById<
           incItem?.viewsCount || 0,
           item.viewsCount || 0
         ),
+        adViewsSinceCreation: Math.max(
+          prevItem?.adViewsSinceCreation || 0,
+          incItem?.adViewsSinceCreation || 0,
+          item.adViewsSinceCreation || 0
+        ),
+        baselineViewsAtCreation:
+          incItem?.baselineViewsAtCreation ??
+          prevItem?.baselineViewsAtCreation ??
+          item.baselineViewsAtCreation,
         callClicksCount: Math.max(
           prevItem?.callClicksCount || 0,
           incItem?.callClicksCount || 0,
@@ -1536,6 +1556,14 @@ function mergePopupAdCampaign(
   return {
     ...primary,
     viewsCount: Math.max(b.viewsCount || 0, incomingPopup.viewsCount || 0),
+    adViewsSinceCreation: Math.max(
+      b.adViewsSinceCreation || 0,
+      incomingPopup.adViewsSinceCreation || 0
+    ),
+    baselineViewsAtCreation:
+      primary.baselineViewsAtCreation ??
+      incomingPopup.baselineViewsAtCreation ??
+      b.baselineViewsAtCreation,
     callClicksCount: Math.max(
       b.callClicksCount || 0,
       incomingPopup.callClicksCount || 0
@@ -1815,6 +1843,111 @@ function mergePlatformSettings(
       setGlobalDefaultStoreSvgStyle(validStyle);
       return validStyle;
     })(),
+    adminActivityLogs: mergeCollectionById(
+      baseSettings.adminActivityLogs || [],
+      incomingSettings.adminActivityLogs || [],
+      []
+    )
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )
+      .slice(0, 200),
+    authSessionLogs: mergeCollectionById(
+      baseSettings.authSessionLogs || [],
+      incomingSettings.authSessionLogs || [],
+      []
+    )
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )
+      .slice(0, 200),
+    userDailyVisitsMap: (() => {
+      const mergedMap: NonNullable<PlatformSettings['userDailyVisitsMap']> = {
+        ...(baseSettings.userDailyVisitsMap || {}),
+      };
+      const incMap = incomingSettings.userDailyVisitsMap || {};
+      for (const [k, incEntry] of Object.entries(incMap)) {
+        if (!incEntry || typeof incEntry !== 'object') continue;
+        const prevEntry = mergedMap[k];
+        if (!prevEntry) {
+          mergedMap[k] = incEntry;
+        } else {
+          const sameDay = prevEntry.dateKey === incEntry.dateKey;
+          const newerEntry =
+            (incEntry.dateKey || '') >= (prevEntry.dateKey || '')
+              ? incEntry
+              : prevEntry;
+          mergedMap[k] = {
+            ...newerEntry,
+            dailyCount: sameDay
+              ? Math.max(prevEntry.dailyCount || 0, incEntry.dailyCount || 0)
+              : newerEntry.dailyCount || 1,
+            totalCount: Math.max(
+              prevEntry.totalCount || 0,
+              incEntry.totalCount || 0
+            ),
+            lastVisitAt:
+              (incEntry.lastVisitAt || '') >= (prevEntry.lastVisitAt || '')
+                ? incEntry.lastVisitAt
+                : prevEntry.lastVisitAt,
+          };
+        }
+      }
+      return mergedMap;
+    })(),
+    mentionNotifications: (() => {
+      const merged = mergeCollectionById(
+        baseSettings.mentionNotifications || [],
+        incomingSettings.mentionNotifications || [],
+        []
+      );
+      const readSet = new Set<string>();
+      for (const n of [
+        ...(baseSettings.mentionNotifications || []),
+        ...(incomingSettings.mentionNotifications || []),
+      ]) {
+        if (n && n.isRead) readSet.add(n.id);
+      }
+      return merged
+        .map((n) => (readSet.has(n.id) ? { ...n, isRead: true } : n))
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+        .slice(0, 200);
+    })(),
+    friendRequests: (() => {
+      const merged = mergeCollectionById(
+        baseSettings.friendRequests || [],
+        incomingSettings.friendRequests || [],
+        []
+      );
+      const statusMap = new Map<string, 'pending' | 'accepted' | 'rejected'>();
+      for (const req of [
+        ...(baseSettings.friendRequests || []),
+        ...(incomingSettings.friendRequests || []),
+      ]) {
+        if (!req || !req.id) continue;
+        const prevSt = statusMap.get(req.id);
+        if (req.status === 'accepted' || req.status === 'rejected') {
+          statusMap.set(req.id, req.status);
+        } else if (!prevSt) {
+          statusMap.set(req.id, 'pending');
+        }
+      }
+      return merged
+        .map((r) => ({
+          ...r,
+          status: statusMap.get(r.id) || r.status || 'pending',
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+        .slice(0, 200);
+    })(),
     updatedAt: Math.max(baseUpdatedAt, incomingUpdatedAt),
     firebase: baseSettings.firebase || HIDDEN_DEFAULT_FIREBASE_CONFIG,
   };
@@ -1837,6 +1970,69 @@ function normalizeLiveChatList(rawList?: LiveChatMessageItem[]): LiveChatMessage
     if (m.targetUsername) item.targetUsername = m.targetUsername;
     return item;
   });
+}
+
+function mergeLiveChatMessagesList(
+  baseList: LiveChatMessageItem[] | undefined,
+  incomingList: LiveChatMessageItem[] | undefined,
+  deletedIds: string[] = [],
+  lastClearedAt?: string
+): LiveChatMessageItem[] {
+  const deletedSet = new Set(deletedIds || []);
+  const clearTs = lastClearedAt ? new Date(lastClearedAt).getTime() : 0;
+  const byId = new Map<string, LiveChatMessageItem>();
+
+  const addMsg = (m: LiveChatMessageItem | undefined) => {
+    if (!m || !m.id || deletedSet.has(m.id)) return;
+    if (clearTs > 0 && m.createdAt) {
+      const mTs = new Date(m.createdAt).getTime();
+      if (Number.isFinite(mTs) && mTs <= clearTs) return;
+    }
+    const prev = byId.get(m.id);
+    if (!prev) {
+      byId.set(m.id, m);
+    } else {
+      byId.set(m.id, {
+        ...prev,
+        ...m,
+        reports: Array.isArray(m.reports) && m.reports.length >= (prev.reports?.length || 0)
+          ? m.reports
+          : prev.reports || [],
+      });
+    }
+  };
+
+  (baseList || []).forEach(addMsg);
+  (incomingList || []).forEach(addMsg);
+
+  const combined = Array.from(byId.values()).sort((a, b) => {
+    const tA = new Date(a.createdAt || 0).getTime() || 0;
+    const tB = new Date(b.createdAt || 0).getTime() || 0;
+    return tA - tB;
+  });
+
+  return normalizeLiveChatList(combined);
+}
+
+function mergePrivateChatStatusesMap(
+  baseMap: Record<string, 'pending' | 'accepted' | 'rejected'> | undefined,
+  incomingMap: Record<string, 'pending' | 'accepted' | 'rejected'> | undefined
+): Record<string, 'pending' | 'accepted' | 'rejected'> {
+  const result: Record<string, 'pending' | 'accepted' | 'rejected'> = {
+    ...(baseMap || {}),
+  };
+  if (!incomingMap || typeof incomingMap !== 'object') return result;
+  for (const [k, incVal] of Object.entries(incomingMap)) {
+    const prevVal = result[k];
+    if (prevVal === 'accepted' && incVal === 'pending') {
+      result[k] = 'accepted';
+    } else if (prevVal === 'rejected' && incVal === 'pending') {
+      result[k] = 'rejected';
+    } else if (incVal === 'accepted' || incVal === 'rejected' || incVal === 'pending') {
+      result[k] = incVal;
+    }
+  }
+  return result;
 }
 
 function normalizeUtilitySubmissionsList(
@@ -3253,6 +3449,8 @@ class HybridStorageEngine {
       true
     );
 
+    const mergedSettings = mergePlatformSettings(base.settings, remoteSettings);
+
     const mergedState: PlatformDatabaseState = {
       users: mergeUsersLists(
         base.users,
@@ -3274,9 +3472,14 @@ class HybridStorageEngine {
       utilitySubmissions: normalizeUtilitySubmissionsList(mergedUtilitySubRaw),
       utilityPosts: normalizeCommunityPostsList(mergedUtilityPostsRaw),
       buySellPosts: normalizeCommunityPostsList(mergedBuySellRaw),
-      liveChatMessages: Array.isArray(remoteData.liveChatMessages)
-        ? normalizeLiveChatList(remoteData.liveChatMessages as LiveChatMessageItem[])
-        : base.liveChatMessages || [],
+      liveChatMessages: mergeLiveChatMessagesList(
+        base.liveChatMessages || [],
+        Array.isArray(remoteData.liveChatMessages)
+          ? (remoteData.liveChatMessages as LiveChatMessageItem[])
+          : undefined,
+        mergedDeletedIds,
+        mergedSettings.liveChatLastClearedAt
+      ),
       chatPenalties: Array.isArray(remoteData.chatPenalties)
         ? (remoteData.chatPenalties as PlatformDatabaseState['chatPenalties'])
         : base.chatPenalties || [],
@@ -3288,13 +3491,10 @@ class HybridStorageEngine {
             true
           )
         : base.privateChatMessages || [],
-      privateChatStatuses:
-        remoteData.privateChatStatuses && typeof remoteData.privateChatStatuses === 'object'
-          ? {
-              ...(base.privateChatStatuses || {}),
-              ...(remoteData.privateChatStatuses as PlatformDatabaseState['privateChatStatuses']),
-            }
-          : base.privateChatStatuses || {},
+      privateChatStatuses: mergePrivateChatStatusesMap(
+        base.privateChatStatuses,
+        remoteData.privateChatStatuses as PlatformDatabaseState['privateChatStatuses']
+      ),
       chatTypingMap:
         remoteData.chatTypingMap && typeof remoteData.chatTypingMap === 'object'
           ? (remoteData.chatTypingMap as PlatformDatabaseState['chatTypingMap'])
@@ -3315,7 +3515,7 @@ class HybridStorageEngine {
           )
         : base.privateChatReports || [],
       deletedRecordIds: mergedDeletedIds,
-      settings: mergePlatformSettings(base.settings, remoteSettings),
+      settings: mergedSettings,
     };
     this.saveLocalState(mergedState);
     this.notifyData(mergedState);
@@ -3695,9 +3895,18 @@ class HybridStorageEngine {
         : (base.serviceNumbers || []).filter(
             (srv) => !mergedDeletedIds.includes(srv.id)
           ),
-      liveChatMessages: Array.isArray(chatPatch.liveChatMessages)
-        ? normalizeLiveChatList(chatPatch.liveChatMessages as LiveChatMessageItem[])
-        : base.liveChatMessages || [],
+      liveChatMessages: mergeLiveChatMessagesList(
+        base.liveChatMessages || [],
+        Array.isArray(chatPatch.liveChatMessages)
+          ? (chatPatch.liveChatMessages as LiveChatMessageItem[])
+          : undefined,
+        mergedDeletedIds,
+        (typeof chatPatch.liveChatLastClearedAt === 'string'
+          ? chatPatch.liveChatLastClearedAt
+          : undefined) ||
+          patchSettings.liveChatLastClearedAt ||
+          base.settings.liveChatLastClearedAt
+      ),
       chatPenalties: Array.isArray(chatPatch.chatPenalties)
         ? (chatPatch.chatPenalties as PlatformDatabaseState['chatPenalties'])
         : base.chatPenalties || [],
@@ -3709,13 +3918,10 @@ class HybridStorageEngine {
             true
           )
         : base.privateChatMessages || [],
-      privateChatStatuses:
-        chatPatch.privateChatStatuses && typeof chatPatch.privateChatStatuses === 'object'
-          ? {
-              ...(base.privateChatStatuses || {}),
-              ...(chatPatch.privateChatStatuses as PlatformDatabaseState['privateChatStatuses']),
-            }
-          : base.privateChatStatuses || {},
+      privateChatStatuses: mergePrivateChatStatusesMap(
+        base.privateChatStatuses,
+        chatPatch.privateChatStatuses as PlatformDatabaseState['privateChatStatuses']
+      ),
       chatTypingMap:
         chatPatch.chatTypingMap && typeof chatPatch.chatTypingMap === 'object'
           ? (chatPatch.chatTypingMap as PlatformDatabaseState['chatTypingMap'])
@@ -5546,6 +5752,10 @@ export interface RealOnlinePresenceStats {
   registeredCount: number;
   guestsCount: number;
   registeredUsernames: string[];
+  liveChatTotalOnline?: number;
+  liveChatRegisteredCount?: number;
+  liveChatGuestsCount?: number;
+  liveChatUsernames?: string[];
 }
 
 interface StoredPresenceSession {
@@ -5554,13 +5764,24 @@ interface StoredPresenceSession {
   userId: string | null;
   username: string | null;
   isRegistered: boolean;
+  isInLiveChat?: boolean;
   lastActiveAt: number;
 }
 
 const TAB_SESSION_STORAGE_KEY = 'nakhil_1185_real_tab_session_id';
 const GUEST_VISITOR_STORAGE_KEY = 'nakhil_1185_unique_visitor_id_v1';
 const REAL_PRESENCE_MAP_KEY = 'nakhil_1185_real_presence_v4';
-const LIVE_PRESENCE_TTL_MS = 45000;
+const LIVE_PRESENCE_TTL_MS = 25000;
+
+let currentTabIsInLiveChat = false;
+
+export function setCurrentTabLiveChatOpen(
+  isOpen: boolean,
+  currentUser: UserAccount | null
+): RealOnlinePresenceStats {
+  currentTabIsInLiveChat = Boolean(isOpen);
+  return syncRealOnlinePresence(currentUser, false);
+}
 
 /**
  * Computes the effective displayed online count:
@@ -5581,16 +5802,13 @@ export function getEffectiveOnlineDisplayCount(
     return realCount;
   }
 
-  const baseTarget = Math.max(1, Math.round(customOnlineCount));
-  const tenMinuteSlot = Math.floor(nowMs / (10 * 60 * 1000));
-  // Deterministic 10-minute wave cycle: starts at 0, then increases & decreases every 10 minutes
-  const wavePattern = [0, 2, -1, 3, -2, 1, 4, -2, 2, -1];
-  const stepUnit = Math.max(1, Math.round(baseTarget * 0.05));
-  const rawStep = wavePattern[Math.abs(tenMinuteSlot) % wavePattern.length];
-  const delta =
-    baseTarget <= 15 ? rawStep : Math.round((rawStep / 2) * stepUnit);
+  const baseTarget = Math.max(200, Math.round(customOnlineCount));
+  const fiveSecondSlot = Math.floor(nowMs / 5000);
+  // Step transitions every 5 seconds: -5, +20, -50, +20, +15, -30, +25, -40, +20, +15, -25, +35
+  const stepDeltas = [0, -5, 15, -35, -15, 0, -30, -5, -45, -25, -10, -35];
+  const delta = stepDeltas[Math.abs(fiveSecondSlot) % stepDeltas.length];
 
-  return Math.max(1, baseTarget + delta);
+  return Math.max(200, baseTarget + delta);
 }
 
 function getOrCreateTabSessionId(): string {
@@ -5671,8 +5889,11 @@ function updateLatestServerOnlineStats(nextStats: RealOnlinePresenceStats) {
     prev.totalOnline !== nextStats.totalOnline ||
     prev.registeredCount !== nextStats.registeredCount ||
     prev.guestsCount !== nextStats.guestsCount ||
+    prev.liveChatTotalOnline !== nextStats.liveChatTotalOnline ||
     (prev.registeredUsernames || []).join('|') !==
-      (nextStats.registeredUsernames || []).join('|');
+      (nextStats.registeredUsernames || []).join('|') ||
+    (prev.liveChatUsernames || []).join('|') !==
+      (nextStats.liveChatUsernames || []).join('|');
 
   latestServerOnlineStats = nextStats;
   latestServerOnlineStatsAt = Date.now();
@@ -5688,6 +5909,7 @@ function updateLatestServerOnlineStats(nextStats: RealOnlinePresenceStats) {
 
 export function removeCurrentTabPresence(): void {
   try {
+    currentTabIsInLiveChat = false;
     const tabId = getOrCreateTabSessionId();
     const payload = JSON.stringify({ sessionId: tabId, remove: true });
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
@@ -5722,7 +5944,7 @@ export function removeCurrentTabPresence(): void {
 
 /**
  * 100% Real Live Online Presence Tracker ("عدد المتصلين الآن: المتصلين المسجلين وعدد الزائرين")
- * Tracks live open browser heartbeats (45s TTL) across server + tabs + synced online accounts.
+ * Tracks ONLY live active browser heartbeats (25s TTL). Does NOT count offline registered users.
  */
 export function syncRealOnlinePresence(
   currentUser: UserAccount | null,
@@ -5744,6 +5966,7 @@ export function syncRealOnlinePresence(
           userId: currentUser?.id || null,
           username: currentUser?.username || null,
           isRegistered,
+          isInLiveChat: currentTabIsInLiveChat,
         }),
       })
         .then((r) => r.json())
@@ -5765,10 +5988,11 @@ export function syncRealOnlinePresence(
       userId: currentUser?.id || null,
       username: currentUser?.username || null,
       isRegistered,
+      isInLiveChat: currentTabIsInLiveChat,
       lastActiveAt: now,
     };
 
-    // Prune stale sessions (> 45 seconds without heartbeat)
+    // Prune stale sessions (> 25 seconds without heartbeat)
     Object.keys(map).forEach((k) => {
       if (!map[k] || now - map[k].lastActiveAt > LIVE_PRESENCE_TTL_MS) {
         delete map[k];
@@ -5780,15 +6004,14 @@ export function syncRealOnlinePresence(
     if (
       !prevEntry ||
       prevEntry.userId !== (currentUser?.id || null) ||
-      prevEntry.isRegistered !== isRegistered
+      prevEntry.isRegistered !== isRegistered ||
+      Boolean(prevEntry.isInLiveChat) !== currentTabIsInLiveChat
     ) {
       presenceChannel?.postMessage({ type: 'presence_changed' });
       notifyAllPresenceListeners();
     }
 
-    const stateOnlineUsernames = storageEngine.getLatestOnlineUsernames();
-
-    // If authoritative server presence stats are fresh, merge them with local & synced online accounts
+    // If authoritative server presence stats are fresh, merge them ONLY with active local sessions (never state.users)
     if (
       latestServerOnlineStats &&
       now - latestServerOnlineStatsAt <= LIVE_PRESENCE_TTL_MS
@@ -5799,17 +6022,37 @@ export function syncRealOnlinePresence(
           serverRegMap.set(uname.trim().toLowerCase(), uname.trim());
         }
       });
-      stateOnlineUsernames.forEach((uname) => {
-        if (uname && uname.trim()) {
-          serverRegMap.set(uname.trim().toLowerCase(), uname.trim());
-        }
-      });
       if (isRegistered && currentUser?.username) {
         serverRegMap.set(
           currentUser.username.trim().toLowerCase(),
           currentUser.username.trim()
         );
       }
+
+      const liveChatRegMap = new Map<string, string>();
+      (latestServerOnlineStats.liveChatUsernames || []).forEach((uname) => {
+        if (uname && uname.trim()) {
+          liveChatRegMap.set(uname.trim().toLowerCase(), uname.trim());
+        }
+      });
+      if (currentTabIsInLiveChat && isRegistered && currentUser?.username) {
+        liveChatRegMap.set(
+          currentUser.username.trim().toLowerCase(),
+          currentUser.username.trim()
+        );
+      } else if (!currentTabIsInLiveChat && isRegistered && currentUser?.username) {
+        // Check if another local tab has live chat open for this user
+        const hasOtherTabInChat = Object.values(map).some(
+          (s) =>
+            s.sessionId !== tabId &&
+            s.isInLiveChat &&
+            s.username?.trim().toLowerCase() === currentUser.username.trim().toLowerCase()
+        );
+        if (!hasOtherTabInChat && latestServerOnlineStats.liveChatRegisteredCount === 0) {
+          liveChatRegMap.delete(currentUser.username.trim().toLowerCase());
+        }
+      }
+
       const regCount = serverRegMap.size;
       const gCount =
         regCount === 0 && latestServerOnlineStats.guestsCount === 0
@@ -5818,31 +6061,46 @@ export function syncRealOnlinePresence(
               isRegistered ? 0 : 1,
               latestServerOnlineStats.guestsCount || 0
             );
+
+      const lcRegCount = liveChatRegMap.size;
+      const lcGuestCount = Math.max(
+        currentTabIsInLiveChat && !isRegistered ? 1 : 0,
+        latestServerOnlineStats.liveChatGuestsCount || 0
+      );
+
       return {
         totalOnline: Math.max(1, regCount + gCount),
         registeredCount: regCount,
         guestsCount: gCount,
         registeredUsernames: Array.from(serverRegMap.values()),
+        liveChatTotalOnline: lcRegCount + lcGuestCount,
+        liveChatRegisteredCount: lcRegCount,
+        liveChatGuestsCount: lcGuestCount,
+        liveChatUsernames: Array.from(liveChatRegMap.values()),
       };
     }
 
-    // Local real-time calculation (deduplicated by username for registered, and visitorId for guests)
+    // Local real-time calculation (strictly active sessions only)
     const activeSessions = Object.values(map);
     const registeredMap = new Map<string, string>();
     const registeredVisitorIds = new Set<string>();
     const guestVisitorIds = new Set<string>();
 
-    stateOnlineUsernames.forEach((uname) => {
-      if (uname && uname.trim()) {
-        registeredMap.set(uname.trim().toLowerCase(), uname.trim());
-      }
-    });
+    const liveChatRegMap = new Map<string, string>();
+    const liveChatRegVisitorIds = new Set<string>();
+    const liveChatGuestVisitorIds = new Set<string>();
 
     activeSessions.forEach((sess) => {
       if (sess.isRegistered && sess.username) {
         registeredMap.set(sess.username.trim().toLowerCase(), sess.username.trim());
         if (sess.visitorId) {
           registeredVisitorIds.add(sess.visitorId);
+        }
+        if (sess.isInLiveChat) {
+          liveChatRegMap.set(sess.username.trim().toLowerCase(), sess.username.trim());
+          if (sess.visitorId) {
+            liveChatRegVisitorIds.add(sess.visitorId);
+          }
         }
       }
     });
@@ -5852,6 +6110,9 @@ export function syncRealOnlinePresence(
         const vKey = sess.visitorId || sess.sessionId;
         if (!registeredVisitorIds.has(vKey)) {
           guestVisitorIds.add(vKey);
+        }
+        if (sess.isInLiveChat && !liveChatRegVisitorIds.has(vKey)) {
+          liveChatGuestVisitorIds.add(vKey);
         }
       }
     });
@@ -5863,11 +6124,18 @@ export function syncRealOnlinePresence(
         : guestVisitorIds.size;
     const mergedTotal = Math.max(1, mergedRegCount + mergedGuestsCount);
 
+    const lcRegCount = liveChatRegMap.size;
+    const lcGuestsCount = liveChatGuestVisitorIds.size;
+
     return {
       totalOnline: mergedTotal,
       registeredCount: mergedRegCount,
       guestsCount: mergedGuestsCount,
       registeredUsernames: Array.from(registeredMap.values()),
+      liveChatTotalOnline: lcRegCount + lcGuestsCount,
+      liveChatRegisteredCount: lcRegCount,
+      liveChatGuestsCount: lcGuestsCount,
+      liveChatUsernames: Array.from(liveChatRegMap.values()),
     };
   } catch {
     const isReg = Boolean(currentUser && currentUser.id);
@@ -5876,6 +6144,11 @@ export function syncRealOnlinePresence(
       registeredCount: isReg ? 1 : 0,
       guestsCount: isReg ? 0 : 1,
       registeredUsernames: isReg && currentUser ? [currentUser.username] : [],
+      liveChatTotalOnline: currentTabIsInLiveChat ? 1 : 0,
+      liveChatRegisteredCount: currentTabIsInLiveChat && isReg ? 1 : 0,
+      liveChatGuestsCount: currentTabIsInLiveChat && !isReg ? 1 : 0,
+      liveChatUsernames:
+        currentTabIsInLiveChat && isReg && currentUser ? [currentUser.username] : [],
     };
   }
 }

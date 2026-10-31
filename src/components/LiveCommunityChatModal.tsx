@@ -35,7 +35,10 @@ import {
   ABUSIVE_CONTENT_WARNING_MESSAGE,
   containsAbusiveWords,
 } from '../services/profanityFilter';
-import { RealOnlinePresenceStats } from '../services/storageService';
+import {
+  RealOnlinePresenceStats,
+  setCurrentTabLiveChatOpen,
+} from '../services/storageService';
 
 interface LiveCommunityChatModalProps {
   isOpen: boolean;
@@ -83,7 +86,8 @@ interface LiveCommunityChatModalProps {
   onSetChatTypingStatus?: (targetKey: string, isTyping: boolean) => void;
   onRespondPrivateChatRequest?: (
     senderKey: string,
-    status: PrivateChatStatus
+    status: PrivateChatStatus,
+    senderUserId?: string
   ) => void;
   onBlockUserInChat?: (
     blockedUserId: string,
@@ -129,6 +133,7 @@ const PENALTY_DURATIONS: Array<'ساعة' | 'ساعتين' | 'يوم'> = [
 interface ChatMessageRowProps {
   msg: LiveChatMessageItem;
   isOwn: boolean;
+  isAuthorOnline: boolean;
   canModerate: boolean;
   openReportId: string | null;
   openModMenuId: string | null;
@@ -155,6 +160,7 @@ const ChatMessageRow = memo<ChatMessageRowProps>(
   ({
     msg,
     isOwn,
+    isAuthorOnline,
     canModerate,
     openReportId,
     openModMenuId,
@@ -226,6 +232,24 @@ const ChatMessageRow = memo<ChatMessageRowProps>(
               >
                 {msg.authorUsername}
               </button>
+
+              {/* حالة المستخدم (متصل / أوف لاين) فعلياً لحظياً */}
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold inline-flex items-center gap-1 shrink-0 border ${
+                  isAuthorOnline
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
+                    : 'bg-slate-700/40 text-slate-400 border-slate-600/50'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isAuthorOnline
+                      ? 'bg-emerald-400 animate-pulse'
+                      : 'bg-slate-400'
+                  }`}
+                />
+                <span>{isAuthorOnline ? 'متصل' : 'أوف لاين'}</span>
+              </span>
 
               {/* Small Arrow next to every username for Admin (Ban / Delete / Suspend with 1h, 2h, 1d) */}
               {canModerate && (
@@ -455,6 +479,35 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
   // Privacy Shield against Screenshots / PrintScreen
   const [isPrivacyShieldActive, setIsPrivacyShieldActive] = useState(false);
 
+  // Local immediate state for accepted/rejected private chat requests so banner disappears in 0ms
+  const [locallyRespondedRequests, setLocallyRespondedRequests] = useState<
+    Record<string, PrivateChatStatus>
+  >({});
+
+  // Real-time toast notification inside Live Chat when receiving or sending a private message
+  const [liveIncomingToast, setLiveIncomingToast] = useState<{
+    id: string;
+    senderId: string;
+    senderUsername: string;
+    text: string;
+    isOutgoing?: boolean;
+  } | null>(null);
+  const seenModalPrivateMsgIdsRef = useRef<Set<string> | null>(null);
+  const liveToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Track Live Chat modal open presence so "المتصلون الآن" in Live Chat counts ONLY users who opened Live Chat
+  useEffect(() => {
+    setCurrentTabLiveChatOpen(isOpen, currentUser);
+    if (!isOpen) return;
+    const interval = setInterval(() => {
+      setCurrentTabLiveChatOpen(true, currentUser);
+    }, 5000);
+    return () => {
+      clearInterval(interval);
+      setCurrentTabLiveChatOpen(false, currentUser);
+    };
+  }, [isOpen, currentUser?.id, currentUser?.username]);
+
   useEffect(() => {
     setGearCooldownInput(cooldownConfigSeconds);
     // Clamp active cooldown immediately when Admin changes cooldown setting in real time
@@ -681,20 +734,54 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
       const reverseKeyNorm = `${myUsernameNorm}__${partnerNorm}`;
       const idKey1 = `${myUserId}__${partnerName}`;
       const idKey2 = `${myUserId}__${partnerId}`;
+      const idKey3 = `${myUserId}__${partnerNorm}`;
+      const idKey4 = `${partnerId}__${myUserId}`;
+      const idKey5 = `${partnerId}__${myUsernameNorm}`;
 
-      const status: PrivateChatStatus =
-        privateChatStatuses[reverseKeyNorm] ||
-        privateChatStatuses[threadKeyNorm] ||
-        privateChatStatuses[reverseKey1] ||
-        privateChatStatuses[threadKey1] ||
-        privateChatStatuses[idKey1] ||
-        privateChatStatuses[idKey2] ||
-        (isMeSender ? 'accepted' : 'pending');
+      const candidateStatuses = [
+        locallyRespondedRequests[partnerNorm],
+        locallyRespondedRequests[partnerId],
+        privateChatStatuses[reverseKeyNorm],
+        privateChatStatuses[threadKeyNorm],
+        privateChatStatuses[reverseKey1],
+        privateChatStatuses[threadKey1],
+        privateChatStatuses[idKey1],
+        privateChatStatuses[idKey2],
+        privateChatStatuses[idKey3],
+        privateChatStatuses[idKey4],
+        privateChatStatuses[idKey5],
+      ].filter(Boolean) as PrivateChatStatus[];
+
+      const hasISentMessageToPartner = myPrivateMessages.some((m) => {
+        const mSenderNorm = m.senderUsername.trim().toLowerCase();
+        const mRecNorm = m.receiverUsername.trim().toLowerCase();
+        const meSent =
+          mSenderNorm === myUsernameNorm ||
+          Boolean(currentUser && m.senderId === currentUser.id);
+        return (
+          meSent &&
+          (mRecNorm === partnerNorm || (partnerId && m.receiverId === partnerId))
+        );
+      });
+
+      let status: PrivateChatStatus = 'pending';
+      if (
+        candidateStatuses.includes('accepted') ||
+        hasISentMessageToPartner ||
+        isMeSender
+      ) {
+        status = 'accepted';
+      } else if (candidateStatuses.includes('rejected')) {
+        status = 'rejected';
+      } else {
+        status = 'pending';
+      }
 
       if (status === 'rejected' && !isMeSender) return;
 
+      const prevEntry = map.get(partnerNorm);
       map.set(partnerNorm, {
-        userId: partnerId,
+        userId: partnerId || prevEntry?.userId || partnerName,
         username: partnerName,
         lastMessage: pm,
         isIncomingRequest: !isMeSender && status === 'pending',
@@ -703,12 +790,60 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
     });
 
     return Array.from(map.values());
-  }, [myPrivateMessages, myUsername, myUsernameNorm, myUserId, currentUser, privateChatStatuses]);
+  }, [
+    myPrivateMessages,
+    myUsername,
+    myUsernameNorm,
+    myUserId,
+    currentUser,
+    privateChatStatuses,
+    locallyRespondedRequests,
+  ]);
 
   const incomingPendingRequests = useMemo(
     () => privatePartnersList.filter((p) => p.isIncomingRequest),
     [privatePartnersList]
   );
+
+  // Detect any new incoming private message to show an instant clickable notification toast inside Live Chat
+  useEffect(() => {
+    const list = privateChatMessages || [];
+    if (seenModalPrivateMsgIdsRef.current === null) {
+      seenModalPrivateMsgIdsRef.current = new Set(list.map((m) => m.id));
+      return;
+    }
+    const seen = seenModalPrivateMsgIdsRef.current;
+    let newestIncoming: PrivateChatMessageItem | null = null;
+    for (const pm of list) {
+      if (!seen.has(pm.id)) {
+        seen.add(pm.id);
+        const sNorm = pm.senderUsername.trim().toLowerCase();
+        const rNorm = pm.receiverUsername.trim().toLowerCase();
+        const isMeSender =
+          sNorm === myUsernameNorm ||
+          Boolean(currentUser && pm.senderId === currentUser.id);
+        const isMeReceiver =
+          rNorm === myUsernameNorm ||
+          Boolean(currentUser && pm.receiverId === currentUser.id);
+        if (isMeReceiver && !isMeSender && !isBlockedByMe(pm.senderId, pm.senderUsername)) {
+          newestIncoming = pm;
+        }
+      }
+    }
+    if (newestIncoming) {
+      if (liveToastTimerRef.current) clearTimeout(liveToastTimerRef.current);
+      setLiveIncomingToast({
+        id: newestIncoming.id,
+        senderId: newestIncoming.senderId,
+        senderUsername: newestIncoming.senderUsername,
+        text: newestIncoming.text,
+        isOutgoing: false,
+      });
+      liveToastTimerRef.current = setTimeout(() => {
+        setLiveIncomingToast(null);
+      }, 6000);
+    }
+  }, [privateChatMessages, myUsernameNorm, currentUser, myBlockedList]);
 
   // Messages with currently selected private partner
   const activePartnerMessages = useMemo(() => {
@@ -1094,6 +1229,17 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
         activePrivatePartner.username.trim().toLowerCase(),
         false
       );
+      if (liveToastTimerRef.current) clearTimeout(liveToastTimerRef.current);
+      setLiveIncomingToast({
+        id: `out-${Date.now()}`,
+        senderId: activePrivatePartner.userId,
+        senderUsername: activePrivatePartner.username,
+        text: clean,
+        isOutgoing: true,
+      });
+      liveToastTimerRef.current = setTimeout(() => {
+        setLiveIncomingToast(null);
+      }, 3000);
       setDraftText('');
       setShowEmojiPicker(false);
       setShowColorPicker(false);
@@ -1310,13 +1456,25 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
               <div className="text-[10px] text-emerald-400 font-bold flex flex-wrap items-center gap-1.5">
                 <Radio className="w-3 h-3" />
                 <span>
-                  المتصلون الآن: {onlineStats ? onlineStats.totalOnline : onlineCount}
+                  المتصلون الآن في المحادثة:{' '}
+                  {Math.max(
+                    1,
+                    onlineStats?.liveChatTotalOnline ?? 1
+                  )}
                 </span>
-                {onlineStats && (
-                  <span className="text-sky-300 font-mono-tabular">
-                    (مسجلين: {onlineStats.registeredCount} · زوار: {onlineStats.guestsCount})
-                  </span>
-                )}
+                <span className="text-sky-300 font-mono-tabular">
+                  (مسجلين:{' '}
+                  {Math.max(
+                    currentUser ? 1 : 0,
+                    onlineStats?.liveChatRegisteredCount ?? (currentUser ? 1 : 0)
+                  )}{' '}
+                  · زوار:{' '}
+                  {Math.max(
+                    currentUser ? 0 : 1,
+                    onlineStats?.liveChatGuestsCount ?? (currentUser ? 0 : 1)
+                  )}
+                  )
+                </span>
                 <span>· آخر 50 رسالة فقط</span>
                 {remainingAutoClearSeconds !== null && (
                   <span className="text-amber-300 font-mono-tabular">
@@ -1324,6 +1482,23 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                   </span>
                 )}
               </div>
+              {onlineStats?.liveChatUsernames &&
+                onlineStats.liveChatUsernames.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                    <span className="text-[9px] text-[#94A3B8] font-bold">
+                      المتواجدون بالشات:
+                    </span>
+                    {onlineStats.liveChatUsernames.slice(0, 6).map((uname) => (
+                      <span
+                        key={uname}
+                        className="px-1.5 py-0.2 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[9px] font-extrabold inline-flex items-center gap-1"
+                      >
+                        <span className="w-1 h-1 rounded-full bg-emerald-400" />
+                        <span>{uname}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
             </div>
           </div>
 
@@ -1401,6 +1576,49 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
             </div>
           </div>
 
+          {/* إشعار لحظي داخل المحادثة عند وصول أو إرسال رسالة خاصة مع فتح المحادثة عند الضغط عليه */}
+          {liveIncomingToast && (
+            <div
+              onClick={() => {
+                const normKey = liveIncomingToast.senderUsername.trim().toLowerCase();
+                setLocallyRespondedRequests((prev) => ({
+                  ...prev,
+                  [normKey]: 'accepted',
+                  ...(liveIncomingToast.senderId
+                    ? { [liveIncomingToast.senderId]: 'accepted' }
+                    : {}),
+                }));
+                onRespondPrivateChatRequest?.(
+                  liveIncomingToast.senderUsername,
+                  'accepted',
+                  liveIncomingToast.senderId
+                );
+                onMarkPrivateMessagesRead?.(liveIncomingToast.senderUsername);
+                setActivePrivatePartner({
+                  userId: liveIncomingToast.senderId,
+                  username: liveIncomingToast.senderUsername,
+                });
+                setActiveChatTab('private');
+                setLiveIncomingToast(null);
+              }}
+              className="p-2.5 rounded-xl bg-emerald-950/90 border-2 border-emerald-400 flex items-center justify-between gap-2 cursor-pointer shadow-lg animate-pulse"
+            >
+              <div className="min-w-0">
+                <div className="text-xs font-extrabold text-emerald-300 truncate">
+                  {liveIncomingToast.isOutgoing
+                    ? `✅ تم إرسال رسالتك إلى ${liveIncomingToast.senderUsername}`
+                    : `📩 رسالة جديدة من ${liveIncomingToast.senderUsername} (اضغط لفتح الرسالة)`}
+                </div>
+                <div className="text-[11px] font-bold text-[#F8FAFC] truncate">
+                  &quot;{liveIncomingToast.text}&quot;
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-extrabold shrink-0">
+                فتح الرسالة
+              </span>
+            </div>
+          )}
+
           {/* Incoming Private Message Notification Alert ("يظهر للمستقبل رسالة باسم المرسل أنه يرسل رسالة يمكن الاطلاع عليها وقبول ورفض وحظر") */}
           {incomingPendingRequests.map((req) => (
             <div
@@ -1441,15 +1659,28 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    // Delete any previously open private chat with another user before opening this one
-                    onClearPrivateChatSession?.(req.username);
-                    onRespondPrivateChatRequest?.(req.username, 'accepted');
+                    const normKey = req.username.trim().toLowerCase();
+                    setLocallyRespondedRequests((prev) => ({
+                      ...prev,
+                      [normKey]: 'accepted',
+                      ...(req.userId ? { [req.userId]: 'accepted' } : {}),
+                    }));
+                    setPreviewRequestPartner(null);
+                    onRespondPrivateChatRequest?.(
+                      req.username,
+                      'accepted',
+                      req.userId
+                    );
                     onMarkPrivateMessagesRead?.(req.username);
                     setActivePrivatePartner({
                       userId: req.userId,
                       username: req.username,
                     });
                     setActiveChatTab('private');
+                    if (liveToastTimerRef.current) {
+                      clearTimeout(liveToastTimerRef.current);
+                    }
+                    setLiveIncomingToast(null);
                   }}
                   className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
                 >
@@ -1459,9 +1690,20 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() =>
-                    onRespondPrivateChatRequest?.(req.username, 'rejected')
-                  }
+                  onClick={() => {
+                    const normKey = req.username.trim().toLowerCase();
+                    setLocallyRespondedRequests((prev) => ({
+                      ...prev,
+                      [normKey]: 'rejected',
+                      ...(req.userId ? { [req.userId]: 'rejected' } : {}),
+                    }));
+                    setPreviewRequestPartner(null);
+                    onRespondPrivateChatRequest?.(
+                      req.username,
+                      'rejected',
+                      req.userId
+                    );
+                  }}
                   className="px-2.5 py-1 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-[#E2E8F0] text-[11px] font-extrabold cursor-pointer"
                 >
                   رفض
@@ -1469,13 +1711,20 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    const normKey = req.username.trim().toLowerCase();
+                    setLocallyRespondedRequests((prev) => ({
+                      ...prev,
+                      [normKey]: 'rejected',
+                      ...(req.userId ? { [req.userId]: 'rejected' } : {}),
+                    }));
+                    setPreviewRequestPartner(null);
                     setBlockingTarget({
                       userId: req.userId,
                       username: req.username,
                       sampleMessage: req.lastMessage.text,
-                    })
-                  }
+                    });
+                  }}
                   className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
                 >
                   <Ban className="w-3 h-3" />
@@ -2070,6 +2319,7 @@ export const LiveCommunityChatModal: React.FC<LiveCommunityChatModalProps> = ({
                     Boolean(currentUser && msg.authorId === currentUser.id) ||
                     msg.authorUsername === myUsername
                   }
+                  isAuthorOnline={isUserOnlineNow(msg.authorId, msg.authorUsername)}
                   canModerate={canModerate}
                   openReportId={openReportMsgId}
                   openModMenuId={openModMenuId}

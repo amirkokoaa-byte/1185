@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, ShieldAlert } from 'lucide-react';
+import { Settings, ShieldAlert, User } from 'lucide-react';
 import {
   CommentEmojiReactionType,
   CommunityCommentItem,
@@ -12,6 +12,7 @@ import {
   PlatformDatabaseState,
   PlatformSettings,
   PopupAdConfig,
+  PostPrivacyLevel,
   ServicePhoneEntry,
   SquareMovingAd,
   StoreCommentItem,
@@ -29,6 +30,7 @@ import { TawsilaLiveView } from './TawsilaLiveView';
 import { CommunityHubView } from './CommunityHubView';
 import { UtilitiesSubmissionsView } from './UtilitiesSubmissionsView';
 import { AdminSettingsHubView } from './AdminSettingsHubView';
+import { PersonalProfileHeaderSection } from './SocialBottomBarAndProfile';
 import { RealOnlinePresenceStats } from '../services/storageService';
 
 interface PortalSectionsWorkspaceProps {
@@ -135,7 +137,8 @@ interface PortalSectionsWorkspaceProps {
   onSetChatTypingStatus?: (targetKey: string, isTyping: boolean) => void;
   onRespondPrivateChatRequest?: (
     senderKey: string,
-    status: 'pending' | 'accepted' | 'rejected'
+    status: 'pending' | 'accepted' | 'rejected',
+    senderUserId?: string
   ) => void;
   onBlockUserInChat?: (
     blockedUserId: string,
@@ -199,6 +202,7 @@ interface PortalSectionsWorkspaceProps {
     tick: number;
   } | null;
   onRenameStoreCategory: (oldName: string, newName: string) => void;
+  onAddStoreCategory?: (newCategoryName: string) => void;
   onAddUtilityType: (newTypeName: string) => void;
   onSaveUtilitySubmission: (item: UtilitySubmissionItem) => void;
   onDeleteUtilitySubmission: (id: string) => void;
@@ -290,6 +294,33 @@ interface PortalSectionsWorkspaceProps {
   onRestoreReportedBuySellComment: (postId: string, commentId: string) => void;
   onTogglePinBuySellComment: (postId: string, commentId: string) => void;
   onToggleHideBuySellComment?: (postId: string, commentId: string) => void;
+  viewedProfileUsername?: string | null;
+  externalJumpTarget?: { postId: string; commentId?: string; tick: number } | null;
+  onSelectUserProfile?: (username: string) => void;
+  onUpdatePostPrivacy?: (
+    section: 'community' | 'buy_sell' | 'utilities',
+    postId: string,
+    privacy: PostPrivacyLevel,
+    allowedUsernames?: string[],
+    customListId?: string
+  ) => void;
+  onTriggerMentionNotifications?: (
+    section: MainSectionId,
+    mentionedUsernames: string[],
+    postId: string,
+    snippet: string,
+    commentId?: string
+  ) => void;
+  onBulkDeleteCommunityPosts?: (postIds: string[]) => void;
+  onUpdateMultiplePostsPrivacy?: (
+    postIds: string[],
+    privacy: PostPrivacyLevel
+  ) => void;
+  onSendFriendRequest?: (targetUsername: string) => void;
+  onCancelFriendRequest?: (targetUsername: string) => void;
+  onUnfriendUser?: (targetUsername: string) => void;
+  onToggleFollowUser?: (targetUsername: string) => void;
+  onSharePostToBuySell?: (post: CommunityPostItem) => void;
 }
 
 export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = ({
@@ -386,6 +417,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   externalOpenHistoryModalTick,
   externalLoginNotification,
   onRenameStoreCategory,
+  onAddStoreCategory,
   onAddUtilityType,
   onSaveUtilitySubmission,
   onDeleteUtilitySubmission,
@@ -435,6 +467,18 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
   onRestoreReportedBuySellComment,
   onTogglePinBuySellComment,
   onToggleHideBuySellComment,
+  viewedProfileUsername,
+  externalJumpTarget,
+  onSelectUserProfile,
+  onUpdatePostPrivacy,
+  onTriggerMentionNotifications,
+  onBulkDeleteCommunityPosts,
+  onUpdateMultiplePostsPrivacy,
+  onSendFriendRequest,
+  onCancelFriendRequest,
+  onUnfriendUser,
+  onToggleFollowUser,
+  onSharePostToBuySell,
 }) => {
   // Settings is strictly for Admin only (Moderators can review posts & edit other sections EXCEPT Settings)
   const isStrictAdmin =
@@ -582,7 +626,411 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
     );
   }
 
-  // ================= 1. DIRECTORY (أضف محل / الدليل) =================
+  // ================= 0A. FACEBOOK HOME FEED (الصفحة الرئيسية) =================
+  if (activeSection === 'home_feed') {
+    const buySellIdsSet = new Set((state.buySellPosts || []).map((p) => p.id));
+    const mergedHomeFeedPostsMap = new Map<string, CommunityPostItem>();
+    for (const p of state.communityPosts || []) {
+      mergedHomeFeedPostsMap.set(p.id, p);
+    }
+    for (const bp of state.buySellPosts || []) {
+      if (bp.status === 'approved' && !mergedHomeFeedPostsMap.has(bp.id)) {
+        mergedHomeFeedPostsMap.set(bp.id, bp);
+      }
+    }
+    const mergedHomeFeedPosts = Array.from(mergedHomeFeedPostsMap.values());
+
+    return (
+      <CommunityHubView
+        posts={mergedHomeFeedPosts}
+        liveChatMessages={state.liveChatMessages || []}
+        onlineCount={onlineCount}
+        onlineStats={onlineStats}
+        currentUser={currentUser}
+        users={state.users}
+        cooldownConfigSeconds={state.settings.liveChatCooldownSeconds ?? 5}
+        autoClearMinutes={state.settings.liveChatAutoClearMinutes ?? 60}
+        lastClearedAt={state.settings.liveChatLastClearedAt}
+        chatPenalties={state.chatPenalties || []}
+        privateChatMessages={state.privateChatMessages || []}
+        privateChatStatuses={state.privateChatStatuses || {}}
+        chatTypingMap={state.chatTypingMap || {}}
+        userBlockedMap={state.userBlockedMap || {}}
+        privateChatReports={state.privateChatReports || []}
+        sectionTitle="الصفحة الرئيسية"
+        sectionSubtitle="شارك منشوراتك وتفاعل لحظياً مع جميع المستخدمين"
+        hidePostTypeSelector={true}
+        isHomeFeedView={true}
+        enableBuySellPrivateChat={true}
+        externalJumpTarget={externalJumpTarget}
+        onSelectUserProfile={onSelectUserProfile}
+        onUpdateUserAccount={onUpdateUserAccount}
+        onSendFriendRequest={onSendFriendRequest}
+        onSharePostToBuySell={onSharePostToBuySell}
+        onUpdatePostPrivacy={
+          onUpdatePostPrivacy
+            ? (postId, privacy, allowedUsernames, customListId) =>
+                onUpdatePostPrivacy(
+                  buySellIdsSet.has(postId) ? 'buy_sell' : 'community',
+                  postId,
+                  privacy,
+                  allowedUsernames,
+                  customListId
+                )
+            : undefined
+        }
+        onTriggerMentionNotifications={
+          onTriggerMentionNotifications
+            ? (mentionedUsernames, postId, snippet, commentId) =>
+                onTriggerMentionNotifications(
+                  'home_feed',
+                  mentionedUsernames,
+                  postId,
+                  snippet,
+                  commentId
+                )
+            : undefined
+        }
+        onOpenAuthModal={onOpenAuthModal}
+        onAddCommunityPost={onAddCommunityPost}
+        onEditCommunityPost={(id, content, pType) =>
+          buySellIdsSet.has(id)
+            ? onEditBuySellPost(id, content, pType)
+            : onEditCommunityPost?.(id, content, pType)
+        }
+        onUpdatePostStatus={(id, st) =>
+          buySellIdsSet.has(id)
+            ? onUpdateBuySellPostStatus(id, st)
+            : onUpdatePostStatus(id, st)
+        }
+        onDeletePost={(id) =>
+          buySellIdsSet.has(id) ? onDeleteBuySellPost(id) : onDeletePost(id)
+        }
+        onTogglePinPost={(id) =>
+          buySellIdsSet.has(id)
+            ? onTogglePinBuySellPost?.(id)
+            : onTogglePinCommunityPost?.(id)
+        }
+        onTogglePostSold={(id) =>
+          buySellIdsSet.has(id)
+            ? onToggleBuySellPostSold?.(id)
+            : onToggleCommunityPostSold?.(id)
+        }
+        onTogglePostCommentsDisabled={(id) =>
+          buySellIdsSet.has(id)
+            ? onToggleBuySellPostCommentsDisabled?.(id)
+            : onToggleCommunityPostCommentsDisabled?.(id)
+        }
+        onTogglePostLike={(id) =>
+          buySellIdsSet.has(id)
+            ? onToggleBuySellPostLike(id)
+            : onTogglePostLike(id)
+        }
+        onTogglePostDislike={(id) =>
+          buySellIdsSet.has(id)
+            ? onToggleBuySellPostDislike(id)
+            : onTogglePostDislike(id)
+        }
+        onReportPost={(id, reason) =>
+          buySellIdsSet.has(id)
+            ? onReportBuySellPost(id, reason)
+            : onReportPost(id, reason)
+        }
+        onRestoreReportedPost={(id) =>
+          buySellIdsSet.has(id)
+            ? onRestoreReportedBuySellPost(id)
+            : onRestoreReportedPost(id)
+        }
+        onAddCommentToPost={(id, comment) =>
+          buySellIdsSet.has(id)
+            ? onAddCommentToBuySellPost(id, comment)
+            : onAddCommentToPost(id, comment)
+        }
+        onToggleCommentLike={(id, cid) =>
+          buySellIdsSet.has(id)
+            ? onToggleBuySellCommentLike(id, cid)
+            : onToggleCommunityCommentLike(id, cid)
+        }
+        onToggleCommentEmoji={(id, cid, reaction) =>
+          buySellIdsSet.has(id)
+            ? onToggleBuySellCommentEmoji(id, cid, reaction)
+            : onToggleCommunityCommentEmoji(id, cid, reaction)
+        }
+        onAddReplyToComment={(id, cid, reply) =>
+          buySellIdsSet.has(id)
+            ? onAddReplyToBuySellComment(id, cid, reply)
+            : onAddReplyToCommunityComment(id, cid, reply)
+        }
+        onReportComment={(id, cid, reason) =>
+          buySellIdsSet.has(id)
+            ? onReportBuySellComment(id, cid, reason)
+            : onReportCommunityComment(id, cid, reason)
+        }
+        onDeleteComment={(id, cid) =>
+          buySellIdsSet.has(id)
+            ? onDeleteBuySellComment(id, cid)
+            : onDeleteCommunityComment(id, cid)
+        }
+        onEditComment={(id, cid, txt) =>
+          buySellIdsSet.has(id)
+            ? onEditBuySellComment?.(id, cid, txt)
+            : onEditCommunityComment?.(id, cid, txt)
+        }
+        onEditReply={(id, cid, rid, txt) =>
+          buySellIdsSet.has(id)
+            ? onEditBuySellReply?.(id, cid, rid, txt)
+            : onEditCommunityReply?.(id, cid, rid, txt)
+        }
+        onDeleteReply={(id, cid, rid) =>
+          buySellIdsSet.has(id)
+            ? onDeleteBuySellReply?.(id, cid, rid)
+            : onDeleteCommunityReply?.(id, cid, rid)
+        }
+        onRestoreReportedComment={(id, cid) =>
+          buySellIdsSet.has(id)
+            ? onRestoreReportedBuySellComment(id, cid)
+            : onRestoreReportedCommunityComment(id, cid)
+        }
+        onTogglePinComment={(id, cid) =>
+          buySellIdsSet.has(id)
+            ? onTogglePinBuySellComment(id, cid)
+            : onTogglePinCommunityComment(id, cid)
+        }
+        onToggleHideComment={(id, cid) =>
+          buySellIdsSet.has(id)
+            ? onToggleHideBuySellComment?.(id, cid)
+            : onToggleHideCommunityComment?.(id, cid)
+        }
+        onSendChatMessage={onSendChatMessage}
+        onReportChatMessage={onReportChatMessage}
+        onDeleteChatMessage={onDeleteChatMessage}
+        onUpdateChatCooldown={onUpdateChatCooldown}
+        onUpdateAutoClearMinutes={onUpdateAutoClearMinutes}
+        onClearPublicChatNow={onClearPublicChatNow}
+        onClearPrivateChatSession={onClearPrivateChatSession}
+        onApplyChatPenalty={onApplyChatPenalty}
+        onSendPrivateMessage={onSendPrivateMessage}
+        onMarkPrivateMessagesRead={onMarkPrivateMessagesRead}
+        onSetChatTypingStatus={onSetChatTypingStatus}
+        onRespondPrivateChatRequest={onRespondPrivateChatRequest}
+        onBlockUserInChat={onBlockUserInChat}
+        onUnblockUserInChat={onUnblockUserInChat}
+        onTogglePrivateMessageReaction={onTogglePrivateMessageReaction}
+        onReportPrivateChatMessage={onReportPrivateChatMessage}
+        onReportUserInPrivateChat={onReportUserInPrivateChat}
+        onDismissPrivateChatReport={onDismissPrivateChatReport}
+        onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
+        onDeletePrivateChatMessage={onDeletePrivateChatMessage}
+        onDeletePrivateConversation={onDeletePrivateConversation}
+        onTogglePinPrivateChatMessage={onTogglePinPrivateChatMessage}
+      />
+    );
+  }
+
+  // ================= 0B. PERSONAL PROFILE (ملف شخصي) =================
+  if (activeSection === 'profile') {
+    const targetUsername = (
+      viewedProfileUsername ||
+      currentUser?.username ||
+      ''
+    ).trim();
+    const targetUser = state.users.find(
+      (u) => u.username.trim().toLowerCase() === targetUsername.toLowerCase()
+    );
+
+    if (!targetUser) {
+      return (
+        <FluentCard className="p-8 text-center space-y-4 max-w-lg mx-auto my-6">
+          <div className="w-16 h-16 rounded-2xl bg-sky-500/20 border-2 border-sky-400/50 flex items-center justify-center mx-auto">
+            <User className="w-8 h-8 text-sky-400" />
+          </div>
+          <h3 className="text-lg font-extrabold text-[#F8FAFC]">
+            الملف الشخصي
+          </h3>
+          <p className="text-xs sm:text-sm text-[#94A3B8]">
+            يرجى تسجيل الدخول أو إنشاء حساب لعرض ملفك الشخصي ومشاركة منشوراتك وتفاصيلك الشخصية مع الأصدقاء.
+          </p>
+          <div className="flex justify-center">
+            <FluentButton variant="primary" onClick={onOpenAuthModal}>
+              تسجيل الدخول / إنشاء حساب
+            </FluentButton>
+          </div>
+        </FluentCard>
+      );
+    }
+
+    const pendingSentRequestToTarget = Boolean(
+      currentUser &&
+        (state.settings.friendRequests || []).some(
+          (r) =>
+            r.status === 'pending' &&
+            r.fromUsername.trim().toLowerCase() ===
+              currentUser.username.trim().toLowerCase() &&
+            r.toUsername.trim().toLowerCase() ===
+              targetUser.username.trim().toLowerCase()
+        )
+    );
+
+    const isOwnProfileView = Boolean(
+      currentUser &&
+        (currentUser.id === targetUser.id ||
+          currentUser.username.trim().toLowerCase() ===
+            targetUser.username.trim().toLowerCase())
+    );
+    const targetFriendsNorm = new Set(
+      [
+        ...(targetUser.profile?.friendUsernames || []),
+        ...(targetUser.profile?.followingUsernames || []),
+      ].map((u) => u.trim().toLowerCase())
+    );
+    const myFriendsNorm = new Set(
+      [
+        ...(currentUser?.profile?.friendUsernames || []),
+        ...(currentUser?.profile?.followingUsernames || []),
+      ].map((u) => u.trim().toLowerCase())
+    );
+    const isFriendWithTarget = Boolean(
+      currentUser &&
+        (targetFriendsNorm.has(currentUser.username.trim().toLowerCase()) ||
+          myFriendsNorm.has(targetUser.username.trim().toLowerCase()))
+    );
+    const isProfileLockedForViewer =
+      Boolean(targetUser.profile?.isProfileLocked) &&
+      !isOwnProfileView &&
+      !isFriendWithTarget &&
+      !isStrictAdmin;
+
+    return (
+      <div className="space-y-4">
+        <PersonalProfileHeaderSection
+          currentUser={currentUser}
+          viewedUsername={targetUser.username}
+          allUsers={state.users}
+          userPosts={state.communityPosts}
+          isAdmin={isStrictAdmin}
+          pendingSentRequestToTarget={pendingSentRequestToTarget}
+          onUpdateUserAccount={onUpdateUserAccount}
+          onDeleteMultiplePosts={
+            onBulkDeleteCommunityPosts ||
+            ((postIds) => postIds.forEach((id) => onDeletePost(id)))
+          }
+          onUpdateMultiplePostsPrivacy={onUpdateMultiplePostsPrivacy}
+          onSelectProfileUsername={(uname: string) =>
+            onSelectUserProfile?.(uname)
+          }
+          onSendFriendRequest={onSendFriendRequest}
+          onCancelFriendRequest={onCancelFriendRequest}
+          onUnfriendUser={onUnfriendUser}
+          onToggleFollowUser={onToggleFollowUser}
+          onOpenRequestLogin={onOpenAuthModal}
+        />
+
+        {!isProfileLockedForViewer && (
+          <CommunityHubView
+            posts={state.communityPosts}
+            liveChatMessages={state.liveChatMessages || []}
+            onlineCount={onlineCount}
+            onlineStats={onlineStats}
+            currentUser={currentUser}
+            users={state.users}
+            cooldownConfigSeconds={state.settings.liveChatCooldownSeconds ?? 5}
+            autoClearMinutes={state.settings.liveChatAutoClearMinutes ?? 60}
+            lastClearedAt={state.settings.liveChatLastClearedAt}
+            chatPenalties={state.chatPenalties || []}
+            privateChatMessages={state.privateChatMessages || []}
+            privateChatStatuses={state.privateChatStatuses || {}}
+            chatTypingMap={state.chatTypingMap || {}}
+            userBlockedMap={state.userBlockedMap || {}}
+            privateChatReports={state.privateChatReports || []}
+            sectionTitle={`منشورات ${targetUser.username}`}
+            sectionSubtitle="المنشورات والتفاعلات على الملف الشخصي"
+            hideTopSectionBar={true}
+            hidePostTypeSelector={true}
+            hideLiveChatButton={true}
+            enableBuySellPrivateChat={true}
+            profileFilterUsername={targetUser.username}
+            externalJumpTarget={externalJumpTarget}
+            onSelectUserProfile={onSelectUserProfile}
+            onUpdateUserAccount={onUpdateUserAccount}
+            onSendFriendRequest={onSendFriendRequest}
+            onSharePostToBuySell={onSharePostToBuySell}
+            onUpdatePostPrivacy={
+              onUpdatePostPrivacy
+                ? (postId, privacy, allowedUsernames, customListId) =>
+                    onUpdatePostPrivacy(
+                      'community',
+                      postId,
+                      privacy,
+                      allowedUsernames,
+                      customListId
+                    )
+                : undefined
+            }
+            onTriggerMentionNotifications={
+              onTriggerMentionNotifications
+                ? (mentionedUsernames, postId, snippet, commentId) =>
+                    onTriggerMentionNotifications(
+                      'profile',
+                      mentionedUsernames,
+                      postId,
+                      snippet,
+                      commentId
+                    )
+                : undefined
+            }
+            onOpenAuthModal={onOpenAuthModal}
+            onAddCommunityPost={onAddCommunityPost}
+            onEditCommunityPost={onEditCommunityPost}
+            onUpdatePostStatus={onUpdatePostStatus}
+            onDeletePost={onDeletePost}
+            onTogglePinPost={onTogglePinCommunityPost}
+            onTogglePostSold={onToggleCommunityPostSold}
+            onTogglePostCommentsDisabled={onToggleCommunityPostCommentsDisabled}
+            onTogglePostLike={onTogglePostLike}
+            onTogglePostDislike={onTogglePostDislike}
+            onReportPost={onReportPost}
+            onRestoreReportedPost={onRestoreReportedPost}
+            onAddCommentToPost={onAddCommentToPost}
+            onToggleCommentLike={onToggleCommunityCommentLike}
+            onToggleCommentEmoji={onToggleCommunityCommentEmoji}
+            onAddReplyToComment={onAddReplyToCommunityComment}
+            onReportComment={onReportCommunityComment}
+            onDeleteComment={onDeleteCommunityComment}
+            onEditComment={onEditCommunityComment}
+            onEditReply={onEditCommunityReply}
+            onDeleteReply={onDeleteCommunityReply}
+            onRestoreReportedComment={onRestoreReportedCommunityComment}
+            onTogglePinComment={onTogglePinCommunityComment}
+            onToggleHideComment={onToggleHideCommunityComment}
+            onSendChatMessage={onSendChatMessage}
+            onReportChatMessage={onReportChatMessage}
+            onDeleteChatMessage={onDeleteChatMessage}
+            onUpdateChatCooldown={onUpdateChatCooldown}
+            onUpdateAutoClearMinutes={onUpdateAutoClearMinutes}
+            onClearPublicChatNow={onClearPublicChatNow}
+            onClearPrivateChatSession={onClearPrivateChatSession}
+            onApplyChatPenalty={onApplyChatPenalty}
+            onSendPrivateMessage={onSendPrivateMessage}
+            onMarkPrivateMessagesRead={onMarkPrivateMessagesRead}
+            onSetChatTypingStatus={onSetChatTypingStatus}
+            onRespondPrivateChatRequest={onRespondPrivateChatRequest}
+            onBlockUserInChat={onBlockUserInChat}
+            onUnblockUserInChat={onUnblockUserInChat}
+            onTogglePrivateMessageReaction={onTogglePrivateMessageReaction}
+            onReportPrivateChatMessage={onReportPrivateChatMessage}
+            onReportUserInPrivateChat={onReportUserInPrivateChat}
+            onDismissPrivateChatReport={onDismissPrivateChatReport}
+            onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
+            onDeletePrivateChatMessage={onDeletePrivateChatMessage}
+            onDeletePrivateConversation={onDeletePrivateConversation}
+            onTogglePinPrivateChatMessage={onTogglePinPrivateChatMessage}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // ================= 1. DIRECTORY (دليل المحلات) =================
   if (activeSection === 'directory') {
     return (
       <DirectoryStoresView
@@ -603,6 +1051,7 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         onDeleteStoreComment={onDeleteStoreComment}
         onToggleCommentLike={onToggleCommentLike}
         onAddCommentReply={onAddCommentReply}
+        onAddStoreCategory={onAddStoreCategory}
       />
     );
   }
@@ -658,6 +1107,35 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         userBlockedMap={state.userBlockedMap || {}}
         privateChatReports={state.privateChatReports || []}
         allowedPostTypes={['استفسار', 'اقتراح']}
+        externalJumpTarget={externalJumpTarget}
+        onSelectUserProfile={onSelectUserProfile}
+        onUpdateUserAccount={onUpdateUserAccount}
+        onSendFriendRequest={onSendFriendRequest}
+        onSharePostToBuySell={onSharePostToBuySell}
+        onUpdatePostPrivacy={
+          onUpdatePostPrivacy
+            ? (postId, privacy, allowedUsernames, customListId) =>
+                onUpdatePostPrivacy(
+                  'community',
+                  postId,
+                  privacy,
+                  allowedUsernames,
+                  customListId
+                )
+            : undefined
+        }
+        onTriggerMentionNotifications={
+          onTriggerMentionNotifications
+            ? (mentionedUsernames, postId, snippet, commentId) =>
+                onTriggerMentionNotifications(
+                  'community',
+                  mentionedUsernames,
+                  postId,
+                  snippet,
+                  commentId
+                )
+            : undefined
+        }
         onOpenAuthModal={onOpenAuthModal}
         onAddCommunityPost={onAddCommunityPost}
         onEditCommunityPost={onEditCommunityPost}
@@ -735,6 +1213,33 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         chatTypingMap={state.chatTypingMap || {}}
         userBlockedMap={state.userBlockedMap || {}}
         privateChatReports={state.privateChatReports || []}
+        externalJumpTarget={externalJumpTarget}
+        onSelectUserProfile={onSelectUserProfile}
+        onUpdateUserAccount={onUpdateUserAccount}
+        onUpdatePostPrivacy={
+          onUpdatePostPrivacy
+            ? (postId, privacy, allowedUsernames, customListId) =>
+                onUpdatePostPrivacy(
+                  'utilities',
+                  postId,
+                  privacy,
+                  allowedUsernames,
+                  customListId
+                )
+            : undefined
+        }
+        onTriggerMentionNotifications={
+          onTriggerMentionNotifications
+            ? (mentionedUsernames, postId, snippet, commentId) =>
+                onTriggerMentionNotifications(
+                  'utilities',
+                  mentionedUsernames,
+                  postId,
+                  snippet,
+                  commentId
+                )
+            : undefined
+        }
         onOpenAuthModal={onOpenAuthModal}
         onAddUtilityType={onAddUtilityType}
         onSaveUtilitySubmission={onSaveUtilitySubmission}
@@ -809,6 +1314,35 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
         externalOpenChatTarget={externalOpenChatTarget}
         externalOpenHistoryModalTick={externalOpenHistoryModalTick}
         externalLoginNotification={externalLoginNotification}
+        externalJumpTarget={externalJumpTarget}
+        onSelectUserProfile={onSelectUserProfile}
+        onUpdateUserAccount={onUpdateUserAccount}
+        onSendFriendRequest={onSendFriendRequest}
+        onSharePostToBuySell={onSharePostToBuySell}
+        onUpdatePostPrivacy={
+          onUpdatePostPrivacy
+            ? (postId, privacy, allowedUsernames, customListId) =>
+                onUpdatePostPrivacy(
+                  'buy_sell',
+                  postId,
+                  privacy,
+                  allowedUsernames,
+                  customListId
+                )
+            : undefined
+        }
+        onTriggerMentionNotifications={
+          onTriggerMentionNotifications
+            ? (mentionedUsernames, postId, snippet, commentId) =>
+                onTriggerMentionNotifications(
+                  'buy_sell',
+                  mentionedUsernames,
+                  postId,
+                  snippet,
+                  commentId
+                )
+            : undefined
+        }
         onOpenAuthModal={onOpenAuthModal}
         onAddCommunityPost={onAddBuySellPost}
         onEditCommunityPost={onEditBuySellPost}

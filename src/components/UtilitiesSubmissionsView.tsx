@@ -24,6 +24,7 @@ import {
   CommunityPostType,
   CommunityReportReason,
   LiveChatMessageItem,
+  PostPrivacyLevel,
   PrivateChatMessageItem,
   PrivateChatReportItem,
   PrivateChatStatus,
@@ -142,6 +143,25 @@ interface UtilitiesSubmissionsViewProps {
     targetUserId: string,
     targetUsername: string
   ) => void;
+  externalJumpTarget?: {
+    postId: string;
+    commentId?: string;
+    tick: number;
+  } | null;
+  onSelectUserProfile?: (username: string) => void;
+  onUpdateUserAccount?: (user: UserAccount) => void;
+  onUpdatePostPrivacy?: (
+    postId: string,
+    privacy: PostPrivacyLevel,
+    allowedUsernames?: string[],
+    customListId?: string
+  ) => void;
+  onTriggerMentionNotifications?: (
+    mentionedUsernames: string[],
+    postId: string,
+    snippet: string,
+    commentId?: string
+  ) => void;
 }
 
 function formatUtilityDateOnly(iso: string): string {
@@ -238,6 +258,11 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
   onRespondPrivateChatRequest,
   onBlockUserInChat,
   onDeleteUserAccountFromChat,
+  externalJumpTarget,
+  onSelectUserProfile,
+  onUpdateUserAccount,
+  onUpdatePostPrivacy,
+  onTriggerMentionNotifications,
 }) => {
   const isStrictAdmin = currentUser?.role === 'admin';
   const canManage =
@@ -947,6 +972,11 @@ export const UtilitiesSubmissionsView: React.FC<UtilitiesSubmissionsViewProps> =
         onRespondPrivateChatRequest={onRespondPrivateChatRequest}
         onBlockUserInChat={onBlockUserInChat}
         onDeleteUserAccountFromChat={onDeleteUserAccountFromChat}
+        externalJumpTarget={externalJumpTarget}
+        onSelectUserProfile={onSelectUserProfile}
+        onUpdateUserAccount={onUpdateUserAccount}
+        onUpdatePostPrivacy={onUpdatePostPrivacy}
+        onTriggerMentionNotifications={onTriggerMentionNotifications}
       />
     </div>
   );

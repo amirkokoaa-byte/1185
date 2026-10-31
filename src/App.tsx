@@ -17,7 +17,9 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 import {
+  AdminActivityLogItem,
   AdminMessage,
+  AuthSessionLogItem,
   ChatModerationPenalty,
   CommentEmojiReactionType,
   CommunityCommentItem,
@@ -28,9 +30,11 @@ import {
   CommunityReportReason,
   LiveChatMessageItem,
   MainSectionId,
+  MentionNotificationItem,
   PlatformDatabaseState,
   PlatformSettings,
   PopupAdConfig,
+  PostPrivacyLevel,
   PrivateChatMessageItem,
   PrivateChatReportItem,
   PrivateChatStatus,
@@ -66,6 +70,7 @@ import { AuthModal } from './components/AuthModal';
 import { FooterAndContactModal } from './components/FooterAndContactModal';
 import { PortalSectionsWorkspace } from './components/PortalSectionsWorkspace';
 import { CommunityHubView } from './components/CommunityHubView';
+import { FacebookBottomNavBar } from './components/SocialBottomBarAndProfile';
 
 export default function App() {
   // Activate Windows 10 Fluent Reveal Highlight & Glowing Borders on Mouse Hover & Mobile Touch
@@ -91,7 +96,9 @@ export default function App() {
         urlSection === 'community' ||
         urlSection === 'utilities' ||
         urlSection === 'buy_sell' ||
-        urlSection === 'settings'
+        urlSection === 'settings' ||
+        urlSection === 'home_feed' ||
+        urlSection === 'profile'
       ) {
         return urlSection;
       }
@@ -106,7 +113,9 @@ export default function App() {
         saved === 'community' ||
         saved === 'utilities' ||
         saved === 'buy_sell' ||
-        saved === 'settings'
+        saved === 'settings' ||
+        saved === 'home_feed' ||
+        saved === 'profile'
       ) {
         return saved;
       }
@@ -117,6 +126,14 @@ export default function App() {
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [viewedProfileUsername, setViewedProfileUsername] = useState<
+    string | null
+  >(null);
+  const [externalJumpTarget, setExternalJumpTarget] = useState<{
+    postId: string;
+    commentId?: string;
+    tick: number;
+  } | null>(null);
 
   // External triggers for Global Private Chat (from Settings -> عدد المتصلين الآن and Login External Notification)
   const [externalOpenChatTarget, setExternalOpenChatTarget] = useState<{
@@ -155,9 +172,21 @@ export default function App() {
   const [onlineStats, setOnlineStats] = useState<RealOnlinePresenceStats>(() =>
     syncRealOnlinePresence(currentUser)
   );
+  // 5-second tick so customOnlineCount fluctuates every 5 seconds (-5, +20, -50, +20, etc.) and never drops below 200
+  const [onlineFluctuationTick, setOnlineFluctuationTick] = useState<number>(() =>
+    Date.now()
+  );
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setOnlineFluctuationTick(Date.now());
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
   const effectiveOnlineCount = getEffectiveOnlineDisplayCount(
     onlineStats.totalOnline,
-    dbState.settings.customOnlineCount
+    dbState.settings.customOnlineCount,
+    onlineFluctuationTick
   );
 
   useEffect(() => {
@@ -334,9 +363,136 @@ export default function App() {
     }, 5000);
   };
 
+  const appendAdminActivityLogToSettings = (
+    settings: PlatformSettings,
+    actionType: string,
+    targetName: string
+  ): PlatformSettings => {
+    if (
+      !currentUser ||
+      (currentUser.role !== 'admin' && currentUser.role !== 'moderator')
+    ) {
+      return settings;
+    }
+    const newEntry: AdminActivityLogItem = {
+      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      actorUsername: currentUser.username,
+      actorRole: currentUser.role,
+      actionType,
+      targetName,
+      description: `${actionType}: ${targetName}`,
+      createdAt: new Date().toISOString(),
+    };
+    return {
+      ...settings,
+      adminActivityLogs: [
+        newEntry,
+        ...(settings.adminActivityLogs || []),
+      ].slice(0, 200),
+      updatedAt: Date.now(),
+    };
+  };
+
+  const appendAuthSessionAndVisitToSettings = (
+    settings: PlatformSettings,
+    user: UserAccount,
+    eventType: 'login' | 'logout'
+  ): PlatformSettings => {
+    const nowIso = new Date().toISOString();
+    const todayKey = nowIso.slice(0, 10);
+    const sessionItem: AuthSessionLogItem = {
+      id: `auth-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      eventType,
+      createdAt: nowIso,
+    };
+    const nextAuthLogs = [
+      sessionItem,
+      ...(settings.authSessionLogs || []),
+    ].slice(0, 200);
+
+    const nextVisitsMap = { ...(settings.userDailyVisitsMap || {}) };
+    if (eventType === 'login') {
+      const normKey = user.username.trim().toLowerCase();
+      const existing = nextVisitsMap[user.id] || nextVisitsMap[normKey];
+      const nextDaily =
+        existing && existing.dateKey === todayKey
+          ? (existing.dailyCount || 0) + 1
+          : 1;
+      const nextTotal = (existing?.totalCount || 0) + 1;
+      const visitRecord = {
+        userId: user.id,
+        username: user.username,
+        dateKey: todayKey,
+        dailyCount: nextDaily,
+        totalCount: nextTotal,
+        lastVisitAt: nowIso,
+      };
+      nextVisitsMap[user.id] = visitRecord;
+      nextVisitsMap[normKey] = visitRecord;
+    }
+
+    return {
+      ...settings,
+      authSessionLogs: nextAuthLogs,
+      userDailyVisitsMap: nextVisitsMap,
+      updatedAt: Date.now(),
+    };
+  };
+
+  // Count daily visit once per browser session for an already logged-in user
+  useEffect(() => {
+    if (!currentUser) return;
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const sessionFlagKey = `nakhil_daily_visit_${currentUser.id}_${todayKey}`;
+    try {
+      if (sessionStorage.getItem(sessionFlagKey)) return;
+      sessionStorage.setItem(sessionFlagKey, '1');
+    } catch {
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    const normKey = currentUser.username.trim().toLowerCase();
+    updateAndPersist((prev) => {
+      const nextVisitsMap = { ...(prev.settings.userDailyVisitsMap || {}) };
+      const existing = nextVisitsMap[currentUser.id] || nextVisitsMap[normKey];
+      const nextDaily =
+        existing && existing.dateKey === todayKey
+          ? (existing.dailyCount || 0) + 1
+          : 1;
+      const nextTotal = (existing?.totalCount || 0) + 1;
+      const visitRecord = {
+        userId: currentUser.id,
+        username: currentUser.username,
+        dateKey: todayKey,
+        dailyCount: nextDaily,
+        totalCount: nextTotal,
+        lastVisitAt: nowIso,
+      };
+      nextVisitsMap[currentUser.id] = visitRecord;
+      nextVisitsMap[normKey] = visitRecord;
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          userDailyVisitsMap: nextVisitsMap,
+          updatedAt: Date.now(),
+        },
+      };
+    });
+  }, [currentUser?.id]);
+
   // --- Authentication Handlers (with Instant Browser Cache & Instant Online Presence Broadcast on Login/Logout) ---
   const handleAuthenticate = (user: UserAccount, rememberMe: boolean) => {
     const onlineUser: UserAccount = { ...user, isOnline: true };
+    const todayKey = new Date().toISOString().slice(0, 10);
+    try {
+      sessionStorage.setItem(`nakhil_daily_visit_${onlineUser.id}_${todayKey}`, '1');
+    } catch {
+      // ignore
+    }
     setDbState((prev) => {
       const exists = prev.users.some((u) => u.id === onlineUser.id);
       const nextUsers = exists
@@ -347,6 +503,11 @@ export default function App() {
       const next: PlatformDatabaseState = {
         ...prev,
         users: nextUsers,
+        settings: appendAuthSessionAndVisitToSettings(
+          prev.settings,
+          onlineUser,
+          'login'
+        ),
       };
       storageEngine.persistState(next, onlineUser.id);
       storageEngine.saveAuthenticatedUser(onlineUser, rememberMe, next);
@@ -359,10 +520,21 @@ export default function App() {
 
   const handleRegisterNewUser = (newUser: UserAccount, rememberMe: boolean) => {
     const onlineNewUser: UserAccount = { ...newUser, isOnline: true };
+    const todayKey = new Date().toISOString().slice(0, 10);
+    try {
+      sessionStorage.setItem(`nakhil_daily_visit_${onlineNewUser.id}_${todayKey}`, '1');
+    } catch {
+      // ignore
+    }
     setDbState((prev) => {
       const next: PlatformDatabaseState = {
         ...prev,
         users: [...prev.users, onlineNewUser],
+        settings: appendAuthSessionAndVisitToSettings(
+          prev.settings,
+          onlineNewUser,
+          'login'
+        ),
       };
       storageEngine.persistState(next, onlineNewUser.id);
       storageEngine.saveAuthenticatedUser(onlineNewUser, rememberMe, next);
@@ -383,6 +555,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    const loggingOutUser = currentUser;
     const loggingOutUserId = currentUser?.id;
     setCurrentUser(null);
     storageEngine.saveAuthenticatedUser(null, false);
@@ -394,6 +567,13 @@ export default function App() {
             u.id === loggingOutUserId ? { ...u, isOnline: false } : u
           )
         : prev.users,
+      settings: loggingOutUser
+        ? appendAuthSessionAndVisitToSettings(
+            prev.settings,
+            loggingOutUser,
+            'logout'
+          )
+        : prev.settings,
     }));
     setOnlineStats(syncRealOnlinePresence(null, false));
     if (activeSection === 'settings') {
@@ -667,6 +847,11 @@ export default function App() {
         stores: prev.stores.map((s) =>
           s.id === stampedStore.id ? stampedStore : s
         ),
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          'تعديل محل',
+          stampedStore.name
+        ),
       }));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء تعديل المحل';
@@ -772,6 +957,7 @@ export default function App() {
                 ...a,
                 storeId: a.storeId || targetStore.id,
                 viewsCount: nextViews,
+                adViewsSinceCreation: (a.adViewsSinceCreation || 0) + 1,
                 callClicksCount: baseCalls,
                 whatsappClicksCount: baseWhatsapp,
                 viewsByHour: nextHours,
@@ -785,6 +971,7 @@ export default function App() {
                 ...b,
                 storeId: b.storeId || targetStore.id,
                 viewsCount: nextViews,
+                adViewsSinceCreation: (b.adViewsSinceCreation || 0) + 1,
                 callClicksCount: baseCalls,
                 whatsappClicksCount: baseWhatsapp,
                 viewsByHour: nextHours,
@@ -797,6 +984,7 @@ export default function App() {
               ...prev.popupAd,
               storeId: prev.popupAd.storeId || targetStore.id,
               viewsCount: nextViews,
+              adViewsSinceCreation: (prev.popupAd.adViewsSinceCreation || 0) + 1,
               callClicksCount: baseCalls,
               whatsappClicksCount: baseWhatsapp,
               viewsByHour: nextHours,
@@ -834,13 +1022,21 @@ export default function App() {
     // التشديد على عدم حذف أي محل من أي قسم إلا في حالة Admin فقط
     if (currentUser?.role !== 'admin') return;
     if (isPermanentDreamPlazaStore(id)) return;
-    updateAndPersist((prev) => ({
-      ...prev,
-      stores: prev.stores.filter((s) => s.id !== id || isPermanentDreamPlazaStore(s.id)),
-      deletedRecordIds: Array.from(
-        new Set([...(prev.deletedRecordIds || []), id])
-      ),
-    }));
+    updateAndPersist((prev) => {
+      const targetStore = prev.stores.find((s) => s.id === id);
+      return {
+        ...prev,
+        stores: prev.stores.filter((s) => s.id !== id || isPermanentDreamPlazaStore(s.id)),
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), id])
+        ),
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          'حذف محل',
+          targetStore?.name || id
+        ),
+      };
+    });
   };
 
   const handleToggleStoreLike = (storeId: string) => {
@@ -1030,18 +1226,31 @@ export default function App() {
       serviceNumbers: prev.serviceNumbers.map((n) =>
         n.id === stampedEntry.id ? stampedEntry : n
       ),
+      settings: appendAdminActivityLogToSettings(
+        prev.settings,
+        'تعديل خدمة',
+        stampedEntry.title
+      ),
     }));
   };
 
   const handleDeleteServiceNumber = (id: string) => {
     if (currentUser?.role === 'moderator') return;
-    updateAndPersist((prev) => ({
-      ...prev,
-      serviceNumbers: prev.serviceNumbers.filter((n) => n.id !== id),
-      deletedRecordIds: Array.from(
-        new Set([...(prev.deletedRecordIds || []), id])
-      ),
-    }));
+    updateAndPersist((prev) => {
+      const targetSrv = prev.serviceNumbers.find((n) => n.id === id);
+      return {
+        ...prev,
+        serviceNumbers: prev.serviceNumbers.filter((n) => n.id !== id),
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), id])
+        ),
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          'حذف خدمة',
+          targetSrv?.title || id
+        ),
+      };
+    });
   };
 
   const handleAddTawsila = (ride: TawsilaRideItem) => {
@@ -1119,12 +1328,23 @@ export default function App() {
               target.authorUsername.trim().toLowerCase() ===
                 currentUser.username.trim().toLowerCase())
         );
-      if (currentUser?.role !== 'admin' && !isOwner) return prev;
+      if (
+        currentUser?.role !== 'admin' &&
+        currentUser?.role !== 'moderator' &&
+        !isOwner
+      ) {
+        return prev;
+      }
       return {
         ...prev,
         communityPosts: prev.communityPosts.filter((p) => p.id !== postId),
         deletedRecordIds: Array.from(
           new Set([...(prev.deletedRecordIds || []), postId])
+        ),
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          'حذف منشور (مجتمع)',
+          target.authorUsername
         ),
       };
     });
@@ -1138,6 +1358,444 @@ export default function App() {
         p.id === postId ? { ...p, isPinned: !p.isPinned } : p
       ),
     }));
+  };
+
+  const handleBulkDeleteCommunityPosts = (postIds: string[]) => {
+    const idSet = new Set(postIds);
+    if (idSet.size === 0) return;
+    updateAndPersist((prev) => ({
+      ...prev,
+      communityPosts: prev.communityPosts.filter((p) => !idSet.has(p.id)),
+      deletedRecordIds: Array.from(
+        new Set([...(prev.deletedRecordIds || []), ...postIds])
+      ),
+    }));
+  };
+
+  const handleUpdatePostPrivacy = (
+    section: 'community' | 'buy_sell' | 'utilities',
+    postId: string,
+    privacy: PostPrivacyLevel,
+    allowedUsernames?: string[],
+    customListId?: string
+  ) => {
+    updateAndPersist((prev) => {
+      const updateList = (list: CommunityPostItem[]) =>
+        list.map((p) =>
+          p.id === postId
+            ? {
+                ...p,
+                privacy,
+                allowedUsernames:
+                  privacy === 'custom_list' ? allowedUsernames || [] : undefined,
+                customListId:
+                  privacy === 'custom_list' ? customListId : undefined,
+              }
+            : p
+        );
+      if (section === 'buy_sell') {
+        return {
+          ...prev,
+          buySellPosts: updateList(prev.buySellPosts || []),
+        };
+      }
+      if (section === 'utilities') {
+        return {
+          ...prev,
+          utilityPosts: updateList(prev.utilityPosts || []),
+        };
+      }
+      return {
+        ...prev,
+        communityPosts: updateList(prev.communityPosts || []),
+      };
+    });
+  };
+
+  const handleUpdateMultiplePostsPrivacy = (
+    postIds: string[],
+    privacy: PostPrivacyLevel
+  ) => {
+    const idSet = new Set(postIds);
+    if (idSet.size === 0) return;
+    const nowTs = Date.now();
+    updateAndPersist((prev) => ({
+      ...prev,
+      communityPosts: (prev.communityPosts || []).map((p) =>
+        idSet.has(p.id) ? { ...p, privacy, updatedAt: nowTs } : p
+      ),
+    }));
+  };
+
+  const handleSharePostToBuySell = (sourcePost: CommunityPostItem) => {
+    const nowTs = Date.now();
+    const sharedPost: CommunityPostItem = {
+      ...sourcePost,
+      id: `bs-share-${nowTs}-${Math.random().toString(36).slice(2, 6)}`,
+      authorId: currentUser?.id || visitorId,
+      authorUsername: currentUser?.username || sourcePost.authorUsername,
+      postType: 'بائع',
+      postSource: 'buy_sell',
+      privacy: 'public',
+      status: currentUser?.role === 'admin' ? 'approved' : 'pending',
+      likes: [],
+      dislikes: [],
+      reports: [],
+      comments: [],
+      isPinned: false,
+      isSold: false,
+      createdAt: new Date(nowTs).toLocaleString('ar-EG'),
+      updatedAt: nowTs,
+    };
+    updateAndPersist((prev) => ({
+      ...prev,
+      buySellPosts: [sharedPost, ...(prev.buySellPosts || [])],
+    }));
+  };
+
+  // --- Friend Requests, Unfriend & Follow Handlers ---
+  const handleSendFriendRequest = (targetUsername: string) => {
+    if (!currentUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    const cleanTarget = targetUsername.trim();
+    if (
+      !cleanTarget ||
+      cleanTarget.toLowerCase() === currentUser.username.trim().toLowerCase()
+    ) {
+      return;
+    }
+    const nowTs = Date.now();
+    updateAndPersist((prev) => {
+      const targetUser = prev.users.find(
+        (u) => u.username.trim().toLowerCase() === cleanTarget.toLowerCase()
+      );
+      if (targetUser?.profile?.disableFriendRequests) {
+        return prev;
+      }
+      const existingReqs = prev.settings.friendRequests || [];
+      const alreadyPending = existingReqs.some(
+        (r) =>
+          r.status === 'pending' &&
+          r.fromUsername.trim().toLowerCase() ===
+            currentUser.username.trim().toLowerCase() &&
+          r.toUsername.trim().toLowerCase() === cleanTarget.toLowerCase()
+      );
+      if (alreadyPending) return prev;
+
+      const newReq = {
+        id: `freq-${nowTs}-${Math.random().toString(36).slice(2, 6)}`,
+        fromUserId: currentUser.id,
+        fromUsername: currentUser.username,
+        toUsername: targetUser?.username || cleanTarget,
+        status: 'pending' as const,
+        createdAt: new Date(nowTs).toISOString(),
+        updatedAt: nowTs,
+      };
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          friendRequests: [newReq, ...existingReqs],
+          updatedAt: nowTs,
+        },
+      };
+    });
+  };
+
+  const handleCancelFriendRequest = (targetUsername: string) => {
+    if (!currentUser) return;
+    const cleanTarget = targetUsername.trim().toLowerCase();
+    const myNorm = currentUser.username.trim().toLowerCase();
+    const nowTs = Date.now();
+    updateAndPersist((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        friendRequests: (prev.settings.friendRequests || []).filter(
+          (r) =>
+            !(
+              r.status === 'pending' &&
+              r.fromUsername.trim().toLowerCase() === myNorm &&
+              r.toUsername.trim().toLowerCase() === cleanTarget
+            )
+        ),
+        updatedAt: nowTs,
+      },
+    }));
+  };
+
+  const handleRespondFriendRequest = (
+    requestId: string,
+    decision: 'accepted' | 'rejected'
+  ) => {
+    const nowTs = Date.now();
+    let updatedCurrentUserSnapshot: UserAccount | null = null;
+
+    updateAndPersist((prev) => {
+      const req = (prev.settings.friendRequests || []).find(
+        (r) => r.id === requestId
+      );
+      if (!req) return prev;
+
+      const fromNorm = req.fromUsername.trim().toLowerCase();
+      const toNorm = req.toUsername.trim().toLowerCase();
+
+      const nextUsers =
+        decision === 'accepted'
+          ? prev.users.map((u) => {
+              const uNorm = u.username.trim().toLowerCase();
+              if (uNorm === fromNorm) {
+                const nextFriends = Array.from(
+                  new Set([
+                    ...(u.profile?.friendUsernames || []),
+                    req.toUsername,
+                  ])
+                );
+                const nextFollowing = Array.from(
+                  new Set([
+                    ...(u.profile?.followingUsernames || []),
+                    req.toUsername,
+                  ])
+                );
+                const updated: UserAccount = {
+                  ...u,
+                  profile: {
+                    ...(u.profile || {}),
+                    friendUsernames: nextFriends,
+                    followingUsernames: nextFollowing,
+                  },
+                  updatedAt: nowTs,
+                };
+                if (currentUser && u.id === currentUser.id) {
+                  updatedCurrentUserSnapshot = updated;
+                }
+                return updated;
+              }
+              if (uNorm === toNorm) {
+                const nextFriends = Array.from(
+                  new Set([
+                    ...(u.profile?.friendUsernames || []),
+                    req.fromUsername,
+                  ])
+                );
+                const nextFollowing = Array.from(
+                  new Set([
+                    ...(u.profile?.followingUsernames || []),
+                    req.fromUsername,
+                  ])
+                );
+                const updated: UserAccount = {
+                  ...u,
+                  profile: {
+                    ...(u.profile || {}),
+                    friendUsernames: nextFriends,
+                    followingUsernames: nextFollowing,
+                  },
+                  updatedAt: nowTs,
+                };
+                if (currentUser && u.id === currentUser.id) {
+                  updatedCurrentUserSnapshot = updated;
+                }
+                return updated;
+              }
+              return u;
+            })
+          : prev.users;
+
+      return {
+        ...prev,
+        users: nextUsers,
+        settings: {
+          ...prev.settings,
+          friendRequests: (prev.settings.friendRequests || []).map((r) =>
+            r.id === requestId
+              ? { ...r, status: decision, updatedAt: nowTs }
+              : r
+          ),
+          updatedAt: nowTs,
+        },
+      };
+    });
+
+    if (updatedCurrentUserSnapshot) {
+      setCurrentUser(updatedCurrentUserSnapshot);
+    }
+  };
+
+  const handleUnfriendUser = (targetUsername: string) => {
+    if (!currentUser) return;
+    const myNorm = currentUser.username.trim().toLowerCase();
+    const targetNorm = targetUsername.trim().toLowerCase();
+    const nowTs = Date.now();
+    let updatedCurrentUserSnapshot: UserAccount | null = null;
+
+    updateAndPersist((prev) => {
+      const nextUsers = prev.users.map((u) => {
+        const uNorm = u.username.trim().toLowerCase();
+        if (uNorm === myNorm) {
+          const updated: UserAccount = {
+            ...u,
+            profile: {
+              ...(u.profile || {}),
+              friendUsernames: (u.profile?.friendUsernames || []).filter(
+                (f) => f.trim().toLowerCase() !== targetNorm
+              ),
+              followingUsernames: (u.profile?.followingUsernames || []).filter(
+                (f) => f.trim().toLowerCase() !== targetNorm
+              ),
+            },
+            updatedAt: nowTs,
+          };
+          updatedCurrentUserSnapshot = updated;
+          return updated;
+        }
+        if (uNorm === targetNorm) {
+          return {
+            ...u,
+            profile: {
+              ...(u.profile || {}),
+              friendUsernames: (u.profile?.friendUsernames || []).filter(
+                (f) => f.trim().toLowerCase() !== myNorm
+              ),
+              followingUsernames: (u.profile?.followingUsernames || []).filter(
+                (f) => f.trim().toLowerCase() !== myNorm
+              ),
+            },
+            updatedAt: nowTs,
+          };
+        }
+        return u;
+      });
+      return {
+        ...prev,
+        users: nextUsers,
+        settings: {
+          ...prev.settings,
+          friendRequests: (prev.settings.friendRequests || []).filter(
+            (r) =>
+              !(
+                (r.fromUsername.trim().toLowerCase() === myNorm &&
+                  r.toUsername.trim().toLowerCase() === targetNorm) ||
+                (r.fromUsername.trim().toLowerCase() === targetNorm &&
+                  r.toUsername.trim().toLowerCase() === myNorm)
+              )
+          ),
+          updatedAt: nowTs,
+        },
+      };
+    });
+
+    if (updatedCurrentUserSnapshot) {
+      setCurrentUser(updatedCurrentUserSnapshot);
+    }
+  };
+
+  const handleToggleFollowUser = (targetUsername: string) => {
+    if (!currentUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    const myUsername = currentUser.username.trim();
+    const myNorm = myUsername.toLowerCase();
+    const targetNorm = targetUsername.trim().toLowerCase();
+    if (!targetNorm || myNorm === targetNorm) return;
+    const nowTs = Date.now();
+
+    updateAndPersist((prev) => ({
+      ...prev,
+      users: prev.users.map((u) => {
+        if (u.username.trim().toLowerCase() !== targetNorm) return u;
+        const currentFollowers = u.profile?.followersUsernames || [];
+        const isAlreadyFollowing = currentFollowers.some(
+          (f) => f.trim().toLowerCase() === myNorm
+        );
+        const nextFollowers = isAlreadyFollowing
+          ? currentFollowers.filter((f) => f.trim().toLowerCase() !== myNorm)
+          : [...currentFollowers, myUsername];
+        return {
+          ...u,
+          profile: {
+            ...(u.profile || {}),
+            followersUsernames: nextFollowers,
+          },
+          updatedAt: nowTs,
+        };
+      }),
+    }));
+  };
+
+  const handleTriggerMentionNotifications = (
+    section: MainSectionId,
+    mentionedUsernames: string[],
+    postId: string,
+    snippet: string,
+    commentId?: string
+  ) => {
+    if (!mentionedUsernames || mentionedUsernames.length === 0) return;
+    const senderUsername = currentUser?.username || 'مستخدم';
+    const nowTs = Date.now();
+    const newNotifications: MentionNotificationItem[] = mentionedUsernames
+      .map((u) => u.trim())
+      .filter(
+        (u) =>
+          u.length > 0 &&
+          u.toLowerCase() !== senderUsername.trim().toLowerCase()
+      )
+      .map((targetUname, idx) => ({
+        id: `mention-${nowTs}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        targetUsername: targetUname,
+        actorUsername: senderUsername,
+        actorUserId: currentUser?.id,
+        section,
+        postId,
+        commentId,
+        snippet: snippet.slice(0, 140),
+        createdAt: new Date(nowTs).toLocaleString('ar-EG'),
+        isRead: false,
+      }));
+    if (newNotifications.length === 0) return;
+
+    updateAndPersist((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        mentionNotifications: [
+          ...newNotifications,
+          ...(prev.settings.mentionNotifications || []),
+        ].slice(0, 300),
+        updatedAt: nowTs,
+      },
+    }));
+  };
+
+  const handleNavigateToMention = (notif: MentionNotificationItem) => {
+    updateAndPersist((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        mentionNotifications: (prev.settings.mentionNotifications || []).map(
+          (n) => (n.id === notif.id ? { ...n, isRead: true } : n)
+        ),
+        updatedAt: Date.now(),
+      },
+    }));
+    if (notif.section === 'profile') {
+      setViewedProfileUsername(notif.actorUsername);
+    }
+    setActiveSection(notif.section);
+    setExternalJumpTarget({
+      postId: notif.postId,
+      commentId: notif.commentId,
+      tick: Date.now(),
+    });
+  };
+
+  const handleSelectUserProfile = (username: string) => {
+    setViewedProfileUsername(username);
+    setActiveSection('profile');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleToggleCommunityPostSold = (postId: string) => {
@@ -1707,6 +2365,9 @@ export default function App() {
       const filtered = (prev.liveChatMessages || []).filter(
         (m) => m.id !== msgId
       );
+      const nextDeletedIds = Array.from(
+        new Set([...(prev.deletedRecordIds || []), msgId])
+      );
       if (notifyUsername) {
         const sysMsg: LiveChatMessageItem = {
           id: `chat-sys-${Date.now()}`,
@@ -1722,11 +2383,13 @@ export default function App() {
         return {
           ...prev,
           liveChatMessages: [...filtered.slice(-49), sysMsg],
+          deletedRecordIds: nextDeletedIds,
         };
       }
       return {
         ...prev,
         liveChatMessages: filtered.slice(-50),
+        deletedRecordIds: nextDeletedIds,
       };
     });
   };
@@ -1753,14 +2416,20 @@ export default function App() {
   };
 
   const handleClearPublicChatNow = () => {
-    updateAndPersist((prev) => ({
-      ...prev,
-      liveChatMessages: [],
-      settings: {
-        ...prev.settings,
-        liveChatLastClearedAt: new Date().toISOString(),
-      },
-    }));
+    updateAndPersistChatFast((prev) => {
+      const clearedIds = (prev.liveChatMessages || []).map((m) => m.id);
+      return {
+        ...prev,
+        liveChatMessages: [],
+        deletedRecordIds: Array.from(
+          new Set([...(prev.deletedRecordIds || []), ...clearedIds])
+        ),
+        settings: {
+          ...prev.settings,
+          liveChatLastClearedAt: new Date().toISOString(),
+        },
+      };
+    });
   };
 
   const handleClearPrivateChatSession = (keepOnlyPartnerUsername?: string) => {
@@ -1961,23 +2630,75 @@ export default function App() {
         ...(prev.privateChatStatuses || {}),
       };
 
+      // Check all possible key combinations between sender and receiver
+      const senderCandidates = Array.from(
+        new Set(
+          [
+            senderKeyId,
+            currentUser?.id || '',
+            senderName.trim(),
+            senderKeyName,
+            (currentUser?.accountName || '').trim().toLowerCase(),
+          ].filter(Boolean)
+        )
+      );
+      const receiverCandidates = Array.from(
+        new Set(
+          [receiverKeyId, receiverUsername.trim(), receiverKeyName].filter(Boolean)
+        )
+      );
+
       // If the current sender had previously rejected receiver ("لا"), and now sender initiates a message to receiver, re-open chat!
-      const myRejectKey1 = `${senderKeyId}__${receiverKeyId}`;
-      const myRejectKey2 = `${senderKeyName}__${receiverKeyName}`;
-      if (
-        nextStatuses[myRejectKey1] === 'rejected' ||
-        nextStatuses[myRejectKey2] === 'rejected'
-      ) {
-        nextStatuses[myRejectKey1] = 'accepted';
-        nextStatuses[myRejectKey2] = 'accepted';
+      senderCandidates.forEach((sk) => {
+        receiverCandidates.forEach((rk) => {
+          const k = `${sk}__${rk}`;
+          if (nextStatuses[k] === 'rejected') {
+            nextStatuses[k] = 'accepted';
+          }
+        });
+      });
+
+      // Check if receiver has already accepted or rejected sender under ANY key combination
+      let existingRecStatus: PrivateChatStatus | undefined;
+      for (const rk of receiverCandidates) {
+        for (const sk of senderCandidates) {
+          const st = nextStatuses[`${rk}__${sk}`];
+          if (st === 'accepted') {
+            existingRecStatus = 'accepted';
+            break;
+          }
+          if (st === 'rejected' && !existingRecStatus) {
+            existingRecStatus = 'rejected';
+          }
+          if (st === 'pending' && !existingRecStatus) {
+            existingRecStatus = 'pending';
+          }
+        }
+        if (existingRecStatus === 'accepted') break;
       }
 
-      // If receiver hasn't responded to sender yet, mark request as 'pending'
+      // Also check if sender had already accepted receiver (mutual conversation already active)
+      if (!existingRecStatus) {
+        for (const sk of senderCandidates) {
+          for (const rk of receiverCandidates) {
+            if (nextStatuses[`${sk}__${rk}`] === 'accepted') {
+              existingRecStatus = 'accepted';
+              break;
+            }
+          }
+          if (existingRecStatus === 'accepted') break;
+        }
+      }
+
+      // Only mark as 'pending' if receiver hasn't accepted or responded yet
       const recKey1 = `${receiverKeyId}__${senderKeyId}`;
       const recKey2 = `${receiverKeyName}__${senderKeyName}`;
-      if (!nextStatuses[recKey1] && !nextStatuses[recKey2]) {
+      if (!existingRecStatus) {
         nextStatuses[recKey1] = 'pending';
         nextStatuses[recKey2] = 'pending';
+      } else if (existingRecStatus === 'accepted') {
+        nextStatuses[recKey1] = 'accepted';
+        nextStatuses[recKey2] = 'accepted';
       }
 
       const nextTyping = { ...(prev.chatTypingMap || {}) };
@@ -2214,17 +2935,43 @@ export default function App() {
 
   const handleRespondPrivateChatRequest = (
     partnerKey: string,
-    status: PrivateChatStatus
+    status: PrivateChatStatus,
+    partnerUserId?: string
   ) => {
-    const myNameKey = (currentUser?.username || 'زائر').trim().toLowerCase();
-    updateAndPersistChatFast((prev) => ({
-      ...prev,
-      privateChatStatuses: {
+    const myName = (currentUser?.username || 'زائر').trim();
+    const myNameKey = myName.toLowerCase();
+    const myAccountKey = (currentUser?.accountName || '').trim().toLowerCase();
+    const cleanPartner = partnerKey.trim();
+    const partnerNorm = cleanPartner.toLowerCase();
+
+    const myKeys = Array.from(
+      new Set(
+        [visitorId, currentUser?.id || '', myName, myNameKey, myAccountKey].filter(
+          Boolean
+        )
+      )
+    );
+    const partnerKeys = Array.from(
+      new Set([cleanPartner, partnerNorm, partnerUserId || ''].filter(Boolean))
+    );
+
+    updateAndPersistChatFast((prev) => {
+      const nextStatuses: Record<string, PrivateChatStatus> = {
         ...(prev.privateChatStatuses || {}),
-        [`${visitorId}__${partnerKey}`]: status,
-        [`${myNameKey}__${partnerKey.trim().toLowerCase()}`]: status,
-      },
-    }));
+      };
+      myKeys.forEach((mk) => {
+        partnerKeys.forEach((pk) => {
+          nextStatuses[`${mk}__${pk}`] = status;
+          if (status === 'accepted') {
+            nextStatuses[`${pk}__${mk}`] = 'accepted';
+          }
+        });
+      });
+      return {
+        ...prev,
+        privateChatStatuses: nextStatuses,
+      };
+    });
   };
 
   const handleBlockUserInChat = (
@@ -2394,11 +3141,33 @@ export default function App() {
               targetUsername.trim().toLowerCase()
         ),
         liveChatMessages: [...(prev.liveChatMessages || []).slice(-49), sysMsg],
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          'حذف حساب',
+          targetUsername
+        ),
       };
     });
   };
 
   // --- Utilities Submissions ("تقديمات المرافق") & Utility Posts Handlers ---
+  const handleAddStoreCategory = (newCategoryName: string) => {
+    const clean = newCategoryName.trim();
+    if (!clean) return;
+    updateAndPersist((prev) => {
+      const currentCats = prev.settings.storeCategories || [];
+      if (currentCats.some((c) => c.trim() === clean)) return prev;
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          storeCategories: [...currentCats, clean],
+          updatedAt: Date.now(),
+        },
+      };
+    });
+  };
+
   const handleAddUtilityType = (newTypeName: string) => {
     const clean = newTypeName.trim();
     if (!clean) return;
@@ -2501,12 +3270,23 @@ export default function App() {
               target.authorUsername.trim().toLowerCase() ===
                 currentUser.username.trim().toLowerCase())
         );
-      if (currentUser?.role !== 'admin' && !isOwner) return prev;
+      if (
+        currentUser?.role !== 'admin' &&
+        currentUser?.role !== 'moderator' &&
+        !isOwner
+      ) {
+        return prev;
+      }
       return {
         ...prev,
         utilityPosts: (prev.utilityPosts || []).filter((p) => p.id !== postId),
         deletedRecordIds: Array.from(
           new Set([...(prev.deletedRecordIds || []), postId])
+        ),
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          'حذف منشور (مرافق)',
+          target.authorUsername
         ),
       };
     });
@@ -3049,12 +3829,23 @@ export default function App() {
               target.authorUsername.trim().toLowerCase() ===
                 currentUser.username.trim().toLowerCase())
         );
-      if (currentUser?.role !== 'admin' && !isOwner) return prev;
+      if (
+        currentUser?.role !== 'admin' &&
+        currentUser?.role !== 'moderator' &&
+        !isOwner
+      ) {
+        return prev;
+      }
       return {
         ...prev,
         buySellPosts: (prev.buySellPosts || []).filter((p) => p.id !== postId),
         deletedRecordIds: Array.from(
           new Set([...(prev.deletedRecordIds || []), postId])
+        ),
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          'حذف منشور (بيع واشتري)',
+          target.authorUsername
         ),
       };
     });
@@ -3558,16 +4349,84 @@ export default function App() {
   };
 
   const handleUpdateUserAccount = (updatedUser: UserAccount) => {
-    updateAndPersist((prev) => ({
-      ...prev,
-      users: prev.users.map((u) => (u.id === updatedUser.id ? updatedUser : u)),
-    }));
-    if (currentUser?.id === updatedUser.id) {
-      if (updatedUser.isBanned) {
+    const nowTs = Date.now();
+    const stampedUser: UserAccount = {
+      ...updatedUser,
+      updatedAt: updatedUser.updatedAt || nowTs,
+    };
+    updateAndPersist((prev) => {
+      const prevUser = prev.users.find((u) => u.id === stampedUser.id);
+      const oldUsernameNorm = prevUser
+        ? prevUser.username.trim().toLowerCase()
+        : '';
+      const newUsername = stampedUser.username.trim();
+      const usernameChanged =
+        Boolean(prevUser) &&
+        oldUsernameNorm !== newUsername.toLowerCase() &&
+        newUsername.length > 0;
+
+      let actionLabel = 'تعديل حساب';
+      if (prevUser && Boolean(prevUser.isBanned) !== Boolean(stampedUser.isBanned)) {
+        actionLabel = stampedUser.isBanned ? 'تعليق حساب' : 'إلغاء تعليق حساب';
+      } else if (prevUser && prevUser.role !== stampedUser.role) {
+        actionLabel =
+          stampedUser.role === 'moderator'
+            ? 'منح صلاحيات مشرف'
+            : 'إلغاء صلاحيات مشرف';
+      }
+
+      const renameAuthorInPosts = (posts: CommunityPostItem[]) =>
+        usernameChanged
+          ? posts.map((p) => {
+              const isAuthor =
+                p.authorId === stampedUser.id ||
+                p.authorUsername.trim().toLowerCase() === oldUsernameNorm;
+              const nextComments = (p.comments || []).map((c) => ({
+                ...c,
+                authorUsername:
+                  c.authorId === stampedUser.id ||
+                  c.authorUsername.trim().toLowerCase() === oldUsernameNorm
+                    ? newUsername
+                    : c.authorUsername,
+                replies: (c.replies || []).map((r) => ({
+                  ...r,
+                  authorUsername:
+                    r.authorId === stampedUser.id ||
+                    r.authorUsername.trim().toLowerCase() === oldUsernameNorm
+                      ? newUsername
+                      : r.authorUsername,
+                })),
+              }));
+              if (!isAuthor && nextComments === p.comments) return p;
+              return {
+                ...p,
+                authorUsername: isAuthor ? newUsername : p.authorUsername,
+                comments: nextComments,
+                updatedAt: nowTs,
+              };
+            })
+          : posts;
+
+      return {
+        ...prev,
+        users: prev.users.map((u) => (u.id === stampedUser.id ? stampedUser : u)),
+        communityPosts: renameAuthorInPosts(prev.communityPosts || []),
+        buySellPosts: renameAuthorInPosts(prev.buySellPosts || []),
+        utilityPosts: renameAuthorInPosts(prev.utilityPosts || []),
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          actionLabel,
+          stampedUser.username
+        ),
+      };
+    });
+    if (currentUser?.id === stampedUser.id) {
+      if (stampedUser.isBanned) {
         setCurrentUser(null);
         storageEngine.saveAuthenticatedUser(null, false);
       } else {
-        setCurrentUser(updatedUser);
+        setCurrentUser(stampedUser);
+        storageEngine.saveAuthenticatedUser(stampedUser, true);
       }
     }
   };
@@ -3588,6 +4447,11 @@ export default function App() {
         deletedRecordIds: Array.from(
           new Set([...(prev.deletedRecordIds || []), ...delKeys])
         ),
+        settings: appendAdminActivityLogToSettings(
+          prev.settings,
+          'حذف حساب',
+          target?.username || id
+        ),
       };
     });
     if (currentUser?.id === id) {
@@ -3598,21 +4462,28 @@ export default function App() {
 
   const handleRenameStoreCategory = (oldName: string, newName: string) => {
     const nowTs = Date.now();
-    updateAndPersist((prev) => ({
-      ...prev,
-      settings: {
-        ...prev.settings,
-        storeCategories: prev.settings.storeCategories.map((c) =>
-          c === oldName ? newName : c
+    updateAndPersist((prev) => {
+      const baseSettings = appendAdminActivityLogToSettings(
+        prev.settings,
+        'تغيير مسمى قسم',
+        `${oldName} ← ${newName}`
+      );
+      return {
+        ...prev,
+        settings: {
+          ...baseSettings,
+          storeCategories: prev.settings.storeCategories.map((c) =>
+            c === oldName ? newName : c
+          ),
+          updatedAt: nowTs,
+        },
+        stores: prev.stores.map((s) =>
+          s.category === oldName
+            ? { ...s, category: newName, updatedAt: nowTs }
+            : s
         ),
-        updatedAt: nowTs,
-      },
-      stores: prev.stores.map((s) =>
-        s.category === oldName
-          ? { ...s, category: newName, updatedAt: nowTs }
-          : s
-      ),
-    }));
+      };
+    });
   };
 
   const handleAddTopBanner = (banner: TopBannerAd) => {
@@ -3645,6 +4516,12 @@ export default function App() {
         ...banner,
         storeId: banner.storeId || existing?.storeId || linkedStore?.id,
         viewsCount: unifiedViews,
+        baselineViewsAtCreation:
+          banner.baselineViewsAtCreation ??
+          existing?.baselineViewsAtCreation ??
+          (linkedStore?.viewsCount || 0),
+        adViewsSinceCreation:
+          banner.adViewsSinceCreation ?? existing?.adViewsSinceCreation ?? 0,
         callClicksCount: unifiedCalls,
         whatsappClicksCount: unifiedWhatsapp,
         viewsByHour: unifiedHours,
@@ -3711,6 +4588,12 @@ export default function App() {
         ...banner,
         storeId: banner.storeId || existing?.storeId || linkedStore?.id,
         viewsCount: unifiedViews,
+        baselineViewsAtCreation:
+          banner.baselineViewsAtCreation ??
+          existing?.baselineViewsAtCreation ??
+          (linkedStore?.viewsCount || 0),
+        adViewsSinceCreation:
+          banner.adViewsSinceCreation ?? existing?.adViewsSinceCreation ?? 0,
         callClicksCount: unifiedCalls,
         whatsappClicksCount: unifiedWhatsapp,
         viewsByHour: unifiedHours,
@@ -3794,6 +4677,12 @@ export default function App() {
         id: existing ? existing.id : ad.id,
         storeId: ad.storeId || existing?.storeId || linkedStore?.id,
         viewsCount: unifiedViews,
+        baselineViewsAtCreation:
+          ad.baselineViewsAtCreation ??
+          existing?.baselineViewsAtCreation ??
+          (linkedStore?.viewsCount || 0),
+        adViewsSinceCreation:
+          ad.adViewsSinceCreation ?? existing?.adViewsSinceCreation ?? 0,
         callClicksCount: unifiedCalls,
         whatsappClicksCount: unifiedWhatsapp,
         viewsByHour: unifiedHours,
@@ -3868,6 +4757,12 @@ export default function App() {
         ...ad,
         storeId: ad.storeId || existing?.storeId || linkedStore?.id,
         viewsCount: unifiedViews,
+        baselineViewsAtCreation:
+          ad.baselineViewsAtCreation ??
+          existing?.baselineViewsAtCreation ??
+          (linkedStore?.viewsCount || 0),
+        adViewsSinceCreation:
+          ad.adViewsSinceCreation ?? existing?.adViewsSinceCreation ?? 0,
         callClicksCount: unifiedCalls,
         whatsappClicksCount: unifiedWhatsapp,
         viewsByHour: unifiedHours,
@@ -3980,6 +4875,14 @@ export default function App() {
           ...popup,
           storeId: popup.storeId || linkedStore?.id,
           viewsCount: unifiedViews,
+          baselineViewsAtCreation: samePopupTarget
+            ? popup.baselineViewsAtCreation ??
+              prev.popupAd.baselineViewsAtCreation ??
+              (linkedStore?.viewsCount || 0)
+            : popup.baselineViewsAtCreation ?? (linkedStore?.viewsCount || 0),
+          adViewsSinceCreation: samePopupTarget
+            ? popup.adViewsSinceCreation ?? prev.popupAd.adViewsSinceCreation ?? 0
+            : popup.adViewsSinceCreation ?? 0,
           callClicksCount: unifiedCalls,
           whatsappClicksCount: unifiedWhatsapp,
           viewsByHour: unifiedHours,
@@ -4105,6 +5008,10 @@ export default function App() {
             ...b,
             storeId: b.storeId || linkedStore?.id,
             viewsCount: nextViews,
+            adViewsSinceCreation:
+              metric === 'view'
+                ? (b.adViewsSinceCreation || 0) + 1
+                : b.adViewsSinceCreation || 0,
             callClicksCount: nextCalls,
             whatsappClicksCount: nextWhatsapp,
             viewsByHour: nextHours,
@@ -4120,6 +5027,10 @@ export default function App() {
             ...a,
             storeId: a.storeId || linkedStore?.id,
             viewsCount: nextViews,
+            adViewsSinceCreation:
+              metric === 'view'
+                ? (a.adViewsSinceCreation || 0) + 1
+                : a.adViewsSinceCreation || 0,
             callClicksCount: nextCalls,
             whatsappClicksCount: nextWhatsapp,
             viewsByHour: nextHours,
@@ -4131,6 +5042,10 @@ export default function App() {
               ...prev.popupAd,
               storeId: prev.popupAd.storeId || linkedStore?.id,
               viewsCount: nextViews,
+              adViewsSinceCreation:
+                metric === 'view'
+                  ? (prev.popupAd.adViewsSinceCreation || 0) + 1
+                  : prev.popupAd.adViewsSinceCreation || 0,
               callClicksCount: nextCalls,
               whatsappClicksCount: nextWhatsapp,
               viewsByHour: nextHours,
@@ -4212,7 +5127,7 @@ export default function App() {
     {
       id: 'directory',
       number: '1',
-      label: 'أضف محل / الدليل',
+      label: 'دليل المحلات',
       subtitle: 'دليل المحلات والأنشطة التجارية',
       icon: Store,
     },
@@ -4266,8 +5181,18 @@ export default function App() {
     (item) => !item.adminOnly || isAdmin
   );
 
+  const unreadPrivateMessagesCount = currentUser
+    ? (dbState.privateChatMessages || []).filter(
+        (m) =>
+          !m.isRead &&
+          (m.receiverId === currentUser.id ||
+            m.receiverUsername.trim().toLowerCase() ===
+              currentUser.username.trim().toLowerCase())
+      ).length
+    : 0;
+
   return (
-    <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-[#0A192F] text-[#F8FAFC] flex flex-col">
+    <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-[#0A192F] text-[#F8FAFC] flex flex-col pb-16">
       {/* Login Welcome Notification Toast (مرحباً بك + اسم صاحب الحساب) */}
       {loginWelcomeToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[120] px-5 py-3 rounded-2xl bg-[#112240] border-2 border-emerald-400 text-emerald-200 shadow-[0_12px_35px_rgba(16,185,129,0.35)] flex items-center gap-3 animate-bounce">
@@ -4312,6 +5237,9 @@ export default function App() {
         messages={dbState.messages}
         onMarkUserMessagesRead={handleMarkUserMessagesRead}
         onReplyToAdminMessage={handleUserReplyToAdminMessage}
+        onNavigateToMention={handleNavigateToMention}
+        onRespondFriendRequest={handleRespondFriendRequest}
+        onOpenUserProfile={handleSelectUserProfile}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
         onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
@@ -4320,7 +5248,7 @@ export default function App() {
       {/* Main Content Layout: Desktop Persistent Right Sidebar (RTL) + Main Viewport */}
       <div className="flex-1 flex w-full max-w-[1600px] mx-auto overflow-x-hidden">
         {/* Desktop Sidebar: Always open on the Right (RTL), glowing Reveal Highlight borders */}
-        <aside className="hidden lg:flex flex-col w-72 shrink-0 bg-[#112240]/85 border-l border-[#334155] p-4 justify-between">
+        <aside className="hidden lg:flex flex-col w-72 shrink-0 bg-[#112240]/85 border-l border-[#334155] p-4 justify-start">
           <div className="space-y-2">
             <div className="px-3 py-2 text-xs font-extrabold text-sky-400 border-b border-[#334155]/80 mb-2">
               أقسام المنصة الرئيسية
@@ -4382,36 +5310,36 @@ export default function App() {
                 </button>
               );
             })}
-          </div>
 
-          <div className="space-y-2.5 pt-4 border-t border-[#334155]">
-            {/* عدد المتصلين الآن الحقيقي (المسجلين والزائرين) محدث لحظياً */}
-            <div className="fluent-reveal p-3.5 rounded-xl bg-[#0A192F]/95 border border-emerald-500/40 space-y-2">
-              <div className="flex items-center justify-between gap-2 relative z-10">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
-                  <Radio className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-extrabold text-[#F8FAFC]">
-                    عدد المتصلين الآن
+            {/* بوكس عدد المتصلين الآن يظهر دائماً مباشرة بعد آخر خيار في القائمة الجانبية ولا ينزل لأسفل الصفحة الطويلة */}
+            <div className="pt-2 border-t border-[#334155]">
+              <div className="fluent-reveal p-3.5 rounded-xl bg-[#0A192F]/95 border border-emerald-500/40 space-y-2">
+                <div className="flex items-center justify-between gap-2 relative z-10">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
+                    <Radio className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-extrabold text-[#F8FAFC]">
+                      عدد المتصلين الآن
+                    </span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-mono-tabular font-extrabold">
+                    {effectiveOnlineCount}
                   </span>
                 </div>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-mono-tabular font-extrabold">
-                  {effectiveOnlineCount}
-                </span>
-              </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-[#334155]/80 text-[11px] relative z-10">
-                <div className="p-2 rounded-lg bg-[#112240]/90 border border-sky-400/30 flex items-center justify-between">
-                  <span className="text-[#94A3B8] font-bold">المتصلين المسجلين:</span>
-                  <strong className="text-sky-300 font-mono-tabular font-extrabold">
-                    {onlineStats.registeredCount}
-                  </strong>
-                </div>
-                <div className="p-2 rounded-lg bg-[#112240]/90 border border-amber-400/30 flex items-center justify-between">
-                  <span className="text-[#94A3B8] font-bold">عدد الزائرين:</span>
-                  <strong className="text-amber-300 font-mono-tabular font-extrabold">
-                    {onlineStats.guestsCount}
-                  </strong>
+                <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-[#334155]/80 text-[11px] relative z-10">
+                  <div className="p-2 rounded-lg bg-[#112240]/90 border border-sky-400/30 flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">المتصلين المسجلين:</span>
+                    <strong className="text-sky-300 font-mono-tabular font-extrabold">
+                      {onlineStats.registeredCount}
+                    </strong>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[#112240]/90 border border-amber-400/30 flex items-center justify-between">
+                    <span className="text-[#94A3B8] font-bold">عدد الزائرين:</span>
+                    <strong className="text-amber-300 font-mono-tabular font-extrabold">
+                      {onlineStats.guestsCount}
+                    </strong>
+                  </div>
                 </div>
               </div>
             </div>
@@ -4428,7 +5356,7 @@ export default function App() {
               }
             }}
           >
-            <div className="w-72 max-w-[84vw] h-full bg-[#112240] border-l border-sky-400/40 p-4 flex flex-col justify-between overflow-y-auto shadow-2xl">
+            <div className="w-72 max-w-[84vw] h-full bg-[#112240] border-l border-sky-400/40 p-4 flex flex-col justify-start overflow-y-auto shadow-2xl">
               <div className="space-y-3">
                 <div className="flex items-center justify-between pb-3 border-b border-[#334155]">
                   <div>
@@ -4500,37 +5428,37 @@ export default function App() {
                       </button>
                     );
                   })}
-                </div>
-              </div>
 
-              <div className="pt-3 border-t border-[#334155] space-y-2.5 text-xs text-[#94A3B8]">
-                {/* عدد المتصلين الآن الحقيقي (المسجلين والزائرين) محدث لحظياً */}
-                <div className="p-3 rounded-xl bg-[#0A192F] border border-emerald-500/40 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                      <Radio className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-extrabold text-[#F8FAFC]">
-                        عدد المتصلين الآن
-                      </span>
-                    </div>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-mono-tabular font-extrabold">
-                      {effectiveOnlineCount}
-                    </span>
-                  </div>
+                  {/* بوكس عدد المتصلين الآن يظهر دائماً مباشرة بعد آخر خيار في القائمة الجانبية */}
+                  <div className="pt-2 border-t border-[#334155] text-xs text-[#94A3B8]">
+                    <div className="p-3 rounded-xl bg-[#0A192F] border border-emerald-500/40 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <Radio className="w-4 h-4 text-emerald-400" />
+                          <span className="text-xs font-extrabold text-[#F8FAFC]">
+                            عدد المتصلين الآن
+                          </span>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-mono-tabular font-extrabold">
+                          {effectiveOnlineCount}
+                        </span>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-[#334155]/80 text-[11px]">
-                    <div className="p-1.5 rounded-lg bg-[#112240] border border-sky-400/30 flex items-center justify-between">
-                      <span className="text-[#94A3B8] font-bold">المسجلين:</span>
-                      <strong className="text-sky-300 font-mono-tabular font-extrabold">
-                        {onlineStats.registeredCount}
-                      </strong>
-                    </div>
-                    <div className="p-1.5 rounded-lg bg-[#112240] border border-amber-400/30 flex items-center justify-between">
-                      <span className="text-[#94A3B8] font-bold">الزائرين:</span>
-                      <strong className="text-amber-300 font-mono-tabular font-extrabold">
-                        {onlineStats.guestsCount}
-                      </strong>
+                      <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-[#334155]/80 text-[11px]">
+                        <div className="p-1.5 rounded-lg bg-[#112240] border border-sky-400/30 flex items-center justify-between">
+                          <span className="text-[#94A3B8] font-bold">المسجلين:</span>
+                          <strong className="text-sky-300 font-mono-tabular font-extrabold">
+                            {onlineStats.registeredCount}
+                          </strong>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-[#112240] border border-amber-400/30 flex items-center justify-between">
+                          <span className="text-[#94A3B8] font-bold">الزائرين:</span>
+                          <strong className="text-amber-300 font-mono-tabular font-extrabold">
+                            {onlineStats.guestsCount}
+                          </strong>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -4703,6 +5631,7 @@ export default function App() {
             externalOpenHistoryModalTick={externalOpenHistoryModalTick}
             externalLoginNotification={externalLoginNotification}
             onRenameStoreCategory={handleRenameStoreCategory}
+            onAddStoreCategory={handleAddStoreCategory}
             onAddUtilityType={handleAddUtilityType}
             onSaveUtilitySubmission={handleSaveUtilitySubmission}
             onDeleteUtilitySubmission={handleDeleteUtilitySubmission}
@@ -4756,6 +5685,18 @@ export default function App() {
             onRestoreReportedBuySellComment={handleRestoreReportedBuySellComment}
             onTogglePinBuySellComment={handleTogglePinBuySellComment}
             onToggleHideBuySellComment={handleToggleHideBuySellComment}
+            viewedProfileUsername={viewedProfileUsername}
+            externalJumpTarget={externalJumpTarget}
+            onSelectUserProfile={handleSelectUserProfile}
+            onUpdatePostPrivacy={handleUpdatePostPrivacy}
+            onTriggerMentionNotifications={handleTriggerMentionNotifications}
+            onBulkDeleteCommunityPosts={handleBulkDeleteCommunityPosts}
+            onUpdateMultiplePostsPrivacy={handleUpdateMultiplePostsPrivacy}
+            onSendFriendRequest={handleSendFriendRequest}
+            onCancelFriendRequest={handleCancelFriendRequest}
+            onUnfriendUser={handleUnfriendUser}
+            onToggleFollowUser={handleToggleFollowUser}
+            onSharePostToBuySell={handleSharePostToBuySell}
           />
 
           {/* Global Private Chat Popup & External Login Notification when outside Buy/Sell section */}
@@ -4878,6 +5819,33 @@ export default function App() {
         onlineCount={effectiveOnlineCount}
         onSendMessageToAdmin={handleSendMessageToAdmin}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+      />
+
+      <FacebookBottomNavBar
+        activeTab={activeSection}
+        unreadChatCount={unreadPrivateMessagesCount}
+        onSelectHomeFeed={() => {
+          setExternalOpenHistoryModalTick(0);
+          setActiveSection('home_feed');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onSelectDirectory={() => {
+          setExternalOpenHistoryModalTick(0);
+          setActiveSection('directory');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onSelectMarketplace={() => {
+          setExternalOpenHistoryModalTick(0);
+          setActiveSection('buy_sell');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onSelectMessages={() => setExternalOpenHistoryModalTick(Date.now())}
+        onSelectProfile={() => {
+          setExternalOpenHistoryModalTick(0);
+          setViewedProfileUsername(currentUser?.username || null);
+          setActiveSection('profile');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
       />
 
       <OfflineIndicator />

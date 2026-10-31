@@ -82,6 +82,7 @@ interface DirectoryStoresViewProps {
   onToggleCommentLike: (storeId: string, commentId: string) => void;
   onAddCommentReply: (storeId: string, commentId: string, reply: StoreReplyItem) => void;
   onGeneralizeStoreImageStyle?: (styleVariant: 1 | 2) => void;
+  onAddStoreCategory?: (newCategoryName: string) => void;
 }
 
 export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
@@ -102,6 +103,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   onToggleCommentLike,
   onAddCommentReply,
   onGeneralizeStoreImageStyle,
+  onAddStoreCategory,
 }) => {
   const canManage =
     currentUser?.role === 'admin' || currentUser?.role === 'moderator';
@@ -167,6 +169,9 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
   const [storePendingDelete, setStorePendingDelete] = useState<StoreListingItem | null>(null);
   const [isStoreShareMenuOpen, setIsStoreShareMenuOpen] = useState<boolean>(false);
   const [storeShareCopied, setStoreShareCopied] = useState<boolean>(false);
+  const [isMobileMoreToolbarOpen, setIsMobileMoreToolbarOpen] = useState<boolean>(false);
+  const [isAddCategoryPopupOpen, setIsAddCategoryPopupOpen] = useState<boolean>(false);
+  const [newCategoryDraft, setNewCategoryDraft] = useState<string>('');
 
   const normalizeStoreNameForComparison = (raw: string): string => {
     return (raw || '')
@@ -1030,9 +1035,9 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
   return (
     <div className="space-y-6 w-full overflow-x-hidden">
-      {/* 1. Top Action Bar: "أضف منتج / الدليل التجاري" + Button on 1 line + Admin/Moderator Excel/PDF Import & Export */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#112240]/95 border border-[#334155] rounded-2xl p-3.5 sm:p-5 shadow-lg">
-        <div className="flex items-center justify-between sm:justify-start gap-2.5 flex-nowrap w-full lg:w-auto">
+      {/* 1. Top Action Bar: "أضف منتج / الدليل التجاري" + Buttons on 1 line on Mobile & Desktop */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#112240]/95 border border-[#334155] rounded-2xl p-3 sm:p-5 shadow-lg relative z-30">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between sm:justify-start gap-2.5 w-full lg:w-auto">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
               <Store className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -1042,9 +1047,9 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
             </h1>
           </div>
 
-          {/* Primary Buttons right beside the title on the same line (Strict Admin Only) */}
+          {/* Primary 3 Buttons on a single line on mobile & desktop without any clipping (Strict Admin Only) */}
           {isStrictAdmin && (
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex items-center justify-between sm:justify-start gap-1.5 sm:gap-2 w-full sm:w-auto flex-nowrap relative">
               <FluentButton
                 variant="primary"
                 size="sm"
@@ -1058,98 +1063,145 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                   setStoreSubCategory('');
                   setIsAddModalOpen(true);
                 }}
-                className="shrink-0 whitespace-nowrap px-3 sm:px-4 py-2 text-xs sm:text-sm"
+                className="flex-1 sm:flex-initial justify-center whitespace-nowrap !px-2 sm:!px-4 !py-2 !text-[11px] sm:!text-sm"
               >
-                <Plus className="w-4 h-4 shrink-0" />
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                 <span>أضف منتج / محل</span>
               </FluentButton>
 
               <button
                 type="button"
                 onClick={() => setIsDuplicateStoresModalOpen(true)}
-                className="fluent-reveal inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/50 text-xs sm:text-sm font-extrabold cursor-pointer shrink-0 whitespace-nowrap shadow"
+                className="fluent-reveal flex-1 sm:flex-initial inline-flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/50 text-[11px] sm:text-sm font-extrabold cursor-pointer whitespace-nowrap shadow"
                 title="عرض المحلات المكررة للتعديل أو الحذف النهائي"
               >
                 <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
                 <span>المحلات المكررة ({duplicateStoresEntries.length})</span>
               </button>
+
+              {/* قائمة منسدلة باسم "المزيد" بجانب المحلات المكررة في نسخة الهاتف والكمبيوتر لحساب admin */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsMobileMoreToolbarOpen((prev) => !prev)}
+                  className="fluent-reveal inline-flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-xl bg-[#1E293B] hover:bg-[#334155] text-sky-300 border border-sky-400/50 text-[11px] sm:text-sm font-extrabold cursor-pointer shrink-0 whitespace-nowrap shadow"
+                >
+                  <span>المزيد</span>
+                  <ChevronDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                </button>
+
+                {isMobileMoreToolbarOpen && (
+                  <>
+                    {/* إغلاق قائمة المزيد عند الضغط في أي مكان في الشاشة */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsMobileMoreToolbarOpen(false)}
+                    />
+                    <div className="absolute left-0 top-full mt-2 w-56 sm:w-60 max-w-[calc(100vw-24px)] rounded-2xl bg-[#0A192F] border-2 border-sky-400/80 shadow-2xl p-2 z-50 space-y-1.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSuggestedVariant(1);
+                          setGlobalDefaultStoreSvgStyle(1);
+                          onGeneralizeStoreImageStyle?.(1);
+                          setImportNotice(
+                            'تم تعميم الشكل (1) الأساسي كواجهة رئيسية لجميع المحلات بنجاح!'
+                          );
+                          setIsMobileMoreToolbarOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-extrabold border cursor-pointer transition-all ${
+                          (settings.defaultStoreSvgStyle || 1) === 1
+                            ? 'bg-sky-600 text-white border-sky-400'
+                            : 'bg-[#112240] hover:bg-[#1E293B] text-sky-300 border-sky-500/40'
+                        }`}
+                      >
+                        <ImageIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span>الصورة الأساسية (1) للكل</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSuggestedVariant(2);
+                          setGlobalDefaultStoreSvgStyle(2);
+                          onGeneralizeStoreImageStyle?.(2);
+                          setImportNotice(
+                            'تم تعميم الشكل (2) الثاني كواجهة رئيسية لجميع المحلات بنجاح!'
+                          );
+                          setIsMobileMoreToolbarOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-extrabold border cursor-pointer transition-all ${
+                          settings.defaultStoreSvgStyle === 2
+                            ? 'bg-sky-600 text-white border-sky-400'
+                            : 'bg-[#112240] hover:bg-[#1E293B] text-sky-300 border-sky-500/40'
+                        }`}
+                      >
+                        <ImageIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span>الصورة الثانية (2) للكل</span>
+                      </button>
+
+                      <label className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-[#112240] hover:bg-[#1E293B] text-xs font-extrabold text-emerald-300 border border-emerald-500/40 cursor-pointer">
+                        <Upload className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>أضف إكسيل</span>
+                        <input
+                          type="file"
+                          accept=".xlsx,.xls,.csv"
+                          onChange={(e) => {
+                            setIsMobileMoreToolbarOpen(false);
+                            handleExcelImport(e);
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+
+                      <label className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-[#112240] hover:bg-[#1E293B] text-xs font-extrabold text-sky-300 border border-sky-500/40 cursor-pointer">
+                        <Upload className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                        <span>أضف PDF</span>
+                        <input
+                          type="file"
+                          accept=".pdf"
+                          onChange={(e) => {
+                            setIsMobileMoreToolbarOpen(false);
+                            handlePDFImport(e);
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMobileMoreToolbarOpen(false);
+                          exportStoresToExcel(filteredStores);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-[#112240] hover:bg-[#1E293B] text-xs font-extrabold text-emerald-300 border border-[#334155] cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>تصدير إكسيل</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMobileMoreToolbarOpen(false);
+                          exportStoresToPDF(filteredStores);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-[#112240] hover:bg-[#1E293B] text-xs font-extrabold text-rose-300 border border-[#334155] cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                        <span>تصدير PDF</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Import & Export Toolbar + Unified Store Image Style Selector (Strict Admin Only for Import/Style) */}
-        {canManage && (
+        {/* Import & Export Toolbar for non-strict-admin managers (Strict Admin uses "المزيد" dropdown on both mobile & desktop) */}
+        {canManage && !isStrictAdmin && (
           <div className="flex flex-wrap items-center gap-2">
-            {isStrictAdmin && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedSuggestedVariant(1);
-                    setGlobalDefaultStoreSvgStyle(1);
-                    onGeneralizeStoreImageStyle?.(1);
-                    setImportNotice(
-                      'تم تعميم الشكل (1) الأساسي كواجهة رئيسية لجميع المحلات بنجاح!'
-                    );
-                  }}
-                  className={`fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-extrabold border cursor-pointer transition-all ${
-                    (settings.defaultStoreSvgStyle || 1) === 1
-                      ? 'bg-sky-600 text-white border-sky-400 shadow'
-                      : 'bg-[#1E293B] hover:bg-[#334155] text-sky-300 border-sky-500/40'
-                  }`}
-                  title="اختيار الصورة الأساسية (الشكل 1) وتعميم جميع المحلات بنفس الشكل"
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>الصورة الأساسية (1) للكل</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedSuggestedVariant(2);
-                    setGlobalDefaultStoreSvgStyle(2);
-                    onGeneralizeStoreImageStyle?.(2);
-                    setImportNotice(
-                      'تم تعميم الشكل (2) الثاني كواجهة رئيسية لجميع المحلات بنجاح!'
-                    );
-                  }}
-                  className={`fluent-reveal inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-extrabold border cursor-pointer transition-all ${
-                    settings.defaultStoreSvgStyle === 2
-                      ? 'bg-sky-600 text-white border-sky-400 shadow'
-                      : 'bg-[#1E293B] hover:bg-[#334155] text-sky-300 border-sky-500/40'
-                  }`}
-                  title="اختيار الصورة الثانية (الشكل 2) وتعميم جميع المحلات بنفس الشكل"
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>الصورة الثانية (2) للكل</span>
-                </button>
-
-                {/* أضف إكسيل */}
-                <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-emerald-300 border border-emerald-500/40 cursor-pointer">
-                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>أضف إكسيل</span>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    onChange={handleExcelImport}
-                    className="hidden"
-                  />
-                </label>
-
-                {/* أضف PDF */}
-                <label className="fluent-reveal inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-[#1E293B] hover:bg-[#334155] text-xs font-bold text-sky-300 border border-sky-500/40 cursor-pointer">
-                  <Upload className="w-3.5 h-3.5 text-sky-400" />
-                  <span>أضف PDF</span>
-                  <input
-                    type="file"
-                    accept=".pdf"
-                    onChange={handlePDFImport}
-                    className="hidden"
-                  />
-                </label>
-              </>
-            )}
-
             <FluentButton
               variant="secondary"
               size="sm"
@@ -1616,15 +1668,15 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
         <form onSubmit={handleCreateStoreSubmit} className="space-y-4 text-black">
           {/* Dynamic Category Dropdown + Excel Button for Selected Category Only */}
           <div className="p-3.5 rounded-xl bg-emerald-50/70 border-2 border-emerald-300 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-extrabold text-black mb-1.5">
-                  اختر القسم *
-                </label>
+            <div>
+              <label className="block text-xs font-extrabold text-black mb-1.5">
+                اختر القسم *
+              </label>
+              <div className="flex items-center gap-2">
                 <select
                   value={storeCategory}
                   onChange={(e) => setStoreCategory(e.target.value)}
-                  className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-extrabold outline-none"
+                  className="flex-1 rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3.5 py-2.5 text-black font-extrabold outline-none"
                 >
                   {allStoreCategories.map((cat) => (
                     <option key={cat} value={cat}>
@@ -1632,41 +1684,17 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                     </option>
                   ))}
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-extrabold text-black mb-1.5">
-                  تحديد نوع المحل (مثال: سوبر ماركت، موبيل، مطعم...)
-                </label>
-                <div className="space-y-1.5">
-                  <select
-                    value={
-                      STORE_SUB_TYPE_SUGGESTIONS.includes(storeSubCategory)
-                        ? storeSubCategory
-                        : ''
-                    }
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setStoreSubCategory(e.target.value);
-                      }
-                    }}
-                    className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3 py-2 text-xs text-black font-extrabold outline-none"
-                  >
-                    <option value="">-- اختر نوع المحل أو اكتبه بالأسفل --</option>
-                    {STORE_SUB_TYPE_SUGGESTIONS.map((sub) => (
-                      <option key={sub} value={sub}>
-                        {sub}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    value={storeSubCategory}
-                    onChange={(e) => setStoreSubCategory(e.target.value)}
-                    placeholder="أو اكتب نوع المحل هنا (سوبر ماركت / موبيل / ملابس...)"
-                    className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-sky-600 px-3 py-2 text-xs text-black font-bold outline-none"
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewCategoryDraft('');
+                    setIsAddCategoryPopupOpen(true);
+                  }}
+                  title="إضافة قسم جديد"
+                  className="w-11 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold flex items-center justify-center shrink-0 cursor-pointer shadow-md transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
@@ -2091,6 +2119,61 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
                 <span>حفظ</span>
               </FluentButton>
             )}
+          </div>
+        </form>
+      </FluentModal>
+
+      {/* ================= 1-B. ADD NEW STORE CATEGORY POPUP MODAL (+) ================= */}
+      <FluentModal
+        isOpen={isAddCategoryPopupOpen}
+        onClose={() => setIsAddCategoryPopupOpen(false)}
+        title="إضافة قسم جديد"
+        subtitle="اكتب اسم القسم الجديد ليظهر لحظياً لجميع الحسابات والزوار"
+        maxWidth="md"
+        theme="light"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const cleanCat = newCategoryDraft.trim();
+            if (!cleanCat) return;
+            onAddStoreCategory?.(cleanCat);
+            setStoreCategory(cleanCat);
+            setNewCategoryDraft('');
+            setIsAddCategoryPopupOpen(false);
+            setImportNotice(
+              `تمت إضافة القسم الجديد "${cleanCat}" لحظياً لجميع الحسابات والزوار!`
+            );
+          }}
+          className="space-y-4 text-black"
+        >
+          <div>
+            <label className="block text-xs font-extrabold text-black mb-1.5">
+              اسم القسم الجديد *
+            </label>
+            <input
+              type="text"
+              required
+              autoFocus
+              value={newCategoryDraft}
+              onChange={(e) => setNewCategoryDraft(e.target.value)}
+              placeholder="اكتب اسم القسم الجديد هنا..."
+              className="w-full rounded-xl bg-white border-2 border-slate-300 focus:border-emerald-600 px-3.5 py-2.5 text-sm text-black font-extrabold outline-none"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setIsAddCategoryPopupOpen(false)}
+              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-black text-xs font-extrabold cursor-pointer"
+            >
+              إلغاء
+            </button>
+            <FluentButton type="submit" variant="emerald" size="md">
+              <Plus className="w-4 h-4" />
+              <span>أضف</span>
+            </FluentButton>
           </div>
         </form>
       </FluentModal>

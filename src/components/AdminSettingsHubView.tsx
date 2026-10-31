@@ -88,7 +88,8 @@ export type AdminSettingsSubSectionId =
   | 'online_users'
   | 'maintenance'
   | 'data_backup'
-  | 'app_download';
+  | 'app_download'
+  | 'activity_logs';
 
 interface AdminSettingsHubViewProps {
   state: PlatformDatabaseState;
@@ -306,7 +307,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   };
 
   // ============================================================================
-  // 2. الحسابات (Accounts State)
+  // 2. الحسابات (Accounts State) + خانة اسم المدير
   // ============================================================================
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
   const [usrAccountName, setUsrAccountName] = useState('');
@@ -314,6 +315,31 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   const [usrPassword, setUsrPassword] = useState('');
   const [usrPhone, setUsrPhone] = useState('');
   const [usrRole, setUsrRole] = useState<UserRoleType>('user');
+  const [newAdminDisplayNameInput, setNewAdminDisplayNameInput] = useState('');
+  const [adminNameUpdatedModalText, setAdminNameUpdatedModalText] = useState<
+    string | null
+  >(null);
+
+  const currentAdminAccount =
+    state.users.find((u) => u.role === 'admin') ||
+    state.users.find(
+      (u) => (u.accountName || u.username).trim().toLowerCase() === 'admin'
+    ) ||
+    null;
+
+  const handleSaveAdminDisplayName = () => {
+    const cleanNewName = newAdminDisplayNameInput.trim();
+    if (!cleanNewName || !currentAdminAccount) return;
+    onUpdateUserAccount({
+      ...currentAdminAccount,
+      accountName: currentAdminAccount.accountName || 'admin',
+      username: cleanNewName,
+      role: 'admin',
+      updatedAt: Date.now(),
+    });
+    setNewAdminDisplayNameInput('');
+    setAdminNameUpdatedModalText(cleanNewName);
+  };
 
   const openEditUserModal = (u: UserAccount) => {
     setEditingUser(u);
@@ -327,21 +353,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   const handleSaveEditedUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser || !usrPassword.trim()) return;
-    const isEditingAdmin =
-      usrRole === 'admin' ||
-      editingUser.role === 'admin' ||
-      usrAccountName.trim().toLowerCase() === 'admin';
-    const nextDisplayName = isEditingAdmin
-      ? 'admin'
-      : usrUsername.trim() || usrAccountName.trim();
+    const nextDisplayName = usrUsername.trim() || usrAccountName.trim();
     if (!nextDisplayName) return;
     onUpdateUserAccount({
       ...editingUser,
-      accountName: usrAccountName.trim() || nextDisplayName,
+      accountName:
+        editingUser.role === 'admin'
+          ? editingUser.accountName || 'admin'
+          : usrAccountName.trim() || nextDisplayName,
       username: nextDisplayName,
       password: usrPassword,
       phone: usrPhone.trim() || undefined,
       role: usrRole,
+      updatedAt: Date.now(),
     });
     setEditingUser(null);
     showToast(`تم تعديل حساب "${nextDisplayName}" بنجاح.`);
@@ -733,7 +757,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         linkUrl: linkUrlVal,
         targetSection: targetSectionVal,
         menuImages: adMenuImages,
-        description: `إعلان نشط لمدة ${days} يوم`,
+        description: adCategoryOrSub.trim() || 'إعلان مميز',
         isAdminPinned: existingSq ? existingSq.isAdminPinned : true,
         durationDays: days,
         expiresAt: expiresAtIso,
@@ -743,6 +767,9 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           existingSq?.viewsCount || 0,
           matchedStore?.viewsCount || 0
         ),
+        baselineViewsAtCreation:
+          existingSq?.baselineViewsAtCreation ?? (matchedStore?.viewsCount || 0),
+        adViewsSinceCreation: existingSq?.adViewsSinceCreation ?? 0,
         callClicksCount: Math.max(
           existingSq?.callClicksCount || 0,
           matchedStore?.callClicksCount || 0
@@ -785,7 +812,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
         createBannerSvg(
           effectiveTitle,
           adCategoryOrSub.trim() || 'بانر إعلاني مميز',
-          `لمدة ${days} أيام`,
+          'عرض خاص ومميز',
           '#38BDF8',
           '#0284C7'
         );
@@ -810,6 +837,9 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           existingBnr?.viewsCount || 0,
           matchedStore?.viewsCount || 0
         ),
+        baselineViewsAtCreation:
+          existingBnr?.baselineViewsAtCreation ?? (matchedStore?.viewsCount || 0),
+        adViewsSinceCreation: existingBnr?.adViewsSinceCreation ?? 0,
         callClicksCount: Math.max(
           existingBnr?.callClicksCount || 0,
           matchedStore?.callClicksCount || 0
@@ -877,6 +907,9 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
           state.popupAd.viewsCount || 0,
           matchedStore?.viewsCount || 0
         ),
+        baselineViewsAtCreation:
+          state.popupAd.baselineViewsAtCreation ?? (matchedStore?.viewsCount || 0),
+        adViewsSinceCreation: state.popupAd.adViewsSinceCreation ?? 0,
         callClicksCount: Math.max(
           state.popupAd.callClicksCount || 0,
           matchedStore?.callClicksCount || 0
@@ -1118,7 +1151,42 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
       subtitle: 'أضف رابط، ارفع التطبيق، أو لينك التطبيق',
       icon: Smartphone,
     },
+    {
+      id: 'activity_logs',
+      number: 12,
+      label: 'سجل الأحداث',
+      subtitle: 'تعديلات وحذف المحلات والخدمات والمنشورات والحسابات',
+      icon: History,
+      badge: (state.settings.adminActivityLogs || []).length || undefined,
+    },
   ];
+
+  // State for Accounts search, Activity Logs & Top Daily Visitors Modal
+  const [accountSearchQuery, setAccountSearchQuery] = useState<string>('');
+  const [showAllActivityLogs, setShowAllActivityLogs] = useState<boolean>(false);
+  const [isAuthSessionLogsOpen, setIsAuthSessionLogsOpen] = useState<boolean>(false);
+  const [showAllAuthSessionLogs, setShowAllAuthSessionLogs] = useState<boolean>(false);
+  const [isTopVisitorsModalOpen, setIsTopVisitorsModalOpen] = useState<boolean>(false);
+
+  const formatActivityDayTimeDate = (iso: string): string => {
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      const dayName = d.toLocaleDateString('ar-EG', { weekday: 'long' });
+      const timeStr = d.toLocaleTimeString('ar-EG', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const dateStr = d.toLocaleDateString('ar-EG', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      return `${dayName} · ${timeStr} · ${dateStr}`;
+    } catch {
+      return iso;
+    }
+  };
 
   // State for Section 11: التطبيق (App Download / Upload / External Link)
   const [selectedAppOption, setSelectedAppOption] = useState<
@@ -1386,11 +1454,6 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
     if (onlineStats?.registeredUsernames) {
       onlineStats.registeredUsernames.forEach(addByName);
     }
-    state.users.forEach((u) => {
-      if (u && u.isOnline && !u.isBanned && u.username) {
-        addByName(u.username);
-      }
-    });
     if (currentUser) {
       addByName(currentUser.username);
     }
@@ -1446,19 +1509,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
             </h2>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto overflow-hidden">
             <FluentButton
               type="button"
               variant="emerald"
               size="sm"
               disabled={isMigratingLocalData}
               onClick={handleMigrateLocalDataToFirebase}
-              className="font-extrabold shadow-md"
+              className="w-full sm:w-auto justify-center px-1.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold shadow-md whitespace-nowrap"
             >
-              <Upload className="w-4 h-4" />
-              <span>
+              <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="truncate">
                 {isMigratingLocalData
-                  ? 'جاري ترحيل البيانات المحلية...'
+                  ? 'جاري الترحيل...'
                   : 'ترحيل البيانات المحلية'}
               </span>
             </FluentButton>
@@ -1466,17 +1529,19 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
               variant="secondary"
               size="sm"
               onClick={() => exportUsersAndMessagesToExcel(state.users, state.messages)}
+              className="w-full sm:w-auto justify-center px-1.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold whitespace-nowrap"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span>تصدير إكسيل</span>
+              <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 shrink-0" />
+              <span className="truncate">تصدير إكسيل</span>
             </FluentButton>
             <FluentButton
               variant="secondary"
               size="sm"
               onClick={() => exportPlatformSummaryToPDF(state)}
+              className="w-full sm:w-auto justify-center px-1.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold whitespace-nowrap"
             >
-              <FileText className="w-4 h-4 text-sky-400" />
-              <span>تصدير PDF</span>
+              <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-400 shrink-0" />
+              <span className="truncate">تصدير PDF</span>
             </FluentButton>
           </div>
         </div>
@@ -1748,7 +1813,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
              ==================================================================== */}
           {activeSubTab === 'accounts' && (
             <FluentCard className="space-y-4">
-              <div className="pb-3 border-b border-[#334155] flex flex-wrap items-center justify-between gap-2">
+              <div className="pb-3 border-b border-[#334155] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div>
                   <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
                     <Users className="w-5 h-5 text-sky-400" />
@@ -1758,25 +1823,122 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     يتم عرض حتى 50 حساباً هنا — اضغط على زر &quot;المزيد&quot; بالأسفل لعرض جميع الحسابات المسجلة بكامل تفاصيلها في شاشة كاملة.
                   </p>
                 </div>
+
+                {/* زر وخانة بحث بالاسم لفلترة الحسابات فور كتابة أي حرف */}
+                <div className="flex items-center gap-1.5 bg-[#0A192F] border border-sky-400/50 rounded-xl px-2.5 py-1.5 w-full sm:w-72">
+                  <span className="px-2 py-1 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[11px] font-extrabold whitespace-nowrap shrink-0">
+                    بحث بالاسم
+                  </span>
+                  <input
+                    type="text"
+                    value={accountSearchQuery}
+                    onChange={(e) => setAccountSearchQuery(e.target.value)}
+                    placeholder="اكتب أي حرف للفلترة..."
+                    className="w-full bg-transparent text-xs sm:text-sm font-bold text-[#F8FAFC] placeholder-[#94A3B8] outline-none"
+                  />
+                  {accountSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setAccountSearchQuery('')}
+                      className="text-rose-400 hover:text-rose-300 text-xs font-extrabold cursor-pointer shrink-0"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-3">
-                {state.users.slice(0, 50).map((u) => (
+              {/* خانة اسم المدير: يظهر بها الاسم الحالي وتحتها خانة فارغة لكتابة اسم جديد وزر تعديل */}
+              <div className="p-3.5 rounded-2xl bg-[#0A192F] border border-amber-400/50 space-y-2.5 shadow-md">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs sm:text-sm font-extrabold text-amber-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>اسم المدير:</span>
+                  </span>
+                  <span className="px-3 py-1 rounded-xl bg-amber-500/20 border border-amber-400/50 text-xs sm:text-sm font-black text-white">
+                    {currentAdminAccount?.username || 'admin'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newAdminDisplayNameInput}
+                    onChange={(e) => setNewAdminDisplayNameInput(e.target.value)}
+                    placeholder="اكتب اسم المدير الجديد هنا..."
+                    className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-amber-400 px-3 py-2 text-xs sm:text-sm font-bold text-[#F8FAFC] outline-none"
+                  />
+                  <FluentButton
+                    variant="primary"
+                    size="sm"
+                    onClick={handleSaveAdminDisplayName}
+                    disabled={!newAdminDisplayNameInput.trim()}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>تعديل</span>
+                  </FluentButton>
+                </div>
+              </div>
+
+              {/* شاشة منبثقة تفيد أنه تم تعديل اسم المدير */}
+              {adminNameUpdatedModalText && (
+                <FluentModal
+                  isOpen={Boolean(adminNameUpdatedModalText)}
+                  onClose={() => setAdminNameUpdatedModalText(null)}
+                  title="✅ تم تعديل اسم المدير بنجاح"
+                  maxWidth="md"
+                >
+                  <div className="space-y-4 text-center py-2">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
+                    <p className="text-sm font-extrabold text-[#F8FAFC]">
+                      تم تغيير اسم المدير بنجاح إلى:{' '}
+                      <span className="text-amber-300">
+                        {adminNameUpdatedModalText}
+                      </span>
+                    </p>
+                    <p className="text-xs text-[#94A3B8]">
+                      سيظهر الاسم الجديد الآن في جميع المنشورات وفي الموقع بالكامل لحظياً.
+                    </p>
+                    <div className="flex justify-center pt-1">
+                      <FluentButton
+                        variant="primary"
+                        size="sm"
+                        onClick={() => setAdminNameUpdatedModalText(null)}
+                      >
+                        <span>حسناً، إغلاق</span>
+                      </FluentButton>
+                    </div>
+                  </div>
+                </FluentModal>
+              )}
+
+              <div className="space-y-3 overflow-x-hidden">
+                {state.users
+                  .filter((u) => {
+                    const q = accountSearchQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      u.username.toLowerCase().includes(q) ||
+                      (u.accountName || '').toLowerCase().includes(q) ||
+                      (u.phone || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .slice(0, 50)
+                  .map((u) => (
                   <div
                     key={u.id}
-                    className={`fluent-reveal p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    className={`fluent-reveal p-2.5 sm:p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 overflow-hidden ${
                       u.isBanned
                         ? 'bg-rose-950/25 border-rose-500/50'
                         : 'bg-[#0A192F] border-[#334155]'
                     }`}
                   >
-                    <div className="space-y-1 relative z-10">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm sm:text-base font-extrabold text-[#F8FAFC]">
+                    <div className="space-y-1.5 relative z-10 min-w-0 w-full sm:w-auto">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <span className="text-sm sm:text-base font-extrabold text-[#F8FAFC] truncate">
                           {u.username}
                         </span>
                         <span
-                          className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                          className={`px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold ${
                             u.role === 'admin'
                               ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
                               : u.role === 'moderator'
@@ -1787,17 +1949,70 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                           {u.role === 'admin'
                             ? 'مدير النظام (Admin)'
                             : u.role === 'moderator'
-                            ? 'مشرف (مراجعة المنشورات وتعديل الأقسام ما عدا الإعدادات)'
+                            ? 'مشرف'
                             : 'مستخدم'}
                         </span>
                         {u.isBanned && (
-                          <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-[11px] font-extrabold">
-                            حساب معلق (موقوف)
+                          <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] sm:text-[11px] font-extrabold">
+                            حساب معلق
                           </span>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-4 text-xs text-[#94A3B8]">
+                      {/* نسخة الهاتف: أسفل الاسم في سطر واحد (تاريخ التسجيل + صلاحيات مشرف + تعديل + تعليق الحساب + حذف) بدون مسطرة تمرير */}
+                      <div className="flex sm:hidden items-center justify-between gap-1 flex-nowrap w-full overflow-hidden pt-0.5">
+                        <span className="text-[9px] font-bold text-[#94A3B8] font-mono-tabular whitespace-nowrap shrink-0 bg-[#112240] px-1.5 py-1 rounded border border-[#334155]">
+                          {new Date(u.createdAt).toLocaleDateString('ar-EG')}
+                        </span>
+
+                        {u.role !== 'admin' && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleModeratorRole(u)}
+                            className={`px-1.5 py-1 rounded text-[9px] font-extrabold whitespace-nowrap shrink-0 border cursor-pointer transition-all ${
+                              u.role === 'moderator'
+                                ? 'bg-emerald-600 text-white border-emerald-400'
+                                : 'bg-[#1E293B] text-emerald-300 border-emerald-500/40'
+                            }`}
+                          >
+                            صلاحيات مشرف
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => openEditUserModal(u)}
+                          className="px-1.5 py-1 rounded bg-[#1E293B] hover:bg-sky-600/30 text-sky-300 border border-sky-400/40 text-[9px] font-extrabold whitespace-nowrap shrink-0 cursor-pointer"
+                        >
+                          تعديل
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSuspendUser(u)}
+                          className={`px-1.5 py-1 rounded text-[9px] font-extrabold whitespace-nowrap shrink-0 border cursor-pointer ${
+                            u.isBanned
+                              ? 'bg-emerald-600 text-white border-emerald-400'
+                              : 'bg-[#1E293B] text-amber-300 border-amber-400/40'
+                          }`}
+                        >
+                          {u.isBanned ? 'فك التعليق' : 'تعليق الحساب'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDeleteUserAccount(u.id);
+                            showToast(`تم حذف الحساب "${u.username}" نهائياً.`);
+                          }}
+                          className="px-1.5 py-1 rounded bg-rose-600/90 hover:bg-rose-600 text-white border border-rose-400/50 text-[9px] font-extrabold whitespace-nowrap shrink-0 cursor-pointer"
+                        >
+                          حذف
+                        </button>
+                      </div>
+
+                      {/* تفاصيل الحساب الإضافية (تظهر كاملة على الكمبيوتر ومختصرة بدون تمرير على الهاتف) */}
+                      <div className="hidden sm:flex flex-wrap items-center gap-4 text-xs text-[#94A3B8]">
                         <span>
                           اسم الحساب:{' '}
                           <strong className="text-[#F8FAFC]">
@@ -1836,8 +2051,8 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Buttons: صلاحية مشرف، تعديل، حذف، تعليق الحساب */}
-                    <div className="flex flex-wrap items-center gap-2 shrink-0 relative z-10">
+                    {/* Buttons on Desktop: صلاحيات مشرف، تعديل، تعليق الحساب، حذف */}
+                    <div className="hidden sm:flex flex-wrap items-center gap-2 shrink-0 relative z-10">
                       {u.role !== 'admin' && (
                         <FluentButton
                           variant={u.role === 'moderator' ? 'emerald' : 'secondary'}
@@ -1847,8 +2062,8 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                           <span>
                             {u.role === 'moderator'
-                              ? 'إلغاء صلاحية مشرف'
-                              : 'إعطاء صلاحية مشرف'}
+                              ? 'إلغاء صلاحيات مشرف'
+                              : 'صلاحيات مشرف'}
                           </span>
                         </FluentButton>
                       )}
@@ -1863,6 +2078,15 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                       </FluentButton>
 
                       <FluentButton
+                        variant={u.isBanned ? 'emerald' : 'secondary'}
+                        size="sm"
+                        onClick={() => handleToggleSuspendUser(u)}
+                      >
+                        <Ban className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{u.isBanned ? 'إلغاء تعليق الحساب' : 'تعليق الحساب'}</span>
+                      </FluentButton>
+
+                      <FluentButton
                         variant="danger"
                         size="sm"
                         onClick={() => {
@@ -1872,15 +2096,6 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>حذف</span>
-                      </FluentButton>
-
-                      <FluentButton
-                        variant={u.isBanned ? 'emerald' : 'secondary'}
-                        size="sm"
-                        onClick={() => handleToggleSuspendUser(u)}
-                      >
-                        <Ban className="w-3.5 h-3.5 text-amber-400" />
-                        <span>{u.isBanned ? 'إلغاء تعليق الحساب' : 'تعليق الحساب'}</span>
                       </FluentButton>
                     </div>
                   </div>
@@ -2387,6 +2602,11 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                 existingAd?.viewsCount || 0,
                                 found.viewsCount || 0
                               ),
+                              baselineViewsAtCreation:
+                                existingAd?.baselineViewsAtCreation ??
+                                (found.viewsCount || 0),
+                              adViewsSinceCreation:
+                                existingAd?.adViewsSinceCreation ?? 0,
                               callClicksCount: Math.max(
                                 existingAd?.callClicksCount || 0,
                                 found.callClicksCount || 0
@@ -2943,13 +3163,14 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             key={ad.id}
                             onClick={() => openInspectSquareAdModal(ad, false)}
                             title="اضغط لعرض شاشة تفاصيل الإعلان وملخص المشاهدات والتعديل وتجديد المدة"
-                            className={`p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                            className={`p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border flex items-center justify-between gap-2.5 cursor-pointer transition-colors ${
                               isChecked
                                 ? 'border-rose-500 ring-1 ring-rose-500/40'
                                 : 'border-[#334155] hover:border-sky-400/60'
                             }`}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
+                            {/* اليمين: صورة الإعلان وبجانبه اسم الإعلان وأسفلها المشاهدات واتصال والمراسلة في سطر واحد */}
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
                               <input
                                 type="checkbox"
                                 checked={isChecked}
@@ -2969,14 +3190,14 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                                 alt={ad.title}
                                 className="w-12 h-12 rounded-lg object-cover border border-[#334155] shrink-0"
                               />
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                 <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
                                   {ad.title}
                                 </div>
-                                <div className="text-[11px] text-sky-400">
+                                <div className="text-[11px] text-sky-400 truncate">
                                   {ad.category} · {getDaysRemainingBadge(ad.expiresAt)}
                                 </div>
-                                <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
+                                <div className="text-[10px] font-bold text-amber-300 mt-1 flex items-center gap-1.5 flex-nowrap whitespace-nowrap overflow-x-auto no-scrollbar">
                                   {(() => {
                                     const linkedSt = findLinkedStoreForAd(state.stores, ad);
                                     const unifiedViews = Math.max(
@@ -3003,25 +3224,15 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                               </div>
                             </div>
 
+                            {/* اليسار: زر التعديل وزر الحذف فوق بعض */}
                             <div
-                              className="flex items-center gap-1.5 shrink-0"
+                              className="flex flex-col items-stretch justify-center gap-1.5 shrink-0"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <button
                                 type="button"
-                                onClick={() => onTogglePinSquareAd(ad.id)}
-                                className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
-                                  ad.isAdminPinned
-                                    ? 'bg-amber-500 text-[#0A192F]'
-                                    : 'bg-[#1E293B] text-[#94A3B8]'
-                                }`}
-                              >
-                                {ad.isAdminPinned ? 'مثبت' : 'عشوائي'}
-                              </button>
-                              <button
-                                type="button"
                                 onClick={() => openInspectSquareAdModal(ad, true)}
-                                className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-[11px] font-extrabold inline-flex items-center justify-center gap-1 cursor-pointer"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                                 <span>تعديل</span>
@@ -3029,7 +3240,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onDeleteSquareAd(ad.id)}
-                                className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-[11px] font-extrabold inline-flex items-center justify-center gap-1 cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                                 <span>حذف</span>
@@ -3117,13 +3328,14 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             key={b.id}
                             onClick={() => openInspectTopBannerModal(b, false)}
                             title="اضغط لعرض شاشة تفاصيل الإعلان وملخص المشاهدات والتعديل وتجديد المدة"
-                            className={`p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                            className={`p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border flex items-center justify-between gap-2.5 cursor-pointer transition-colors ${
                               isChecked
                                 ? 'border-rose-500 ring-1 ring-rose-500/40'
                                 : 'border-[#334155] hover:border-sky-400/60'
                             }`}
                           >
-                            <div className="flex items-center gap-3 min-w-0">
+                            {/* اليمين: صورة الإعلان وبجانبه اسم الإعلان وأسفلها المشاهدات واتصال والمراسلة في سطر واحد */}
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
                               <input
                                 type="checkbox"
                                 checked={isChecked}
@@ -3141,16 +3353,16 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                               <img
                                 src={b.imageUrl}
                                 alt={b.title}
-                                className="w-16 h-11 rounded-lg object-cover border border-[#334155] shrink-0"
+                                className="w-14 h-12 rounded-lg object-cover border border-[#334155] shrink-0"
                               />
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                 <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
                                   {b.title}
                                 </div>
                                 <div className="text-[11px] text-sky-400 truncate">
                                   {getDaysRemainingBadge(b.expiresAt)} · {b.subtitle}
                                 </div>
-                                <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
+                                <div className="text-[10px] font-bold text-amber-300 mt-1 flex items-center gap-1.5 flex-nowrap whitespace-nowrap overflow-x-auto no-scrollbar">
                                   {(() => {
                                     const linkedSt = findLinkedStoreForAd(state.stores, b);
                                     const unifiedViews = Math.max(
@@ -3177,14 +3389,15 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                               </div>
                             </div>
 
+                            {/* اليسار: زر التعديل وزر الحذف فوق بعض */}
                             <div
-                              className="flex items-center gap-1.5 shrink-0"
+                              className="flex flex-col items-stretch justify-center gap-1.5 shrink-0"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <button
                                 type="button"
                                 onClick={() => openInspectTopBannerModal(b, true)}
-                                className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-[11px] font-extrabold inline-flex items-center justify-center gap-1 cursor-pointer"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                                 <span>تعديل</span>
@@ -3192,7 +3405,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onDeleteTopBanner(b.id)}
-                                className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-[11px] font-extrabold inline-flex items-center justify-center gap-1 cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                                 <span>حذف</span>
@@ -3213,15 +3426,16 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     <div
                       onClick={() => openInspectPopupAdModal(false)}
                       title="اضغط لعرض شاشة تفاصيل الإعلان وملخص المشاهدات والتعديل وتجديد المدة"
-                      className="p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border border-[#334155] hover:border-sky-400/60 flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                      className="p-3 rounded-xl bg-[#0A192F] hover:bg-[#112240] border border-[#334155] hover:border-sky-400/60 flex items-center justify-between gap-2.5 cursor-pointer transition-colors"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      {/* اليمين: صورة الإعلان وبجانبه اسم الإعلان وأسفلها المشاهدات واتصال والمراسلة في سطر واحد */}
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
                         <img
                           src={state.popupAd.imageUrl}
                           alt={state.popupAd.title}
-                          className="w-16 h-12 rounded-lg object-cover border border-[#334155] shrink-0"
+                          className="w-14 h-12 rounded-lg object-cover border border-[#334155] shrink-0"
                         />
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
                             {state.popupAd.title}
                           </div>
@@ -3229,7 +3443,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             {state.popupAd.active ? 'مفعّل للزوار' : 'متوقف'} ·{' '}
                             {getDaysRemainingBadge(state.popupAd.expiresAt)}
                           </div>
-                          <div className="text-[10px] font-bold text-amber-300 mt-0.5 flex items-center gap-2">
+                          <div className="text-[10px] font-bold text-amber-300 mt-1 flex items-center gap-1.5 flex-nowrap whitespace-nowrap overflow-x-auto no-scrollbar">
                             {(() => {
                               const linkedSt = findLinkedStoreForAd(
                                 state.stores,
@@ -3259,14 +3473,15 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                         </div>
                       </div>
 
+                      {/* اليسار: زر التعديل وزر الحذف فوق بعض */}
                       <div
-                        className="flex items-center gap-1.5 shrink-0"
+                        className="flex flex-col items-stretch justify-center gap-1.5 shrink-0"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
                           type="button"
                           onClick={() => openInspectPopupAdModal(true)}
-                          className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600 hover:text-white border border-sky-400/40 text-[11px] font-extrabold inline-flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                           <span>تعديل</span>
@@ -3281,7 +3496,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                             setAdPopupActive(false);
                             showToast('تم إيقاف/حذف عرض إعلان الشاشة المنبثقة.');
                           }}
-                          className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white border border-rose-500/40 text-[11px] font-extrabold inline-flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>حذف</span>
@@ -3724,12 +3939,12 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                   </p>
                 </div>
 
-                {/* بجانب سجل المحادثات: اكتب عدد المتصلين + خانة إدخال الرقم */}
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <div className="flex items-center gap-2 bg-[#0A192F] border border-emerald-400/50 rounded-xl px-3 py-1.5">
+                {/* في سطر واحد بالكامل على الهاتف والكمبيوتر بدون اختفاء أي جزء: اكتب عدد المتصلين + سجل المحادثات + أكثر المتواجدين */}
+                <div className="flex items-center justify-between sm:justify-end gap-1 sm:gap-2 flex-nowrap w-full lg:w-auto">
+                  <div className="flex items-center gap-1 sm:gap-2 bg-[#0A192F] border border-emerald-400/50 rounded-xl px-1.5 sm:px-3 py-1 sm:py-1.5 shrink-0">
                     <label
                       htmlFor="custom-online-count-input"
-                      className="text-xs font-extrabold text-emerald-300 whitespace-nowrap"
+                      className="text-[9.5px] sm:text-xs font-extrabold text-emerald-300 whitespace-nowrap"
                     >
                       اكتب عدد المتصلين
                     </label>
@@ -3761,8 +3976,8 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                           updatedAt: Date.now(),
                         });
                       }}
-                      placeholder="فعلي تلقائي"
-                      className="w-24 sm:w-28 rounded-lg bg-[#112240] border border-[#334155] focus:border-emerald-400 px-2.5 py-1 text-xs sm:text-sm font-extrabold text-[#F8FAFC] font-mono-tabular outline-none text-center"
+                      placeholder="تلقائي"
+                      className="w-9 sm:w-24 rounded-lg bg-[#112240] border border-[#334155] focus:border-emerald-400 px-1 sm:px-2.5 py-0.5 sm:py-1 text-[9.5px] sm:text-xs font-extrabold text-[#F8FAFC] font-mono-tabular outline-none text-center"
                     />
                   </div>
 
@@ -3770,9 +3985,20 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                     variant="primary"
                     size="sm"
                     onClick={() => onOpenPrivateChatHistoryModal?.()}
+                    className="px-1.5 sm:px-3 py-1.5 text-[9.5px] sm:text-xs font-extrabold whitespace-nowrap shrink-0"
                   >
-                    <History className="w-4 h-4" />
+                    <History className="hidden sm:inline-block w-3.5 h-3.5 shrink-0" />
                     <span>سجل المحادثات</span>
+                  </FluentButton>
+
+                  <FluentButton
+                    variant="emerald"
+                    size="sm"
+                    onClick={() => setIsTopVisitorsModalOpen(true)}
+                    className="px-1.5 sm:px-3 py-1.5 text-[9.5px] sm:text-xs font-extrabold whitespace-nowrap shrink-0"
+                  >
+                    <Crown className="hidden sm:inline-block w-3.5 h-3.5 shrink-0" />
+                    <span>أكثر المتواجدين</span>
                   </FluentButton>
                 </div>
               </div>
@@ -4455,8 +4681,249 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
               )}
             </FluentCard>
           )}
+
+          {/* ====================================================================
+              12. سجل الأحداث (Admin & Moderator Activity Logs + Auth Session Logs)
+             ==================================================================== */}
+          {activeSubTab === 'activity_logs' && (
+            <FluentCard className="space-y-4 overflow-x-hidden">
+              <div className="pb-3 border-b border-[#334155] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-[#F8FAFC] flex items-center gap-2">
+                    <History className="w-5 h-5 text-amber-400" />
+                    <span>
+                      12. سجل الأحداث ({(state.settings.adminActivityLogs || []).length})
+                    </span>
+                  </h3>
+                  <p className="text-xs text-[#94A3B8]">
+                    سجل عمليات الـ Admin والمشرف (تعديل أو حذف محلات، خدمات، منشورات، تغيير مسمى، أو تعديل/تعليق/حذف حساب) باليوم والساعة والتاريخ.
+                  </p>
+                </div>
+
+                {/* زر سجل تسجيلات الدخول والخروج في أعلى سجل الأحداث */}
+                <FluentButton
+                  variant={isAuthSessionLogsOpen ? 'emerald' : 'primary'}
+                  size="sm"
+                  onClick={() => setIsAuthSessionLogsOpen((prev) => !prev)}
+                  className="font-extrabold whitespace-nowrap self-start sm:self-auto"
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>
+                    سجل تسجيلات الدخول والخروج ({(state.settings.authSessionLogs || []).length})
+                  </span>
+                </FluentButton>
+              </div>
+
+              {/* قسم سجل تسجيلات الدخول والخروج (عند فتحه) */}
+              {isAuthSessionLogsOpen && (
+                <div className="p-3 rounded-xl bg-[#0A192F] border border-amber-400/50 space-y-2 overflow-x-hidden">
+                  <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-[#334155]">
+                    <span className="text-xs sm:text-sm font-extrabold text-amber-300">
+                      سجل تسجيلات الدخول والخروج (اليوم · الساعة · التاريخ)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsAuthSessionLogsOpen(false)}
+                      className="text-xs font-extrabold text-rose-400 hover:text-rose-300 cursor-pointer"
+                    >
+                      إغلاق
+                    </button>
+                  </div>
+
+                  {(state.settings.authSessionLogs || []).length === 0 ? (
+                    <p className="text-xs text-[#94A3B8] py-4 text-center">
+                      لا توجد تسجيلات دخول أو خروج مسجلة حتى الآن.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 overflow-x-hidden">
+                      {(showAllAuthSessionLogs
+                        ? state.settings.authSessionLogs || []
+                        : (state.settings.authSessionLogs || []).slice(0, 10)
+                      ).map((log) => (
+                        <div
+                          key={log.id}
+                          className="w-full px-2.5 py-2 rounded-lg bg-[#112240] border border-[#334155] flex items-center justify-between gap-1.5 flex-nowrap overflow-hidden text-[10px] sm:text-xs"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-extrabold shrink-0 whitespace-nowrap ${
+                                log.eventType === 'login'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                                  : 'bg-rose-500/20 text-rose-300 border border-rose-400/40'
+                              }`}
+                            >
+                              {log.eventType === 'login' ? 'دخول' : 'خروج'}
+                            </span>
+                            <span className="font-extrabold text-[#F8FAFC] truncate">
+                              {log.username}
+                            </span>
+                            <span className="text-[9px] sm:text-[11px] text-sky-300 shrink-0 whitespace-nowrap">
+                              ({log.role === 'admin' ? 'Admin' : log.role === 'moderator' ? 'مشرف' : 'عضو'})
+                            </span>
+                          </div>
+                          <span className="text-[9px] sm:text-[11px] font-mono-tabular font-bold text-amber-300 whitespace-nowrap shrink-0">
+                            {formatActivityDayTimeDate(log.createdAt)}
+                          </span>
+                        </div>
+                      ))}
+
+                      {(state.settings.authSessionLogs || []).length > 10 && (
+                        <div className="pt-2 flex justify-center">
+                          <FluentButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setShowAllAuthSessionLogs((prev) => !prev)}
+                          >
+                            <span>
+                              {showAllAuthSessionLogs
+                                ? 'عرض آخر 10 فقط'
+                                : `إظهار المزيد (${(state.settings.authSessionLogs || []).length - 10})`}
+                            </span>
+                          </FluentButton>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* قائمة سجل أحداث الـ Admin والمشرف (آخر 10 أحداث في سطر واحد + زر إظهار المزيد) */}
+              {(state.settings.adminActivityLogs || []).length === 0 ? (
+                <div className="p-6 rounded-xl bg-[#0A192F] border border-[#334155] text-center text-xs sm:text-sm text-[#94A3B8]">
+                  لا توجد أحداث مسجلة حتى الآن. سيظهر هنا تلقائياً أي تعديل أو حذف للمحلات أو الخدمات أو المنشورات أو تغيير مسمى أو تعديل/تعليق/حذف حساب.
+                </div>
+              ) : (
+                <div className="space-y-1.5 overflow-x-hidden">
+                  {(showAllActivityLogs
+                    ? state.settings.adminActivityLogs || []
+                    : (state.settings.adminActivityLogs || []).slice(0, 10)
+                  ).map((item) => (
+                    <div
+                      key={item.id}
+                      className="w-full px-2.5 py-2 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-1.5 flex-nowrap overflow-hidden text-[10px] sm:text-xs"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                        <span
+                          className={`px-1.5 py-0.5 rounded font-extrabold shrink-0 whitespace-nowrap ${
+                            item.actorRole === 'admin'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                          }`}
+                        >
+                          {item.actorRole === 'admin' ? 'Admin' : 'مشرف'}: {item.actorUsername}
+                        </span>
+                        <span className="font-extrabold text-sky-300 shrink-0 whitespace-nowrap">
+                          {item.actionType}
+                        </span>
+                        <span className="font-bold text-[#F8FAFC] truncate">
+                          ({item.targetName || item.description})
+                        </span>
+                      </div>
+
+                      <span className="text-[9px] sm:text-[11px] font-mono-tabular font-bold text-amber-300 whitespace-nowrap shrink-0">
+                        {formatActivityDayTimeDate(item.createdAt)}
+                      </span>
+                    </div>
+                  ))}
+
+                  {(state.settings.adminActivityLogs || []).length > 10 && (
+                    <div className="pt-2 flex justify-center">
+                      <FluentButton
+                        variant="primary"
+                        size="sm"
+                        onClick={() => setShowAllActivityLogs((prev) => !prev)}
+                      >
+                        <span>
+                          {showAllActivityLogs
+                            ? 'إخفاء وعرض آخر 10 أحداث فقط'
+                            : `إظهار المزيد (${(state.settings.adminActivityLogs || []).length - 10} حدث إضافي)`}
+                        </span>
+                      </FluentButton>
+                    </div>
+                  )}
+                </div>
+              )}
+            </FluentCard>
+          )}
         </div>
       </div>
+
+      {/* Modal: أكثر المتواجدين (Top Daily Visitors Sorted by Daily Visit Count) */}
+      {isTopVisitorsModalOpen && (
+        <FluentModal
+          isOpen={isTopVisitorsModalOpen}
+          onClose={() => setIsTopVisitorsModalOpen(false)}
+          title="أكثر المتواجدين على الموقع (مرتبة حسب عدد الزيارات يومياً)"
+        >
+          <div className="space-y-2.5 max-h-[70vh] overflow-y-auto overflow-x-hidden pr-1">
+            {(() => {
+              const todayKey = new Date().toISOString().slice(0, 10);
+              const visitsMap = state.settings.userDailyVisitsMap || {};
+              const onlineNamesSet = new Set(
+                connectedOnlineUsers.map((u) => u.username.trim().toLowerCase())
+              );
+
+              const rankedUsers = state.users
+                .map((u) => {
+                  const keyById = visitsMap[u.id];
+                  const keyByName = visitsMap[u.username.trim().toLowerCase()];
+                  const entry = keyById || keyByName;
+                  const isCurrentlyOnline = onlineNamesSet.has(
+                    u.username.trim().toLowerCase()
+                  );
+                  let dailyVisits = 0;
+                  if (entry && entry.dateKey === todayKey) {
+                    dailyVisits = Math.max(1, entry.dailyCount || 0);
+                  } else if (entry && entry.totalCount) {
+                    dailyVisits = Math.max(1, entry.dailyCount || 1);
+                  } else if (isCurrentlyOnline) {
+                    dailyVisits = 1;
+                  }
+                  return {
+                    user: u,
+                    dailyVisits,
+                    isCurrentlyOnline,
+                  };
+                })
+                .sort((a, b) => {
+                  if (b.dailyVisits !== a.dailyVisits) {
+                    return b.dailyVisits - a.dailyVisits;
+                  }
+                  if (a.isCurrentlyOnline !== b.isCurrentlyOnline) {
+                    return a.isCurrentlyOnline ? -1 : 1;
+                  }
+                  return a.user.username.localeCompare(b.user.username, 'ar');
+                });
+
+              return rankedUsers.map((item, idx) => (
+                <div
+                  key={item.user.id}
+                  className="px-3 py-2.5 rounded-xl bg-[#0A192F] border border-[#334155] flex items-center justify-between gap-2 overflow-hidden"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-6 h-6 rounded-lg bg-[#112240] border border-sky-400/40 text-sky-300 text-xs font-extrabold flex items-center justify-center shrink-0 font-mono-tabular">
+                      {idx + 1}
+                    </span>
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        item.isCurrentlyOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                      }`}
+                    />
+                    <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
+                      {item.user.username}
+                    </span>
+                  </div>
+
+                  {/* خانة بجانب الاسم بها رقم عدد الزيارات فقط بدون جملة عدد الزيارات اليومية */}
+                  <div className="min-w-[2.25rem] px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/50 text-white text-xs sm:text-sm font-extrabold font-mono-tabular whitespace-nowrap shrink-0 flex items-center justify-center">
+                    {item.dailyVisits}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        </FluentModal>
+      )}
 
       {/* Modal: سجل المراسلات (Correspondence History & Direct Reply to User Bell) */}
       {isMessagesHistoryModalOpen && (
@@ -5488,6 +5955,18 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                 0,
               linkedStore?.viewsCount || 0
             );
+            const viewsSinceAdPlaced = (() => {
+              const explicitSinceCreation = currentAdObj?.adViewsSinceCreation;
+              const baselineAtCreation = currentAdObj?.baselineViewsAtCreation;
+              const deltaFromBaseline =
+                typeof baselineAtCreation === 'number'
+                  ? Math.max(0, liveViewsCount - baselineAtCreation)
+                  : liveViewsCount;
+              if (typeof explicitSinceCreation === 'number' && explicitSinceCreation > 0) {
+                return Math.max(explicitSinceCreation, deltaFromBaseline);
+              }
+              return deltaFromBaseline;
+            })();
             const liveCallClicks = Math.max(
               (liveSquare?.callClicksCount ??
                 liveBanner?.callClicksCount ??
@@ -5788,7 +6267,7 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* عدد المشاهدات الفعلية للإعلان */}
                     <div className="p-3 rounded-xl bg-[#0A192F] border border-amber-400/40 flex items-center justify-between gap-2">
-                      <div className="space-y-0.5">
+                      <div className="space-y-1">
                         <div className="text-xs font-extrabold text-amber-300 flex items-center gap-1.5">
                           <Eye className="w-4 h-4 text-amber-400 shrink-0" />
                           <span>عدد مشاهدات الإعلان</span>
@@ -5796,8 +6275,14 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                         <p className="text-[10px] text-[#94A3B8]">
                           الذين ضغطوا على الإعلان وشاهدوا بيانات المحل لحظياً
                         </p>
+                        <div className="text-[11px] font-extrabold text-emerald-300 pt-0.5">
+                          العدد الذي تم مشاهدته من بداية وضع الإعلان:{' '}
+                          <span className="font-mono-tabular text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/30">
+                            {viewsSinceAdPlaced}
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-xl font-extrabold text-amber-300 font-mono-tabular px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/30">
+                      <span className="text-xl font-extrabold text-amber-300 font-mono-tabular px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/30 shrink-0">
                         {liveViewsCount}
                       </span>
                     </div>

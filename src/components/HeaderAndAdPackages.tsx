@@ -14,7 +14,12 @@ import {
   ExternalLink,
   Mail,
 } from 'lucide-react';
-import { AdminMessage, PlatformSettings, UserAccount } from '../types';
+import {
+  AdminMessage,
+  MentionNotificationItem,
+  PlatformSettings,
+  UserAccount,
+} from '../types';
 import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import { PWAInstallButton } from './PWAInstallPrompt';
 
@@ -25,6 +30,12 @@ interface HeaderAndAdPackagesProps {
   messages?: AdminMessage[];
   onMarkUserMessagesRead?: (messageId?: string) => void;
   onReplyToAdminMessage?: (messageId: string, replyText: string) => void;
+  onNavigateToMention?: (notification: MentionNotificationItem) => void;
+  onRespondFriendRequest?: (
+    requestId: string,
+    action: 'accepted' | 'rejected'
+  ) => void;
+  onOpenUserProfile?: (username: string) => void;
   onOpenAuthModal: () => void;
   onLogout: () => void;
   onOpenMobileSidebar: () => void;
@@ -47,6 +58,9 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
   messages = [],
   onMarkUserMessagesRead,
   onReplyToAdminMessage,
+  onNavigateToMention,
+  onRespondFriendRequest,
+  onOpenUserProfile,
   onOpenAuthModal,
   onLogout,
   onOpenMobileSidebar,
@@ -208,13 +222,47 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
     }
   }, [myMessages, currentUser?.role]);
 
-  // Calculate unread messages count for the red badge on the Bell icon
-  const unreadBellCount = myMessages.reduce((sum, m) => {
-    if (currentUser?.role === 'admin') {
-      return sum + (!m.isRead ? 1 : 0);
-    }
-    return sum + (m.unreadForUserCount || 0);
-  }, 0);
+  // Filter mention notifications for current user
+  const myMentionNotifications = React.useMemo(() => {
+    if (!currentUser) return [];
+    const myNorm = currentUser.username.trim().toLowerCase();
+    const myAccNorm = (currentUser.accountName || '').trim().toLowerCase();
+    return (settings.mentionNotifications || []).filter((n) => {
+      const targetNorm = (n.targetUsername || '').trim().toLowerCase();
+      return (
+        (n.targetUserId && n.targetUserId === currentUser.id) ||
+        targetNorm === myNorm ||
+        (myAccNorm && targetNorm === myAccNorm)
+      );
+    });
+  }, [settings.mentionNotifications, currentUser]);
+
+  const unreadMentionsCount = myMentionNotifications.filter((n) => !n.isRead).length;
+
+  const myPendingFriendRequests = React.useMemo(() => {
+    if (!currentUser) return [];
+    const list = Array.isArray(settings.friendRequests)
+      ? settings.friendRequests
+      : [];
+    const myNorm = currentUser.username.trim().toLowerCase();
+    const myAccNorm = (currentUser.accountName || '').trim().toLowerCase();
+    return list.filter((req) => {
+      if (!req || req.status !== 'pending') return false;
+      const toNorm = (req.toUsername || '').trim().toLowerCase();
+      return toNorm === myNorm || (myAccNorm && toNorm === myAccNorm);
+    });
+  }, [settings.friendRequests, currentUser]);
+
+  // Calculate unread messages + unread mentions + pending friend requests count for the red badge on the Bell icon
+  const unreadBellCount =
+    myMessages.reduce((sum, m) => {
+      if (currentUser?.role === 'admin') {
+        return sum + (!m.isRead ? 1 : 0);
+      }
+      return sum + (m.unreadForUserCount || 0);
+    }, 0) +
+    unreadMentionsCount +
+    myPendingFriendRequests.length;
 
   const activePopupMessage =
     myMessages.find((m) => m.id === activePopupMessageId) || null;
@@ -484,22 +532,121 @@ export const HeaderAndAdPackages: React.FC<HeaderAndAdPackagesProps> = ({
         </div>
       )}
 
-      {/* Bell Messages Reader Modal / Dropdown Panel */}
+      {/* Bell Messages & Mention Notifications Reader Modal / Dropdown Panel */}
       {isBellOpen && (
         <FluentModal
           isOpen={isBellOpen}
           onClose={() => setIsBellOpen(false)}
-          title="🔔 إشعارات المراسلات الواردة"
-          subtitle="اضغط على أي رسالة لقراءتها أو فتحها في شاشة منبثقة للرد المباشر"
+          title="🔔 إشعارات الجرس (المنشن والمراسلات)"
+          subtitle="اضغط على أي إشعار منشن للتوجه مباشرة إلى المنشور أو الكومنت، أو افتح المراسلات للرد المباشر"
           maxWidth="lg"
         >
-          {myMessages.length === 0 ? (
+          {myPendingFriendRequests.length === 0 &&
+          myMentionNotifications.length === 0 &&
+          myMessages.length === 0 ? (
             <div className="p-6 text-center text-xs text-[#94A3B8] space-y-2">
               <Mail className="w-8 h-8 text-sky-400/50 mx-auto" />
-              <p>لا توجد رسائل واردة في الجرس حتى الآن.</p>
+              <p>لا توجد طلبات صداقة أو إشعارات منشن أو رسائل واردة في الجرس حتى الآن.</p>
             </div>
           ) : (
             <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+              {/* طلبات الصداقة الواردة في سطر واحد (اسم الحساب بالكامل + قبول + رفض) */}
+              {myPendingFriendRequests.map((freq) => (
+                <div
+                  key={freq.id}
+                  className="p-2.5 sm:p-3 rounded-xl bg-sky-950/40 border border-sky-400/60 shadow-md"
+                >
+                  <div className="flex items-center justify-between gap-1.5 flex-nowrap w-full">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsBellOpen(false);
+                        onOpenUserProfile?.(freq.fromUsername);
+                      }}
+                      className="flex items-center gap-1.5 min-w-0 flex-1 text-right"
+                    >
+                      <UserPlus className="w-4 h-4 text-sky-400 shrink-0" />
+                      <span className="text-[11px] sm:text-xs font-black text-white break-words leading-snug">
+                        طلب صداقة: <strong className="text-sky-300">{freq.fromUsername}</strong>
+                      </span>
+                    </button>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onRespondFriendRequest?.(freq.id, 'accepted')
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] sm:text-xs font-black whitespace-nowrap transition shadow"
+                      >
+                        قبول
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onRespondFriendRequest?.(freq.id, 'rejected')
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10px] sm:text-xs font-black whitespace-nowrap transition shadow"
+                      >
+                        رفض
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* إشعارات المنشن (@) في المنشورات والتعليقات */}
+              {myMentionNotifications.map((notif) => (
+                <div
+                  key={notif.id}
+                  onClick={() => {
+                    setIsBellOpen(false);
+                    onNavigateToMention?.(notif);
+                  }}
+                  className={`p-3.5 rounded-xl border space-y-2 cursor-pointer transition-all ${
+                    !notif.isRead
+                      ? 'bg-amber-950/35 border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.25)]'
+                      : 'bg-[#0A192F] border-sky-400/40 hover:border-amber-400/60'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/60 text-amber-300 text-[10px] font-extrabold">
+                        @ إشعار منشن
+                      </span>
+                      <span className="font-extrabold text-[#F8FAFC]">
+                        قام <strong className="text-sky-300">{notif.actorUsername}</strong> بعمل منشن لك في{' '}
+                        {notif.commentId ? 'تعليق' : 'منشور'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-[#94A3B8] font-mono-tabular">
+                      {new Date(notif.createdAt).toLocaleString('ar-EG')}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-[#112240] border border-[#334155] text-xs text-[#F8FAFC] line-clamp-2">
+                    {notif.snippet}
+                  </div>
+
+                  <div className="flex items-center justify-end">
+                    <FluentButton
+                      variant="primary"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsBellOpen(false);
+                        onNavigateToMention?.(notif);
+                      }}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>
+                        التوجه مباشرة إلى {notif.commentId ? 'الكومنت' : 'المنشور'}
+                      </span>
+                    </FluentButton>
+                  </div>
+                </div>
+              ))}
+
               {myMessages.map((msg) => {
                 const threadItems =
                   msg.thread && msg.thread.length > 0

@@ -1,13 +1,86 @@
 export type MainSectionId =
+  | 'home_feed'
   | 'directory'
   | 'services_numbers'
   | 'tawsila'
   | 'community'
   | 'utilities'
   | 'buy_sell'
+  | 'profile'
   | 'settings';
 
 export type UserRoleType = 'admin' | 'moderator' | 'user';
+
+export type ProfileFieldPrivacy = 'public' | 'friends' | 'private';
+
+export type PostPrivacyLevel =
+  | 'public'
+  | 'private'
+  | 'friends'
+  | 'custom_list'
+  | 'custom';
+
+export interface UserJobEntry {
+  id: string;
+  title: string;
+  durationMonths?: number;
+}
+
+export interface CustomFriendList {
+  id: string;
+  title: string;
+  memberUsernames: string[];
+  name?: string;
+  usernames?: string[];
+}
+
+export interface UserPersonalProfile {
+  gender?: 'male' | 'female';
+  avatarId?: string;
+  governorate?: string;
+  governoratePrivacy?: ProfileFieldPrivacy;
+  birthDate?: string;
+  birthDatePrivacy?: ProfileFieldPrivacy;
+  qualification?: string;
+  qualificationPrivacy?: ProfileFieldPrivacy;
+  maritalStatus?: 'أعزب' | 'متزوج' | '' | string;
+  maritalStatusPrivacy?: ProfileFieldPrivacy;
+  jobs?: UserJobEntry[];
+  jobsPrivacy?: ProfileFieldPrivacy;
+  phone?: string;
+  phonePrivacy?: ProfileFieldPrivacy;
+  noteText?: string; // خانة ملاحظة (حتى 100 حرف مع إيموشن)
+  customAvatarText?: string; // كتابة نص داخل الصورة (حتى 4 كلمات)
+  isProfileLocked?: boolean; // قفل الصفحة الشخصية
+  disableFriendRequests?: boolean; // قفل عدم إرسال طلبات صداقة
+  followingUsernames?: string[]; // أتابعه (الحسابات التي أضافها صاحب الحساب كأصدقاء له)
+  friendUsernames?: string[]; // الأصدقاء المؤكدون
+  followersUsernames?: string[]; // المتابعين
+  customFriendLists?: CustomFriendList[];
+}
+
+export interface FriendRequestNotificationItem {
+  id: string;
+  fromUserId?: string;
+  fromUsername: string;
+  toUsername: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: string;
+}
+
+export interface MentionNotificationItem {
+  id: string;
+  targetUsername: string;
+  targetUserId?: string;
+  actorUsername: string;
+  actorUserId?: string;
+  section: MainSectionId;
+  postId: string;
+  commentId?: string;
+  snippet: string;
+  isRead?: boolean;
+  createdAt: string;
+}
 
 export interface UserAccount {
   id: string;
@@ -16,9 +89,14 @@ export interface UserAccount {
   password: string;
   role: UserRoleType;
   phone?: string;
+  gender?: 'male' | 'female';
+  avatarId?: string;
+  isVerified?: boolean; // العلامة الزرقاء (حساب موثق)
+  profile?: UserPersonalProfile;
   createdAt: string;
   isBanned?: boolean;
   isOnline?: boolean;
+  updatedAt?: number;
 }
 
 export interface TopBannerAd {
@@ -37,6 +115,8 @@ export interface TopBannerAd {
   active: boolean;
   expiresAt?: string;
   viewsCount?: number; // عدد الذين ضغطوا على الإعلان وفتحوه لحظياً
+  adViewsSinceCreation?: number; // العدد الذي تم مشاهدته من بداية وضع الإعلان
+  baselineViewsAtCreation?: number; // عدد مشاهدات المحل وقت بداية وضع الإعلان
   callClicksCount?: number; // عدد الذين ضغطوا على زر اتصال لحظياً
   whatsappClicksCount?: number; // عدد الذين ضغطوا على زر المراسلة لحظياً
   viewsByHour?: Record<string, number>; // توزيع المشاهدات بالساعة لمعرفة أكثر وقت مشاهدة
@@ -61,6 +141,8 @@ export interface SquareMovingAd {
   expiresAt?: string;
   active: boolean;
   viewsCount?: number; // عدد الذين ضغطوا على الإعلان وفتحوه لحظياً
+  adViewsSinceCreation?: number; // العدد الذي تم مشاهدته من بداية وضع الإعلان
+  baselineViewsAtCreation?: number; // عدد مشاهدات المحل وقت بداية وضع الإعلان
   callClicksCount?: number; // عدد الذين ضغطوا على زر اتصال لحظياً
   whatsappClicksCount?: number; // عدد الذين ضغطوا على زر المراسلة لحظياً
   viewsByHour?: Record<string, number>; // توزيع المشاهدات بالساعة لمعرفة أكثر وقت مشاهدة
@@ -85,11 +167,13 @@ export interface PopupAdConfig {
   durationDays?: number;
   expiresAt?: string;
   viewsCount?: number; // عدد الذين ضغطوا على الإعلان وفتحوه لحظياً
+  adViewsSinceCreation?: number; // العدد الذي تم مشاهدته من بداية وضع الإعلان
+  baselineViewsAtCreation?: number; // عدد مشاهدات المحل وقت بداية وضع الإعلان
+  createdAt?: string;
   callClicksCount?: number; // عدد الذين ضغطوا على زر اتصال لحظياً
   whatsappClicksCount?: number; // عدد الذين ضغطوا على زر المراسلة لحظياً
   viewsByHour?: Record<string, number>; // توزيع المشاهدات بالساعة لمعرفة أكثر وقت مشاهدة
   updatedAt?: number;
-  createdAt?: string;
 }
 
 export interface AdminMessageThreadEntry {
@@ -267,6 +351,13 @@ export interface CommunityPostItem {
   postType: CommunityPostType; // استفسار | اقتراح | بيع
   status: CommunityPostStatus; // pending | approved | rejected
   content: string;
+  textColor?: string; // تلوين خط المنشور
+  privacy?: PostPrivacyLevel; // منشور عام | منشور خاص | منشور للأصدقاء | أصدقاء محددين
+  allowedUsernames?: string[]; // أسماء الأصدقاء المحددين
+  customListId?: string; // معرف القائمة المخصصة
+  mentionedUsernames?: string[]; // الحسابات التي تم عمل منشن لها في المنشور
+  isProfileOrHomePost?: boolean; // منشور من الصفحة الرئيسية أو الملف الشخصي بدون استفسار/اقتراح
+  postSource?: 'profile' | 'home_feed' | 'community' | 'buy_sell' | 'utilities'; // مصدر المنشور لعزل منشورات الصفحة الشخصية
   imageUrl?: string;
   isPinned?: boolean; // تثبيت المنشور بالاعلى (لصلاحيات Admin فقط)
   isSold?: boolean; // تم البيع
@@ -368,6 +459,34 @@ export interface UtilitySubmissionItem {
   createdAt: string;
 }
 
+export interface AdminActivityLogItem {
+  id: string;
+  actorUsername: string;
+  actorRole: 'admin' | 'moderator';
+  actionType: string;
+  targetName?: string;
+  description: string;
+  createdAt: string;
+}
+
+export interface AuthSessionLogItem {
+  id: string;
+  userId: string;
+  username: string;
+  role: UserRoleType;
+  eventType: 'login' | 'logout';
+  createdAt: string;
+}
+
+export interface UserDailyVisitEntry {
+  userId: string;
+  username: string;
+  dateKey: string; // YYYY-MM-DD
+  dailyCount: number;
+  totalCount: number;
+  lastVisitAt: string;
+}
+
 export interface PlatformSettings {
   siteName: string;
   marqueeText: string;
@@ -394,6 +513,11 @@ export interface PlatformSettings {
   appExternalLinkUrl?: string; // لينك التطبيق في موقع خارجي (زر لينك التطبيق)
   adPackagesPricing?: AdPackagesPricingConfig; // أسعار باقات الإعلانات الـ 3 ونسبة خصم عرض الـ 10 أيام
   defaultStoreSvgStyle?: 1 | 2; // الشكل الموحد لصورة المحلات (1 = الأساسي الكلاسيكي، 2 = الثاني الملكي الداكن) لتعميم جميع المحلات بنفس الشكل
+  adminActivityLogs?: AdminActivityLogItem[]; // سجل أحداث الـ Admin والمشرف
+  authSessionLogs?: AuthSessionLogItem[]; // سجل تسجيلات الدخول والخروج
+  userDailyVisitsMap?: Record<string, UserDailyVisitEntry>; // عدد الزيارات اليومية للحسابات
+  mentionNotifications?: MentionNotificationItem[]; // إشعارات المنشن في زر الجرس بالأعلى
+  friendRequests?: FriendRequestNotificationItem[]; // طلبات الصداقة في زر الجرس بالأعلى
   firebase: FirebaseConfigSettings;
 }
 
@@ -401,7 +525,7 @@ export interface AdPackagesPricingConfig {
   pkg1DailyPrice: number; // سعر اليوم في الباقة الأولى (القائمة المتحركة)
   pkg2DailyPrice: number; // سعر اليوم في الباقة الثانية (البانر العلوي)
   pkg3DailyPrice: number; // سعر اليوم في الباقة الثالثة (الشاشة المنبثقة)
-  tenDaysDiscountPercent: number; // نسبة الخصم في عرض الـ 10 أيام (%)
+  tenDaysDiscountPercent: number; // نسبة خصم عرض الـ 10 أيام (%)
 }
 
 export interface PlatformDatabaseState {

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { UserAccount } from '../types';
 import { FluentButton, FluentModal } from './FluentUI';
+import { getRandomAvatarIdByGender } from './SocialBottomBarAndProfile';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -64,6 +65,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [accountName, setAccountName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
+  const [registerGender, setRegisterGender] = useState<'male' | 'female'>('male');
   const [rememberMe, setRememberMe] = useState<boolean>(true); // Checked by default
   const [feedback, setFeedback] = useState<{
     type: 'error' | 'success';
@@ -260,12 +262,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
+    const randomAvatarId = getRandomAvatarIdByGender(registerGender);
     const createdUser: UserAccount = {
       id: `usr-${Date.now()}`,
       accountName: cleanAccount,
       username: lowerAccount === 'admin' ? 'admin' : cleanDisplay,
       password, // Accepts numbers, letters, or symbols freely
       role: lowerAccount === 'admin' ? 'admin' : 'user',
+      gender: registerGender,
+      avatarId: randomAvatarId,
+      profile: {
+        gender: registerGender,
+        avatarId: randomAvatarId,
+        governorate: 'القاهرة',
+        governoratePrivacy: 'public',
+        maritalStatus: 'أعزب',
+        maritalStatusPrivacy: 'public',
+        followingUsernames: [],
+        customFriendLists: [],
+      },
       createdAt: new Date().toISOString(),
     };
 
@@ -413,6 +428,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   placeholder="اكتب الاسم الذي يظهر للمستخدمين في الموقع..."
                   className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-emerald-400 pr-10 pl-4 py-2.5 text-[#F8FAFC] outline-none"
                 />
+              </div>
+
+              {/* اختيار النوع (ذكر أم أنثى) لاختيار صورة شخصية كرتونية عشوائية تلقائياً */}
+              <div className="mt-2.5 flex items-center justify-between gap-2 bg-[#0A192F] border border-[#334155] rounded-xl px-3 py-2">
+                <span className="text-xs font-extrabold text-sky-300">
+                  النوع (لاختيار شخصية الحساب تلقائياً):
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRegisterGender('male')}
+                    className={`px-3 py-1 rounded-lg text-xs font-extrabold cursor-pointer border transition-all ${
+                      registerGender === 'male'
+                        ? 'bg-sky-600 text-white border-sky-400'
+                        : 'bg-[#112240] text-[#94A3B8] border-[#334155]'
+                    }`}
+                  >
+                    ذكر
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRegisterGender('female')}
+                    className={`px-3 py-1 rounded-lg text-xs font-extrabold cursor-pointer border transition-all ${
+                      registerGender === 'female'
+                        ? 'bg-pink-600 text-white border-pink-400'
+                        : 'bg-[#112240] text-[#94A3B8] border-[#334155]'
+                    }`}
+                  >
+                    أنثى
+                  </button>
+                </div>
               </div>
             </div>
           )}

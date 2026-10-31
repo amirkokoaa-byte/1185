@@ -36,6 +36,13 @@ import {
   Share2,
   Copy,
   MessageCircle,
+  AtSign,
+  Palette,
+  Lock,
+  Globe,
+  Search,
+  Plus,
+  Check,
 } from 'lucide-react';
 import {
   ChatModerationPenalty,
@@ -47,7 +54,9 @@ import {
   CommunityPostStatus,
   CommunityPostType,
   CommunityReportReason,
+  CustomFriendList,
   LiveChatMessageItem,
+  PostPrivacyLevel,
   PrivateChatMessageItem,
   PrivateChatReportItem,
   PrivateChatStatus,
@@ -55,6 +64,10 @@ import {
 } from '../types';
 import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import { LiveCommunityChatModal } from './LiveCommunityChatModal';
+import {
+  getUserAvatarDataUri,
+  VerifiedBlueBadge,
+} from './SocialBottomBarAndProfile';
 import {
   ABUSIVE_CONTENT_WARNING_MESSAGE,
   containsAbusiveWords,
@@ -208,6 +221,31 @@ interface CommunityHubViewProps {
   onDeletePrivateChatMessage?: (msgId: string) => void;
   onDeletePrivateConversation?: (partnerUsername: string) => void;
   onTogglePinPrivateChatMessage?: (msgId: string) => void;
+  hidePostTypeSelector?: boolean;
+  hideTopSectionBar?: boolean;
+  isHomeFeedView?: boolean;
+  profileFilterUsername?: string | null;
+  externalJumpTarget?: {
+    postId: string;
+    commentId?: string;
+    tick: number;
+  } | null;
+  onSelectUserProfile?: (username: string) => void;
+  onUpdateUserAccount?: (user: UserAccount) => void;
+  onSendFriendRequest?: (targetUsername: string) => void;
+  onSharePostToBuySell?: (post: CommunityPostItem) => void;
+  onUpdatePostPrivacy?: (
+    postId: string,
+    privacy: PostPrivacyLevel,
+    allowedUsernames?: string[],
+    customListId?: string
+  ) => void;
+  onTriggerMentionNotifications?: (
+    mentionedUsernames: string[],
+    postId: string,
+    snippet: string,
+    commentId?: string
+  ) => void;
 }
 
 const REPORT_REASONS: CommunityReportReason[] = [
@@ -380,10 +418,24 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   onDeletePrivateChatMessage,
   onDeletePrivateConversation,
   onTogglePinPrivateChatMessage,
+  hidePostTypeSelector = false,
+  hideTopSectionBar = false,
+  isHomeFeedView = false,
+  profileFilterUsername = null,
+  externalJumpTarget = null,
+  onSelectUserProfile,
+  onUpdateUserAccount,
+  onSendFriendRequest,
+  onSharePostToBuySell,
+  onUpdatePostPrivacy,
+  onTriggerMentionNotifications,
 }) => {
   const isStrictAdmin = currentUser?.role === 'admin';
   const isAdmin =
     currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+  const isProfileView = Boolean(
+    profileFilterUsername && profileFilterUsername.trim().length > 0
+  );
   const visitorId = getOrCreateVisitorId(currentUser);
   const visitorName = currentUser?.username || 'زائر';
 
@@ -472,6 +524,41 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [composerPostType, setComposerPostType] = useState<CommunityPostType>(
     allowedPostTypes[0] || 'استفسار'
   );
+  const [composerTextColor, setComposerTextColor] = useState<string>('#F8FAFC');
+  const [isColorPaletteOpen, setIsColorPaletteOpen] = useState<boolean>(false);
+  const [composerPrivacy, setComposerPrivacy] =
+    useState<PostPrivacyLevel>('public');
+  const [composerAllowedUsernames, setComposerAllowedUsernames] = useState<
+    string[]
+  >([]);
+  const [composerCustomListId, setComposerCustomListId] = useState<string>('');
+  const [composerMentionedUsers, setComposerMentionedUsers] = useState<string[]>(
+    []
+  );
+  const [isPostMentionOpen, setIsPostMentionOpen] = useState<boolean>(false);
+  const [postMentionSearch, setPostMentionSearch] = useState<string>('');
+  const [activeCommentMentionPostId, setActiveCommentMentionPostId] = useState<
+    string | null
+  >(null);
+  const [commentMentionSearch, setCommentMentionSearch] = useState<string>('');
+  const [commentMentionedMap, setCommentMentionedMap] = useState<
+    Record<string, string[]>
+  >({});
+
+  // Custom Friend Lists Modal ("أصدقاء محددين" - حفظ أكثر من قائمة وتسميتها وتعديلها أو حذف أي شخص منها)
+  const [isCustomFriendsModalOpen, setIsCustomFriendsModalOpen] =
+    useState<boolean>(false);
+  const [customFriendsModalTargetPostId, setCustomFriendsModalTargetPostId] =
+    useState<string | null>(null);
+  const [customFriendSearch, setCustomFriendSearch] = useState<string>('');
+  const [selectedFriendNamesForList, setSelectedFriendNamesForList] = useState<
+    string[]
+  >([]);
+  const [editingCustomListId, setEditingCustomListId] = useState<string | null>(
+    null
+  );
+  const [customListTitleInput, setCustomListTitleInput] = useState<string>('');
+
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState<boolean>(false);
   const [activeEmojiGroupIdx, setActiveEmojiGroupIdx] = useState<number>(0);
   const [submissionNotice, setSubmissionNotice] = useState<string>('');
@@ -497,6 +584,11 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   const [editingPostType, setEditingPostType] = useState<CommunityPostType>(
     allowedPostTypes[0] || 'استفسار'
   );
+  const [editingPostPrivacy, setEditingPostPrivacy] =
+    useState<PostPrivacyLevel>('public');
+  const [openAccountActionPostId, setOpenAccountActionPostId] = useState<
+    string | null
+  >(null);
   const [openReportMenuId, setOpenReportMenuId] = useState<string | null>(null);
   const [openCommentInputForPost, setOpenCommentInputForPost] = useState<
     Record<string, boolean>
@@ -558,6 +650,14 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       // ignore
     }
   }, [posts.length, chatOnlyOverlayMode]);
+
+  useEffect(() => {
+    if (!externalJumpTarget?.postId) return;
+    handleJumpToPost(externalJumpTarget.postId);
+    if (externalJumpTarget.commentId) {
+      setActiveCommentsModalPostId(externalJumpTarget.postId);
+    }
+  }, [externalJumpTarget]);
 
   // Close "المزيد" menu, "مشاركة" dropdown menu, and comment 3-dots menu when clicking anywhere outside
   useEffect(() => {
@@ -994,8 +1094,15 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
   useEffect(() => {
     if (externalOpenHistoryModalTick && externalOpenHistoryModalTick > 0) {
       setIsChatHistoryModalOpen(true);
+    } else {
+      setIsChatHistoryModalOpen(false);
     }
   }, [externalOpenHistoryModalTick]);
+
+  // Automatically close Chat History Modal when navigating between sections
+  useEffect(() => {
+    setIsChatHistoryModalOpen(false);
+  }, [sectionTitle, profileFilterUsername, isHomeFeedView, enableBuySellPrivateChat]);
 
   useEffect(() => {
     if (externalLoginNotification && externalLoginNotification.tick > 0) {
@@ -1070,14 +1177,23 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       return;
     }
     const seen = seenPrivateMsgIdsRef.current;
+    const myAccountNorm = (currentUser?.accountName || '').trim().toLowerCase();
     let latestNewIncoming: PrivateChatMessageItem | null = null;
     for (const msg of list) {
       if (!seen.has(msg.id)) {
         seen.add(msg.id);
         const sNorm = msg.senderUsername.trim().toLowerCase();
         const rNorm = msg.receiverUsername.trim().toLowerCase();
-        const isMeSender = msg.senderId === visitorId || sNorm === myNormName;
-        const isMeReceiver = msg.receiverId === visitorId || rNorm === myNormName;
+        const isMeSender =
+          msg.senderId === visitorId ||
+          Boolean(currentUser?.id && msg.senderId === currentUser.id) ||
+          sNorm === myNormName ||
+          (Boolean(myAccountNorm) && sNorm === myAccountNorm);
+        const isMeReceiver =
+          msg.receiverId === visitorId ||
+          Boolean(currentUser?.id && msg.receiverId === currentUser.id) ||
+          rNorm === myNormName ||
+          (Boolean(myAccountNorm) && rNorm === myAccountNorm);
         if (isMeReceiver && !isMeSender) {
           latestNewIncoming = msg;
         }
@@ -1097,7 +1213,34 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         );
       }
     }
-  }, [privateChatMessages, visitorId, myNormName, enableBuySellPrivateChat]);
+  }, [
+    privateChatMessages,
+    visitorId,
+    myNormName,
+    currentUser?.id,
+    currentUser?.accountName,
+    enableBuySellPrivateChat,
+  ]);
+
+  const isPartnerOnlineRealTime = (partnerName?: string): boolean => {
+    if (!partnerName) return false;
+    const pNorm = partnerName.trim().toLowerCase();
+    if (!pNorm) return false;
+    if (pNorm === myNormName && Boolean(currentUser)) return true;
+    if (
+      onlineStats?.registeredUsernames &&
+      onlineStats.registeredUsernames.some(
+        (u) => u.trim().toLowerCase() === pNorm
+      )
+    ) {
+      return true;
+    }
+    const tEntry = chatTypingMap?.[pNorm];
+    if (tEntry && Date.now() - tEntry.updatedAt < 8000) {
+      return true;
+    }
+    return false;
+  };
 
   const previousConversationsList = useMemo(() => {
     const deletedPartnerSet = new Set(deletedHistoryPartners);
@@ -1357,15 +1500,140 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     );
   }, [activeBottomLeftChat, userBlockedMap, visitorId, myNormName, visitorName]);
 
-  // Approved Posts Filtered by Type & Sorted so Pinned Posts ("منشور مثبت") always stay at the top
+  // Helper to extract @mentions from text and combine with explicitly selected mentions
+  const extractAllMentionsFromText = (
+    text: string,
+    explicitNames: string[] = []
+  ): string[] => {
+    const set = new Set<string>();
+    explicitNames.forEach((n) => {
+      if (n.trim()) set.add(n.trim());
+    });
+    const allKnownNames = (users || []).map((u) => u.username.trim());
+    allKnownNames.forEach((uname) => {
+      if (uname && text.includes(`@${uname}`)) {
+        set.add(uname);
+      }
+    });
+    return Array.from(set);
+  };
+
+  // Candidate accounts for @mention and custom friend lists: strictly ONLY confirmed friends of currentUser
+  // If the user has no friends, returns empty array [] so no account names are shown
+  const mentionableAndFriendAccounts = useMemo(() => {
+    if (!currentUser) return [];
+    const myNorm = currentUser.username.trim().toLowerCase();
+    const myFriendsSet = new Set(
+      [
+        ...(currentUser.profile?.friendUsernames || []),
+        ...(currentUser.profile?.followingUsernames || []),
+      ]
+        .map((n) => n.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    if (myFriendsSet.size === 0) return [];
+    const list = (users || []).filter((u) => {
+      const uNorm = u.username.trim().toLowerCase();
+      return uNorm !== myNorm && myFriendsSet.has(uNorm);
+    });
+    return list.sort((a, b) => a.username.localeCompare(b.username, 'ar'));
+  }, [users, currentUser]);
+
+  // Approved Posts Filtered by Type, Profile Owner (if viewing profile), Profile Lock, & Privacy
   const approvedPosts = useMemo(() => {
+    const viewerNorm = currentUser?.username.trim().toLowerCase() || '';
+    const profileTargetNorm = profileFilterUsername?.trim().toLowerCase() || '';
+
+    // If viewing a locked personal profile and viewer is not owner/friend/admin, hide all posts
+    if (profileTargetNorm) {
+      const targetProfileUser = (users || []).find(
+        (u) => u.username.trim().toLowerCase() === profileTargetNorm
+      );
+      if (targetProfileUser?.profile?.isProfileLocked) {
+        const isOwn = Boolean(viewerNorm && viewerNorm === profileTargetNorm);
+        const targetFriends = new Set(
+          [
+            ...(targetProfileUser.profile?.friendUsernames || []),
+            ...(targetProfileUser.profile?.followingUsernames || []),
+          ].map((n) => n.trim().toLowerCase())
+        );
+        const isViewerFriend = Boolean(viewerNorm && targetFriends.has(viewerNorm));
+        if (!isOwn && !isViewerFriend && !isStrictAdmin) {
+          return [];
+        }
+      }
+    }
+
     return posts
-      .filter(
-        (p) =>
-          p.status === 'approved' &&
-          !myBlockedUserKeys.has(p.authorId) &&
-          !myBlockedUserKeys.has(p.authorUsername.trim().toLowerCase())
-      )
+      .filter((p) => {
+        if (p.status !== 'approved') return false;
+        if (
+          myBlockedUserKeys.has(p.authorId) ||
+          myBlockedUserKeys.has(p.authorUsername.trim().toLowerCase())
+        ) {
+          return false;
+        }
+        const authorNorm = p.authorUsername.trim().toLowerCase();
+        if (profileTargetNorm) {
+          if (authorNorm !== profileTargetNorm) {
+            return false;
+          }
+          // Strict isolation: only posts published in Personal Profile appear on the Personal Profile
+          const isStrictlyProfilePost =
+            p.postSource === 'profile' ||
+            (Boolean(p.isProfileOrHomePost) &&
+              p.postSource !== 'home_feed' &&
+              p.postSource !== 'community' &&
+              p.postSource !== 'buy_sell' &&
+              p.postSource !== 'utilities');
+          if (!isStrictlyProfilePost) {
+            return false;
+          }
+        }
+
+        // Check Post Privacy ('public' | 'private' | 'friends' | 'custom_list')
+        const isOwner =
+          p.authorId === visitorId ||
+          Boolean(viewerNorm && authorNorm === viewerNorm);
+        const isOwnerOrAdmin = isStrictAdmin || isOwner;
+        const priv = p.privacy || 'public';
+        // Private posts appear ONLY to the post owner
+        if (priv === 'private' && !isOwner) {
+          return false;
+        }
+        if (priv === 'friends' && !isOwnerOrAdmin) {
+          if (!viewerNorm) return false;
+          const authorUser = (users || []).find(
+            (u) => u.username.trim().toLowerCase() === authorNorm
+          );
+          const authorFriends = new Set([
+            ...(authorUser?.profile?.friendUsernames || []).map((n: string) =>
+              n.trim().toLowerCase()
+            ),
+            ...(authorUser?.profile?.followingUsernames || []).map((n: string) =>
+              n.trim().toLowerCase()
+            ),
+            ...(users || [])
+              .filter((u) =>
+                [
+                  ...(u.profile?.friendUsernames || []),
+                  ...(u.profile?.followingUsernames || []),
+                ].some((f) => f.trim().toLowerCase() === authorNorm)
+              )
+              .map((u) => u.username.trim().toLowerCase()),
+          ]);
+          if (!authorFriends.has(viewerNorm)) return false;
+        }
+        if (priv === 'custom_list' && !isOwnerOrAdmin) {
+          if (!viewerNorm) return false;
+          const allowedSet = new Set(
+            (p.allowedUsernames || []).map((n) => n.trim().toLowerCase())
+          );
+          if (!allowedSet.has(viewerNorm)) return false;
+        }
+
+        return true;
+      })
       .sort((a, b) => {
         if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
           return a.isPinned ? -1 : 1;
@@ -1374,9 +1642,19 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
       });
-  }, [posts, myBlockedUserKeys]);
+  }, [
+    posts,
+    myBlockedUserKeys,
+    currentUser,
+    profileFilterUsername,
+    isStrictAdmin,
+    visitorId,
+    users,
+  ]);
   const filteredApprovedPosts = approvedPosts.filter((p) =>
-    selectedPostTypeFilter === 'الكل' ? true : p.postType === selectedPostTypeFilter
+    hidePostTypeSelector || selectedPostTypeFilter === 'الكل'
+      ? true
+      : p.postType === selectedPostTypeFilter
   );
 
   const savedPostsList = approvedPosts.filter((p) => savedPostIds.includes(p.id));
@@ -1456,13 +1734,39 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     }
     setProfanityAlert('');
 
+    const cleanContent = composerText.trim();
+    const mentionedList = extractAllMentionsFromText(
+      cleanContent,
+      composerMentionedUsers
+    );
+    const isInstantPost = Boolean(hidePostTypeSelector);
+
     const newPost: CommunityPostItem = {
       id: `post-${Date.now()}`,
       authorId: currentUser.id,
       authorUsername: currentUser.username,
       postType: composerPostType,
-      status: 'pending', // Strictly goes to pending for Admin approval first
-      content: composerText.trim(),
+      status: isInstantPost ? 'approved' : 'pending',
+      content: cleanContent,
+      textColor: composerTextColor || '#F8FAFC',
+      privacy: isProfileView ? composerPrivacy : 'public',
+      allowedUsernames:
+        isProfileView && composerPrivacy === 'custom_list'
+          ? composerAllowedUsernames
+          : [],
+      customListId:
+        isProfileView && composerPrivacy === 'custom_list'
+          ? composerCustomListId
+          : undefined,
+      mentionedUsernames: mentionedList,
+      isProfileOrHomePost: isInstantPost,
+      postSource: isProfileView
+        ? 'profile'
+        : isHomeFeedView
+        ? 'home_feed'
+        : enableBuySellPrivateChat
+        ? 'buy_sell'
+        : 'community',
       likes: [],
       dislikes: [],
       comments: [],
@@ -1471,9 +1775,21 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     };
 
     onAddCommunityPost(newPost);
+    if (mentionedList.length > 0 && onTriggerMentionNotifications) {
+      onTriggerMentionNotifications(
+        mentionedList,
+        newPost.id,
+        cleanContent.slice(0, 90)
+      );
+    }
     setComposerText('');
+    setComposerMentionedUsers([]);
+    setIsPostMentionOpen(false);
     setIsEmojiPickerOpen(false);
-    setSubmissionNotice('يتم عرض المنشور للموافقة عليه من المسؤول');
+    setIsColorPaletteOpen(false);
+    if (!isInstantPost) {
+      setSubmissionNotice('يتم عرض المنشور للموافقة عليه من المسؤول');
+    }
   };
 
   // Badge styling helper for Post Type ('استفسار' | 'اقتراح' | 'بيع' | 'بائع' | 'مشتري')
@@ -1964,6 +2280,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       )}
 
       {/* 1. Top Bar: Title + Single-Row Controls on Mobile */}
+      {!hideTopSectionBar && (
       <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl p-2 sm:p-4 shadow-lg space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 overflow-hidden">
         <div className="flex items-center justify-between gap-2 w-full sm:w-auto">
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
@@ -2040,26 +2357,28 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             </div>
 
             {/* السطر الثاني في الهاتف: القائمة المنسدلة (الكل / بائع / مشتري) بعرض شاشة الهاتف بالكامل أسفل الـ 3 أزرار */}
-            <div className="w-full sm:w-auto flex items-center gap-1.5">
-              <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
-              <select
-                value={selectedPostTypeFilter}
-                onChange={(e) =>
-                  setSelectedPostTypeFilter(
-                    e.target.value as 'الكل' | CommunityPostType
-                  )
-                }
-                className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3 py-2 sm:py-1.5 text-xs text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
-              >
-                <option value="الكل">الكل ({approvedPosts.length})</option>
-                {allowedPostTypes.map((typeOption) => (
-                  <option key={typeOption} value={typeOption}>
-                    {typeOption} (
-                    {approvedPosts.filter((p) => p.postType === typeOption).length})
-                  </option>
-                ))}
-              </select>
-            </div>
+            {!hidePostTypeSelector && (
+              <div className="w-full sm:w-auto flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
+                <select
+                  value={selectedPostTypeFilter}
+                  onChange={(e) =>
+                    setSelectedPostTypeFilter(
+                      e.target.value as 'الكل' | CommunityPostType
+                    )
+                  }
+                  className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3 py-2 sm:py-1.5 text-xs text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
+                >
+                  <option value="الكل">الكل ({approvedPosts.length})</option>
+                  {allowedPostTypes.map((typeOption) => (
+                    <option key={typeOption} value={typeOption}>
+                      {typeOption} (
+                      {approvedPosts.filter((p) => p.postType === typeOption).length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {isAdmin && (
               <button
@@ -2109,28 +2428,30 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             </div>
 
             {/* السطر الثاني في الهاتف في مجتمع: القائمة المنسدلة (الكل / استفسار / اقتراح) أسفل الزرين بعرض الشاشة */}
-            <div className="w-full sm:w-auto flex items-center gap-1.5">
-              <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
-              <select
-                value={selectedPostTypeFilter}
-                onChange={(e) =>
-                  setSelectedPostTypeFilter(
-                    e.target.value as 'الكل' | CommunityPostType
-                  )
-                }
-                className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3 py-2 sm:py-1.5 text-xs text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
-              >
-                <option value="الكل">الكل ({approvedPosts.length})</option>
-                {allowedPostTypes.map((typeOption) => (
-                  <option key={typeOption} value={typeOption}>
-                    {typeOption} (
-                    {approvedPosts.filter((p) => p.postType === typeOption).length})
-                  </option>
-                ))}
-              </select>
-            </div>
+            {!hidePostTypeSelector && (
+              <div className="w-full sm:w-auto flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-sky-400 shrink-0 hidden sm:block" />
+                <select
+                  value={selectedPostTypeFilter}
+                  onChange={(e) =>
+                    setSelectedPostTypeFilter(
+                      e.target.value as 'الكل' | CommunityPostType
+                    )
+                  }
+                  className="w-full sm:w-auto rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 px-3 py-2 sm:py-1.5 text-xs text-[#F8FAFC] font-extrabold outline-none cursor-pointer"
+                >
+                  <option value="الكل">الكل ({approvedPosts.length})</option>
+                  {allowedPostTypes.map((typeOption) => (
+                    <option key={typeOption} value={typeOption}>
+                      {typeOption} (
+                      {approvedPosts.filter((p) => p.postType === typeOption).length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            {isAdmin && (
+            {(isHomeFeedView ? isStrictAdmin : isAdmin) && (
               <button
                 type="button"
                 onClick={() => setIsAdminManagementView(true)}
@@ -2148,6 +2469,46 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           </div>
         )}
       </div>
+      )}
+
+      {/* شريط مختصر في الصفحة الرئيسية يعرض محادثة لايف + زر الإدارة للـ Admin فقط في حالة إخفاء الشريط العلوي */}
+      {hideTopSectionBar && isHomeFeedView && (
+        <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl p-2 sm:p-3 shadow-lg flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => setIsSavedPostsModalOpen(true)}
+              className="fluent-reveal px-2.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] text-sky-300 border border-sky-400/50 text-[10px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer whitespace-nowrap shadow-sm"
+            >
+              <Bookmark className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span>المحفوظة ({savedPostsList.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsLiveChatOpen(true)}
+              className="fluent-reveal px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] sm:text-xs font-extrabold flex items-center gap-1 border border-emerald-400/60 cursor-pointer shadow whitespace-nowrap"
+            >
+              <Radio className="w-3.5 h-3.5 animate-pulse shrink-0" />
+              <span>محادثة لايف ({liveChatMessages.length})</span>
+            </button>
+          </div>
+          {isStrictAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsAdminManagementView(true)}
+              className="fluent-reveal px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0A192F] text-[10px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer shadow whitespace-nowrap shrink-0"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+              <span>الإدارة</span>
+              {totalAdminAlertsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-[#0A192F] text-amber-300 text-[9px] font-mono-tabular">
+                  {totalAdminAlertsCount}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Profanity Warning Banner */}
       {profanityAlert && (
@@ -2180,43 +2541,92 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
         </div>
       )}
 
-      {/* 2. Compact New Post Composer Box (بحجم مناسب صغير: الاسم في سطر واحد وعلى أقصى اليسار نوع المنشور) */}
+      {/* 2. Compact New Post Composer Box (بحجم مناسب صغير: الاسم وصورة الأفتار المربعة بالاعلى مع تلوين الخط، المنشن، وخصوصية المنشور) */}
+      {(!profileFilterUsername ||
+        Boolean(
+          currentUser &&
+            currentUser.username.trim().toLowerCase() ===
+              profileFilterUsername.trim().toLowerCase()
+        )) && (
       <div className="bg-[#112240]/95 border border-[#334155] rounded-2xl p-3 sm:p-4 space-y-2.5 shadow-xl">
         <div className="flex items-center justify-between gap-2 border-b border-[#334155]/80 pb-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-sky-500/20 border border-sky-400/50 flex items-center justify-center text-sky-300 font-extrabold text-xs shrink-0">
-              {visitorName.slice(0, 1)}
-            </div>
-            <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
-              {visitorName}
-            </div>
-          </div>
-
-          {/* على أقصى اليسار نوع المنشور */}
-          <div className="flex items-center gap-1.5 shrink-0 mr-auto">
-            <label className="text-[11px] font-bold text-[#94A3B8] whitespace-nowrap">
-              نوع المنشور:
-            </label>
-            <select
-              value={composerPostType}
-              onChange={(e) =>
-                setComposerPostType(e.target.value as CommunityPostType)
+          <button
+            type="button"
+            onClick={() => {
+              if (currentUser && onSelectUserProfile) {
+                onSelectUserProfile(currentUser.username);
               }
-              className="rounded-xl bg-[#0A192F] border border-sky-400/50 px-2.5 py-1 text-xs text-sky-300 font-extrabold outline-none"
-            >
-              {allowedPostTypes.map((typeOption) => (
-                <option key={typeOption} value={typeOption}>
-                  {typeOption}
-                </option>
-              ))}
-            </select>
-          </div>
+            }}
+            className="flex items-center gap-2 min-w-0 cursor-pointer hover:opacity-90"
+          >
+            {currentUser ? (
+              <img
+                src={getUserAvatarDataUri(currentUser)}
+                alt={visitorName}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover border border-sky-400/60 shrink-0 shadow"
+              />
+            ) : (
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-sky-500/20 border border-sky-400/50 flex items-center justify-center text-sky-300 font-extrabold text-xs shrink-0">
+                {visitorName.slice(0, 1)}
+              </div>
+            )}
+            <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate flex items-center gap-1">
+              <span className="truncate">{visitorName}</span>
+              {currentUser?.isVerified && <VerifiedBlueBadge size={15} />}
+            </div>
+          </button>
+
+          {/* في الملف الشخصي فقط: تظهر قائمة خصوصية المنشور (عام / خاص / أصدقاء / أصدقاء محددين) بجانب الاسم بالأعلى على اليسار */}
+          {isProfileView && currentUser && (
+            <div className="flex items-center gap-1 shrink-0 mr-auto">
+              <select
+                value={composerPrivacy}
+                onChange={(e) => {
+                  const val = e.target.value as PostPrivacyLevel;
+                  setComposerPrivacy(val);
+                  if (val === 'custom_list') {
+                    setCustomFriendsModalTargetPostId(null);
+                    setSelectedFriendNamesForList(composerAllowedUsernames);
+                    setIsCustomFriendsModalOpen(true);
+                  }
+                }}
+                className="rounded-xl bg-[#0A192F] border border-sky-400/60 px-2 py-1 text-[10px] sm:text-xs text-sky-300 font-extrabold outline-none cursor-pointer"
+              >
+                <option value="public">🌐 عام</option>
+                <option value="friends">👥 الأصدقاء</option>
+                <option value="private">🔒 خاص</option>
+                <option value="custom_list">✅ أصدقاء محددين</option>
+              </select>
+            </div>
+          )}
+
+          {/* في مجتمع وبيع واشتري وتقديمات المرافق: يظهر نوع المنشور فقط ولا يظهر اختيار عام/خاص */}
+          {!hidePostTypeSelector && !isProfileView && (
+            <div className="flex items-center gap-1.5 shrink-0 mr-auto">
+              <label className="text-[11px] font-bold text-[#94A3B8] whitespace-nowrap">
+                نوع المنشور:
+              </label>
+              <select
+                value={composerPostType}
+                onChange={(e) =>
+                  setComposerPostType(e.target.value as CommunityPostType)
+                }
+                className="rounded-xl bg-[#0A192F] border border-sky-400/50 px-2.5 py-1 text-xs text-sky-300 font-extrabold outline-none"
+              >
+                {allowedPostTypes.map((typeOption) => (
+                  <option key={typeOption} value={typeOption}>
+                    {typeOption}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {!currentUser ? (
           <div className="p-3 rounded-xl bg-[#0A192F] border border-amber-400/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="text-xs font-extrabold text-amber-300">
-              لا يمكن النشر في المجتمع إلا في حالة تسجيل الدخول لحسابك.
+              لا يمكن النشر إلا في حالة تسجيل الدخول لحسابك.
             </div>
             <FluentButton
               type="button"
@@ -2233,9 +2643,170 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               rows={2}
               value={composerText}
               onChange={(e) => setComposerText(e.target.value)}
-              placeholder={`بم تفكر يا ${visitorName}؟ اكتب منشورك هنا...`}
-              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 p-2.5 text-xs sm:text-sm text-[#F8FAFC] leading-relaxed outline-none"
+              style={{ color: composerTextColor || '#F8FAFC' }}
+              placeholder={`بم تفكر يا ${visitorName}؟ اكتب منشورك هنا... (يمكنك منشن أي صديق بـ @)`}
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 p-2.5 text-xs sm:text-sm font-bold leading-relaxed outline-none"
             />
+
+            {/* شريط المنشن المختار أو القائمة المحددة */}
+            {(composerMentionedUsers.length > 0 ||
+              (composerPrivacy === 'custom_list' &&
+                composerAllowedUsernames.length > 0)) && (
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                {composerMentionedUsers.map((mName) => (
+                  <span
+                    key={mName}
+                    className="px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-400/50 text-sky-300 font-extrabold flex items-center gap-1"
+                  >
+                    <span>@{mName}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setComposerMentionedUsers((prev) =>
+                          prev.filter((x) => x !== mName)
+                        )
+                      }
+                      className="text-rose-300 hover:text-rose-200 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {composerPrivacy === 'custom_list' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomFriendsModalTargetPostId(null);
+                      setSelectedFriendNamesForList(composerAllowedUsernames);
+                      setIsCustomFriendsModalOpen(true);
+                    }}
+                    className="px-2 py-0.5 rounded-lg bg-purple-500/20 border border-purple-400/50 text-purple-300 font-extrabold cursor-pointer"
+                  >
+                    أصدقاء محددين ({composerAllowedUsernames.length}) — تعديل
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* لوحة تلوين خط المنشور */}
+            {isColorPaletteOpen && (
+              <div className="p-2.5 rounded-xl bg-[#0A192F] border border-sky-400/40 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-extrabold text-[#94A3B8]">
+                    لون خط المنشور:
+                  </span>
+                  {[
+                    { color: '#F8FAFC', label: 'أبيض' },
+                    { color: '#38BDF8', label: 'سماوي' },
+                    { color: '#34D399', label: 'أخضر' },
+                    { color: '#FBBF24', label: 'ذهبي' },
+                    { color: '#F472B6', label: 'وردي' },
+                    { color: '#A78BFA', label: 'بنفسجي' },
+                    { color: '#FB7185', label: 'أحمر' },
+                    { color: '#2DD4BF', label: 'فيروزي' },
+                  ].map((c) => (
+                    <button
+                      key={c.color}
+                      type="button"
+                      onClick={() => setComposerTextColor(c.color)}
+                      title={c.label}
+                      style={{ backgroundColor: c.color }}
+                      className={`w-6 h-6 rounded-lg border-2 cursor-pointer transition-transform ${
+                        composerTextColor === c.color
+                          ? 'border-white scale-110 ring-2 ring-sky-400'
+                          : 'border-[#334155]'
+                      }`}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={composerTextColor}
+                    onChange={(e) => setComposerTextColor(e.target.value)}
+                    className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
+                    title="اختر لوناً مخصصاً"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsColorPaletteOpen(false)}
+                  className="text-[11px] text-[#94A3B8] hover:text-white cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+            )}
+
+            {/* لوحة منشن صديق (@ منشن) في المنشور */}
+            {isPostMentionOpen && (
+              <div className="p-2.5 rounded-xl bg-[#0A192F] border border-sky-400/50 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-extrabold text-sky-300 flex items-center gap-1">
+                    <AtSign className="w-3.5 h-3.5" />
+                    <span>منشن صديق في المنشور (يصل إشعار فوري للجرس بالأعلى):</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsPostMentionOpen(false)}
+                    className="text-[11px] text-[#94A3B8] hover:text-white cursor-pointer"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={postMentionSearch}
+                  onChange={(e) => setPostMentionSearch(e.target.value)}
+                  placeholder="ابحث بالاسم لعمل منشن..."
+                  className="w-full rounded-lg bg-[#112240] border border-[#334155] focus:border-sky-400 px-2.5 py-1.5 text-xs text-[#F8FAFC] outline-none"
+                />
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                  {mentionableAndFriendAccounts.length === 0 ? (
+                    <p className="text-[11px] text-[#94A3B8] font-bold py-2 w-full text-center">
+                      لا يوجد أصدقاء مضافين حالياً لعمل منشن لهم.
+                    </p>
+                  ) : (
+                    mentionableAndFriendAccounts
+                      .filter((u) =>
+                        !postMentionSearch.trim()
+                          ? true
+                          : u.username
+                              .toLowerCase()
+                              .includes(postMentionSearch.trim().toLowerCase())
+                      )
+                      .slice(0, 20)
+                      .map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => {
+                            const tag = `@${u.username} `;
+                            if (!composerText.includes(`@${u.username}`)) {
+                              setComposerText((prev) =>
+                                prev ? `${prev} ${tag}` : tag
+                              );
+                            }
+                            setComposerMentionedUsers((prev) =>
+                              prev.includes(u.username)
+                                ? prev
+                                : [...prev, u.username]
+                            );
+                            setIsPostMentionOpen(false);
+                            setPostMentionSearch('');
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-[#112240] hover:bg-sky-600/30 border border-[#334155] hover:border-sky-400 text-xs font-extrabold text-[#F8FAFC] flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <img
+                            src={getUserAvatarDataUri(u)}
+                            alt={u.username}
+                            className="w-4 h-4 rounded object-cover"
+                          />
+                          <span>@{u.username}</span>
+                        </button>
+                      ))
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Rich WhatsApp-Style Emoji Picker Panel */}
             {isEmojiPickerOpen && (
@@ -2283,27 +2854,48 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               </div>
             )}
 
-            {/* Composer Action Bar: Emoji Picker Toggle + "انشر" Button */}
-            <div className="flex items-center justify-between gap-2 pt-0.5">
+            {/* Composer Action Bar: 4 buttons (إيموشن + لون الخط + منشن صديق + انشر) in 1 single row without clipping */}
+            <div className="grid grid-cols-4 gap-1 sm:flex sm:items-center sm:justify-between pt-0.5 w-full">
               <button
                 type="button"
                 onClick={() => setIsEmojiPickerOpen((prev) => !prev)}
-                className="fluent-reveal px-2.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] text-amber-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                className="fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] text-amber-300 text-[9.5px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 cursor-pointer whitespace-nowrap"
               >
-                <Smile className="w-3.5 h-3.5 text-amber-400" />
-                <span>الإيموشنات 😊</span>
+                <Smile className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
+                <span>إيموشن</span>
               </button>
 
-              <FluentButton type="submit" variant="primary" size="sm">
-                <Send className="w-3.5 h-3.5" />
+              <button
+                type="button"
+                onClick={() => setIsColorPaletteOpen((prev) => !prev)}
+                className="fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] text-pink-300 text-[9.5px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 cursor-pointer whitespace-nowrap"
+              >
+                <Palette className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-pink-400 shrink-0" />
+                <span>لون الخط</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsPostMentionOpen((prev) => !prev)}
+                className="fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] text-sky-300 text-[9.5px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 cursor-pointer whitespace-nowrap"
+              >
+                <AtSign className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-sky-400 shrink-0" />
+                <span>منشن صديق</span>
+              </button>
+
+              <button
+                type="submit"
+                className="fluent-reveal w-full sm:w-auto justify-center px-1.5 sm:px-4 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-[10px] sm:text-xs font-extrabold flex items-center gap-1 cursor-pointer whitespace-nowrap shadow"
+              >
+                <Send className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
                 <span>انشر</span>
-              </FluentButton>
+              </button>
             </div>
           </form>
         )}
 
         {/* Publisher Pending Approval Notice ("يتم عرض المنشور للموافقة عليه من المسؤول") */}
-        {(submissionNotice || myPendingPosts.length > 0) && (
+        {!hidePostTypeSelector && (submissionNotice || myPendingPosts.length > 0) && (
           <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-400/50 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-xs font-extrabold text-amber-300">
               <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-pulse" />
@@ -2353,6 +2945,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* 3. Approved Community Posts Feed (4 Initial + Load 4 More on Scroll, Medium Compact Template) */}
       <div className="space-y-3">
@@ -2398,6 +2991,12 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             ? [pinnedOrFirstComment]
             : [];
           const isShareDropdownOpen = openShareMenuPostId === post.id;
+          const authorPostCount = posts.filter(
+            (p) =>
+              (post.authorId && p.authorId === post.authorId) ||
+              p.authorUsername.trim().toLowerCase() ===
+                post.authorUsername.trim().toLowerCase()
+          ).length;
 
           return (
             <div key={post.id} id={`post-card-${post.id}`}>
@@ -2411,15 +3010,190 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     : ''
                 }`}
               >
-              {/* السطر الأول: الاسم في سطر واحد على اليمين (وبجانبه محادثة خاصة في بيع واشتري) | وعلى أقصى اليسار نوع المنشور + زر المزيد */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-[#0A192F] border border-sky-400/40 flex items-center justify-center text-sky-400 font-extrabold text-xs shrink-0">
-                    {post.authorUsername.slice(0, 1)}
-                  </div>
-                  <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] truncate">
-                    {post.authorUsername}
-                  </div>
+              {/* السطر الأول: الاسم في سطر واحد على اليمين + التوثيق الأزرق + زر + لإضافة صديق + استيكر الخصوصية | وعلى أقصى اليسار نوع المنشور + زر المزيد داخل البوكس */}
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-wrap">
+                  {(() => {
+                    const authorAcc = (users || []).find(
+                      (u) =>
+                        (post.authorId && u.id === post.authorId) ||
+                        u.username.trim().toLowerCase() ===
+                          post.authorUsername.trim().toLowerCase()
+                    );
+                    const myFriendsList = [
+                      ...(currentUser?.profile?.friendUsernames || []),
+                      ...(currentUser?.profile?.followingUsernames || []),
+                    ].map((n) => n.trim().toLowerCase());
+                    const isAuthorMyFriend = myFriendsList.includes(
+                      post.authorUsername.trim().toLowerCase()
+                    );
+                    const isAuthorProfileLocked = Boolean(
+                      authorAcc?.profile?.isProfileLocked &&
+                        !isAuthorMyFriend &&
+                        !isPostOwner &&
+                        !isStrictAdmin
+                    );
+                    const isAccountActionOpen =
+                      openAccountActionPostId === post.id;
+
+                    return (
+                      <div className="relative flex items-center gap-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isPostOwner) {
+                              onSelectUserProfile?.(post.authorUsername);
+                              return;
+                            }
+                            setOpenAccountActionPostId((prev) =>
+                              prev === post.id ? null : post.id
+                            );
+                          }}
+                          title="اضغط لعرض الملف الشخصي أو المراسلة"
+                          className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-90"
+                        >
+                          <img
+                            src={getUserAvatarDataUri(
+                              authorAcc,
+                              post.authorUsername
+                            )}
+                            alt={post.authorUsername}
+                            className="w-8 h-8 rounded-xl bg-[#0A192F] border border-sky-400/50 object-cover shrink-0 shadow-sm"
+                          />
+                          <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] hover:text-sky-300 truncate transition-colors">
+                            {post.authorUsername}
+                          </span>
+                        </button>
+
+                        {authorAcc?.isVerified && (
+                          <VerifiedBlueBadge size={15} />
+                        )}
+
+                        {/* استيكر الكرة الأرضية (عام) أو القفل (خاص - يظهر لصاحب الحساب فقط) في منشورات الملف الشخصي */}
+                        {(isProfileView || post.postSource === 'profile') && (
+                          <span
+                            title={
+                              post.privacy === 'private'
+                                ? 'منشور خاص (يظهر لك فقط)'
+                                : post.privacy === 'friends'
+                                ? 'منشور للأصدقاء'
+                                : 'منشور عام'
+                            }
+                            className="inline-flex items-center text-[11px] shrink-0"
+                          >
+                            {post.privacy === 'private' && isPostOwner ? (
+                              <span className="px-1.5 py-0.5 rounded-md bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[9px] font-black flex items-center gap-0.5">
+                                <Lock className="w-2.5 h-2.5" />
+                                <span>خاص</span>
+                              </span>
+                            ) : post.privacy === 'friends' ? (
+                              <span className="text-sky-300 text-xs">👥</span>
+                            ) : (
+                              <span
+                                title="منشور عام"
+                                className="text-sky-400 text-xs"
+                              >
+                                🌐
+                              </span>
+                            )}
+                          </span>
+                        )}
+
+                        {/* زر + لإضافة صاحب المنشور كصديق في الصفحة الرئيسية وجميع الأقسام (متاح لجميع الحسابات إذا لم يكن صديقاً بالفعل) */}
+                        {currentUser &&
+                          !isPostOwner &&
+                          !isAuthorMyFriend &&
+                          !authorAcc?.profile?.disableFriendRequests &&
+                          onSendFriendRequest && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSendFriendRequest(post.authorUsername);
+                                setReportFeedbackBanner(
+                                  `تم إرسال طلب صداقة إلى ${post.authorUsername} بنجاح!`
+                                );
+                              }}
+                              title={`إضافة ${post.authorUsername} كصديق`}
+                              className="w-5 h-5 rounded-full bg-[#1877F2] hover:bg-blue-500 text-white text-xs font-black flex items-center justify-center shadow shrink-0 transition"
+                            >
+                              <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                            </button>
+                          )}
+
+                        {/* قائمة عند الضغط على اسم الحساب: دخول للملف الشخصي أو مراسلة خاصة (في حالة المتابعة/الصداقة وعدم قفل الصفحة) */}
+                        {isAccountActionOpen && !isPostOwner && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-[110]"
+                              onClick={() => setOpenAccountActionPostId(null)}
+                            />
+                            <div className="absolute right-0 top-full mt-1 z-[120] w-48 rounded-xl bg-slate-900 border border-sky-500/50 shadow-2xl p-1.5 space-y-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenAccountActionPostId(null);
+                                  onSelectUserProfile?.(post.authorUsername);
+                                }}
+                                className="w-full px-2.5 py-1.5 rounded-lg text-right text-xs font-extrabold text-white hover:bg-slate-800 flex items-center gap-1.5"
+                              >
+                                <Users className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                <span>عرض الصفحة الشخصية</span>
+                              </button>
+
+                              {!isAuthorProfileLocked &&
+                                (isAuthorMyFriend || enableBuySellPrivateChat) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenAccountActionPostId(null);
+                                      openBottomLeftPrivateChat(
+                                        post.authorId,
+                                        post.authorUsername
+                                      );
+                                    }}
+                                    className="w-full px-2.5 py-1.5 rounded-lg text-right text-xs font-extrabold text-emerald-300 hover:bg-emerald-600/20 flex items-center gap-1.5"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                    <span>مراسلة وشات خاص</span>
+                                  </button>
+                                )}
+
+                              {!isAuthorMyFriend &&
+                                !authorAcc?.profile?.disableFriendRequests &&
+                                onSendFriendRequest && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenAccountActionPostId(null);
+                                      onSendFriendRequest(post.authorUsername);
+                                      setReportFeedbackBanner(
+                                        `تم إرسال طلب صداقة إلى ${post.authorUsername} بنجاح!`
+                                      );
+                                    }}
+                                    className="w-full px-2.5 py-1.5 rounded-lg text-right text-xs font-extrabold text-sky-300 hover:bg-sky-600/20 flex items-center gap-1.5"
+                                  >
+                                    <Plus className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                    <span>إضافة صديق</span>
+                                  </button>
+                                )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {authorPostCount >= 10 ? (
+                    <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-400/50 text-[10px] font-extrabold whitespace-nowrap shrink-0 flex items-center gap-0.5">
+                      <span>★</span>
+                      <span>عضو متميز</span>
+                    </span>
+                  ) : authorPostCount >= 5 ? (
+                    <span className="px-1.5 py-0.5 rounded-md bg-sky-500/20 text-sky-300 border border-sky-400/50 text-[10px] font-extrabold whitespace-nowrap shrink-0 flex items-center gap-0.5">
+                      <span>⚡</span>
+                      <span>عضو فعال</span>
+                    </span>
+                  ) : null}
                   {enableBuySellPrivateChat && !post.isSold && (
                     <button
                       type="button"
@@ -2434,31 +3208,33 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   )}
                 </div>
 
-                {/* على أقصى اليسار: شارة مثبت + نوع المنشور + زر "المزيد" */}
-                <div className="flex items-center gap-1.5 shrink-0 relative flex-wrap justify-end">
+                {/* على أقصى اليسار داخل بوكس المنشور: شارة مثبت + نوع المنشور + زر "المزيد" */}
+                <div className="flex items-center gap-1 shrink-0 relative justify-end">
                   {post.isPinned && (
-                    <span className="px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/60 flex items-center gap-1 whitespace-nowrap">
+                    <span className="px-1.5 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/60 flex items-center gap-0.5 whitespace-nowrap">
                       <Pin className="w-3 h-3 text-amber-400 shrink-0" />
                       <span>مثبت</span>
                     </span>
                   )}
 
                   {post.commentsDisabled && (
-                    <span className="px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/50 flex items-center gap-1 whitespace-nowrap">
+                    <span className="px-1.5 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-400/50 flex items-center gap-0.5 whitespace-nowrap">
                       <MessageSquareOff className="w-3 h-3 text-amber-400 shrink-0" />
-                      <span>التعليقات متوقفة</span>
+                      <span>متوقفة</span>
                     </span>
                   )}
 
-                  <span
-                    className={`px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold border whitespace-nowrap ${getPostTypeBadgeStyle(
-                      post.postType
-                    )}`}
-                  >
-                    {post.postType}
-                  </span>
+                  {!hidePostTypeSelector && !post.isProfileOrHomePost && (
+                    <span
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border whitespace-nowrap ${getPostTypeBadgeStyle(
+                        post.postType
+                      )}`}
+                    >
+                      {post.postType}
+                    </span>
+                  )}
 
-                  {/* زر "المزيد" على يسار المنشور في الأعلى */}
+                  {/* زر "المزيد" داخل بوكس المنشور بالكامل */}
                   <div className="relative" data-more-menu-container="true">
                     <button
                       type="button"
@@ -2466,16 +3242,16 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         setOpenMoreMenuPostId(isMoreMenuOpen ? null : post.id);
                         setOpenReportSubMenuPostId(null);
                       }}
-                      className="fluent-reveal px-2 py-1 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-[#E2E8F0] border border-[#334155] text-[11px] font-extrabold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                      className="fluent-reveal px-2 py-1 rounded-lg bg-[#0A192F] hover:bg-[#1E293B] text-[#E2E8F0] border border-[#334155] text-[10px] sm:text-[11px] font-extrabold flex items-center gap-0.5 cursor-pointer whitespace-nowrap"
                     >
-                      <MoreHorizontal className="w-3.5 h-3.5 text-sky-400" />
+                      <MoreHorizontal className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                       <span>المزيد</span>
-                      <ChevronDown className="w-3 h-3 text-[#94A3B8]" />
+                      <ChevronDown className="w-3 h-3 text-[#94A3B8] shrink-0" />
                     </button>
 
-                    {/* القائمة المنسدلة لزر "المزيد": عند اختيار أي خيار يتم غلق القائمة مرة أخرى */}
+                    {/* القائمة المنسدلة لزر "المزيد": داخل حدود البوكس */}
                     {isMoreMenuOpen && (
-                      <div className="absolute left-0 top-full mt-1.5 w-52 max-w-[calc(100vw-2rem)] rounded-xl bg-[#0A192F] border border-sky-400/60 shadow-2xl z-50 py-1.5 overflow-hidden">
+                      <div className="absolute left-0 top-full mt-1 w-48 max-w-[calc(100vw-3rem)] rounded-xl bg-[#0A192F] border border-sky-400/60 shadow-2xl z-50 py-1.5 overflow-hidden">
                         {/* صلاحيات Admin فقط: تثبيت المنشور في الأعلى أو إلغاء التثبيت */}
                         {isStrictAdmin && onTogglePinPost && (
                           <button
@@ -2503,6 +3279,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                                 setEditingPostId(post.id);
                                 setEditingPostContent(post.content);
                                 setEditingPostType(post.postType);
+                                setEditingPostPrivacy(post.privacy || 'public');
                                 setOpenReportSubMenuPostId(null);
                                 setOpenMoreMenuPostId(null);
                               }}
@@ -2694,19 +3471,46 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     <span className="text-xs font-extrabold text-sky-300">
                       تعديل المنشور:
                     </span>
-                    <select
-                      value={editingPostType}
-                      onChange={(e) =>
-                        setEditingPostType(e.target.value as CommunityPostType)
-                      }
-                      className="rounded-lg bg-[#112240] border border-sky-400/40 px-2 py-1 text-xs text-sky-300 font-bold outline-none"
-                    >
-                      {allowedPostTypes.map((typeOption) => (
-                        <option key={typeOption} value={typeOption}>
-                          {typeOption}
-                        </option>
-                      ))}
-                    </select>
+                    {isProfileView || post.postSource === 'profile' ? (
+                      <select
+                        value={editingPostPrivacy}
+                        onChange={(e) => {
+                          const nextPriv = e.target.value as PostPrivacyLevel;
+                          setEditingPostPrivacy(nextPriv);
+                          if (nextPriv === 'custom_list') {
+                            setCustomFriendsModalTargetPostId(post.id);
+                            setSelectedFriendNamesForList(
+                              post.allowedUsernames || []
+                            );
+                            setIsCustomFriendsModalOpen(true);
+                          }
+                        }}
+                        className="rounded-lg bg-[#112240] border border-sky-400/40 px-2 py-1 text-xs text-sky-300 font-bold outline-none"
+                      >
+                        <option value="public">🌐 عام</option>
+                        <option value="friends">👥 أصدقاء</option>
+                        <option value="private">🔒 خاص</option>
+                        <option value="custom_list">✅ أصدقاء محددين</option>
+                      </select>
+                    ) : (
+                      !hidePostTypeSelector && (
+                        <select
+                          value={editingPostType}
+                          onChange={(e) =>
+                            setEditingPostType(
+                              e.target.value as CommunityPostType
+                            )
+                          }
+                          className="rounded-lg bg-[#112240] border border-sky-400/40 px-2 py-1 text-xs text-sky-300 font-bold outline-none"
+                        >
+                          {allowedPostTypes.map((typeOption) => (
+                            <option key={typeOption} value={typeOption}>
+                              {typeOption}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    )}
                   </div>
                   <textarea
                     rows={2}
@@ -2732,6 +3536,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                           return;
                         }
                         onEditCommunityPost?.(post.id, clean, editingPostType);
+                        if (
+                          (isProfileView || post.postSource === 'profile') &&
+                          onUpdatePostPrivacy &&
+                          editingPostPrivacy !== 'custom_list'
+                        ) {
+                          onUpdatePostPrivacy(
+                            post.id,
+                            editingPostPrivacy,
+                            [],
+                            undefined
+                          );
+                        }
                         setEditingPostId(null);
                       }}
                       className="px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-extrabold text-white cursor-pointer"
@@ -2759,7 +3575,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     return (
                       <div className="space-y-1">
                         <p
-                          className={`text-xs sm:text-sm text-[#F8FAFC] leading-relaxed whitespace-pre-line ${
+                          style={{ color: post.textColor || '#F8FAFC' }}
+                          className={`text-xs sm:text-sm font-bold leading-relaxed whitespace-pre-line ${
                             isOverThreeLines && !isPostExpanded
                               ? 'line-clamp-3'
                               : ''
@@ -2893,7 +3710,28 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         const isCopied = copiedSharePostId === post.id;
 
                         return (
-                          <div className="absolute right-0 sm:left-0 sm:right-auto top-full mt-1.5 w-48 rounded-xl bg-[#0A192F] border border-sky-400/70 shadow-2xl z-50 py-1.5 space-y-1">
+                          <div className="absolute right-0 sm:left-0 sm:right-auto top-full mt-1.5 w-52 rounded-xl bg-[#0A192F] border border-sky-400/70 shadow-2xl z-50 py-1.5 space-y-1">
+                            {onSharePostToBuySell && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!currentUser) {
+                                    onOpenAuthModal();
+                                    return;
+                                  }
+                                  onSharePostToBuySell(post);
+                                  setOpenShareMenuPostId(null);
+                                  setReportFeedbackBanner(
+                                    'تم إرسال المنشور للمشاركة في قسم "بيع واشتري" وبانتظار موافقة الإدارة.'
+                                  );
+                                }}
+                                className="w-full px-3 py-2 text-right hover:bg-amber-500/20 text-amber-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer border-b border-[#334155]/70 transition-colors"
+                              >
+                                <Share2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span>مشاركة في بيع واشتري</span>
+                              </button>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => {
@@ -2979,50 +3817,143 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
 
               {/* Add Comment Input Row (Reply to Post) — Blocked when commentsDisabled is true */}
               {!post.commentsDisabled && openCommentInputForPost[post.id] && (
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    type="text"
-                    value={commentDrafts[post.id] || ''}
-                    onChange={(e) =>
-                      setCommentDrafts((prev) => ({
-                        ...prev,
-                        [post.id]: e.target.value,
-                      }))
-                    }
-                    placeholder="اكتب تعليقك على المنشور..."
-                    className="flex-1 rounded-xl bg-[#0A192F] border border-sky-400/50 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
-                  />
-                  <FluentButton
-                    variant="primary"
-                    size="sm"
-                    onClick={() => {
-                      if (post.commentsDisabled) return;
-                      const txt = (commentDrafts[post.id] || '').trim();
-                      if (!txt) return;
-                      if (containsAbusiveWords(txt)) {
-                        setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
-                        return;
+                <div className="space-y-1.5 pt-1">
+                  {activeCommentMentionPostId === post.id && (
+                    <div className="p-2 rounded-xl bg-[#0A192F] border border-sky-400/50 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-extrabold text-sky-300">
+                          اختر صديقاً لعمل منشن في التعليق:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveCommentMentionPostId(null)}
+                          className="text-[#94A3B8] hover:text-white cursor-pointer"
+                        >
+                          إغلاق
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        value={commentMentionSearch}
+                        onChange={(e) => setCommentMentionSearch(e.target.value)}
+                        placeholder="بحث بالاسم..."
+                        className="w-full rounded-lg bg-[#112240] border border-[#334155] px-2 py-1 text-xs text-[#F8FAFC] outline-none"
+                      />
+                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                        {mentionableAndFriendAccounts
+                          .filter((u) =>
+                            !commentMentionSearch.trim()
+                              ? true
+                              : u.username
+                                  .toLowerCase()
+                                  .includes(
+                                    commentMentionSearch.trim().toLowerCase()
+                                  )
+                          )
+                          .slice(0, 15)
+                          .map((u) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => {
+                                const tag = `@${u.username} `;
+                                setCommentDrafts((prev) => ({
+                                  ...prev,
+                                  [post.id]: prev[post.id]
+                                    ? `${prev[post.id]} ${tag}`
+                                    : tag,
+                                }));
+                                setCommentMentionedMap((prev) => ({
+                                  ...prev,
+                                  [post.id]: Array.from(
+                                    new Set([...(prev[post.id] || []), u.username])
+                                  ),
+                                }));
+                                setActiveCommentMentionPostId(null);
+                                setCommentMentionSearch('');
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-[#112240] hover:bg-sky-600/30 border border-[#334155] text-[11px] font-bold text-[#F8FAFC] cursor-pointer"
+                            >
+                              @{u.username}
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveCommentMentionPostId((prev) =>
+                          prev === post.id ? null : post.id
+                        )
                       }
-                      setProfanityAlert('');
-                      onAddCommentToPost(post.id, {
-                        id: `cmt-${Date.now()}`,
-                        authorId: visitorId,
-                        authorUsername: visitorName,
-                        text: txt,
-                        isPinned: false,
-                        isHidden: false,
-                        likes: [],
-                        reactions: { heart: [], laugh: [], sad: [] },
-                        replies: [],
-                        reports: [],
-                        createdAt: new Date().toISOString(),
-                      });
-                      setCommentDrafts((prev) => ({ ...prev, [post.id]: '' }));
-                    }}
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>تعليق</span>
-                  </FluentButton>
+                      title="منشن صديق في التعليق"
+                      className="px-2 py-1.5 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-sky-400/50 text-sky-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <AtSign className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="text"
+                      value={commentDrafts[post.id] || ''}
+                      onChange={(e) =>
+                        setCommentDrafts((prev) => ({
+                          ...prev,
+                          [post.id]: e.target.value,
+                        }))
+                      }
+                      placeholder="اكتب تعليقك على المنشور... (اضغط @ للمنشن)"
+                      className="flex-1 rounded-xl bg-[#0A192F] border border-sky-400/50 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
+                    />
+                    <FluentButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        if (post.commentsDisabled) return;
+                        const txt = (commentDrafts[post.id] || '').trim();
+                        if (!txt) return;
+                        if (containsAbusiveWords(txt)) {
+                          setProfanityAlert(ABUSIVE_CONTENT_WARNING_MESSAGE);
+                          return;
+                        }
+                        setProfanityAlert('');
+                        const newCmtId = `cmt-${Date.now()}`;
+                        onAddCommentToPost(post.id, {
+                          id: newCmtId,
+                          authorId: visitorId,
+                          authorUsername: visitorName,
+                          text: txt,
+                          isPinned: false,
+                          isHidden: false,
+                          likes: [],
+                          reactions: { heart: [], laugh: [], sad: [] },
+                          replies: [],
+                          reports: [],
+                          createdAt: new Date().toISOString(),
+                        });
+                        const mentioned = extractAllMentionsFromText(
+                          txt,
+                          commentMentionedMap[post.id] || []
+                        );
+                        if (mentioned.length > 0 && onTriggerMentionNotifications) {
+                          onTriggerMentionNotifications(
+                            mentioned,
+                            post.id,
+                            txt.slice(0, 90),
+                            newCmtId
+                          );
+                        }
+                        setCommentDrafts((prev) => ({ ...prev, [post.id]: '' }));
+                        setCommentMentionedMap((prev) => ({
+                          ...prev,
+                          [post.id]: [],
+                        }));
+                      }}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>تعليق</span>
+                    </FluentButton>
+                  </div>
                 </div>
               )}
 
@@ -3502,7 +4433,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                           [modalPost.id]: e.target.value,
                         }))
                       }
-                      placeholder="اكتب تعليقك هنا ليظهر للجميع..."
+                      placeholder="اكتب تعليقك هنا ليظهر للجميع... (يمكنك منشن @اسم_الصديق)"
                       className="flex-1 rounded-xl bg-[#0A192F] border border-sky-400/50 px-3 py-2 text-xs text-[#F8FAFC] outline-none"
                     />
                     <FluentButton
@@ -3517,8 +4448,9 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                           return;
                         }
                         setProfanityAlert('');
+                        const newCmtId = `cmt-${Date.now()}`;
                         onAddCommentToPost(modalPost.id, {
-                          id: `cmt-${Date.now()}`,
+                          id: newCmtId,
                           authorId: visitorId,
                           authorUsername: visitorName,
                           text: txt,
@@ -3530,6 +4462,18 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                           reports: [],
                           createdAt: new Date().toISOString(),
                         });
+                        const mentioned = extractAllMentionsFromText(
+                          txt,
+                          commentMentionedMap[modalPost.id] || []
+                        );
+                        if (mentioned.length > 0 && onTriggerMentionNotifications) {
+                          onTriggerMentionNotifications(
+                            mentioned,
+                            modalPost.id,
+                            txt.slice(0, 90),
+                            newCmtId
+                          );
+                        }
                         setCommentDrafts((prev) => ({
                           ...prev,
                           [modalPost.id]: '',
@@ -4685,15 +5629,56 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   {activeBottomLeftChat.partnerUsername.slice(0, 1)}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs font-extrabold text-[#F8FAFC] truncate">
-                    {activeBottomLeftChat.partnerUsername}
+                  <div className="text-xs font-extrabold text-[#F8FAFC] truncate flex items-center gap-1.5">
+                    <span className="truncate">
+                      {activeBottomLeftChat.partnerUsername}
+                    </span>
+                    {(() => {
+                      const partnerOnline = isPartnerOnlineRealTime(
+                        activeBottomLeftChat.partnerUsername
+                      );
+                      return (
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold inline-flex items-center gap-1 shrink-0 border ${
+                            partnerOnline
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50'
+                              : 'bg-slate-700/40 text-slate-300 border-slate-500/50'
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              partnerOnline
+                                ? 'bg-emerald-400 animate-pulse'
+                                : 'bg-slate-400'
+                            }`}
+                          />
+                          <span>{partnerOnline ? 'متصل' : 'أوف لاين'}</span>
+                        </span>
+                      );
+                    })()}
                   </div>
-                  <div className="text-[10px] font-bold text-emerald-400 truncate">
+                  <div
+                    className={`text-[10px] font-bold truncate ${
+                      isBottomLeftPartnerTyping
+                        ? 'text-emerald-400 animate-pulse'
+                        : isActivePartnerBlockedByMe
+                        ? 'text-rose-400'
+                        : isPartnerOnlineRealTime(
+                            activeBottomLeftChat.partnerUsername
+                          )
+                        ? 'text-emerald-400'
+                        : 'text-slate-400'
+                    }`}
+                  >
                     {isBottomLeftPartnerTyping
                       ? 'يكتب رسالة الآن...'
                       : isActivePartnerBlockedByMe
                       ? 'تم حظر هذا الحساب'
-                      : 'متصل للمحادثة المباشرة'}
+                      : isPartnerOnlineRealTime(
+                          activeBottomLeftChat.partnerUsername
+                        )
+                      ? 'متصل الآن للمحادثة المباشرة'
+                      : 'أوف لاين حالياً'}
                   </div>
                 </div>
               </div>
@@ -5101,6 +6086,341 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             )}
           </div>
         ))}
+
+      {/* شاشة منبثقة لأصدقاء محددين (مع البحث بالاسم، علامة صح أمام كل شخص، وحفظ وتعديل أكثر من قائمة وتسميتها بعنوان أو حذف أي شخص منها) */}
+      <FluentModal
+        isOpen={isCustomFriendsModalOpen}
+        onClose={() => {
+          setIsCustomFriendsModalOpen(false);
+          setEditingCustomListId(null);
+          setCustomListTitleInput('');
+        }}
+        title="تحديد الأصدقاء المسموح لهم بمشاهدة المنشور"
+        subtitle="ضع علامة صح أمام كل شخص تريده أن يشاهد المنشور، أو احفظ القائمة بعنوان لاستخدامها وتعديلها في أي وقت"
+        maxWidth="lg"
+      >
+        <div className="space-y-4">
+          {/* 1. القوائم المسجلة مسبقاً (حفظ أكثر من قائمة وتسميتها بعنوان وتعديلها أو حذف أي شخص منها) */}
+          {currentUser && (
+            <div className="p-3 rounded-xl bg-[#0A192F] border border-[#334155] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold text-sky-300">
+                  قوائم الأصدقاء المحفوظة ({(currentUser.profile?.customFriendLists || []).length}):
+                </span>
+              </div>
+
+              {(currentUser.profile?.customFriendLists || []).length === 0 ? (
+                <div className="text-[11px] text-[#94A3B8]">
+                  لم تقم بحفظ أي قائمة بعد. اختر الأصدقاء بالأسفل واكتب اسم القائمة لحفظها.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {(currentUser.profile?.customFriendLists || []).map((lst) => (
+                    <div
+                      key={lst.id}
+                      className="p-2.5 rounded-xl bg-[#112240] border border-[#334155] space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedFriendNamesForList(lst.memberUsernames);
+                            setComposerCustomListId(lst.id);
+                          }}
+                          className="text-xs font-extrabold text-[#F8FAFC] hover:text-sky-300 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{lst.title}</span>
+                          <span className="text-[10px] text-sky-300">
+                            ({lst.memberUsernames.length} صديق)
+                          </span>
+                        </button>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCustomListId(lst.id);
+                              setCustomListTitleInput(lst.title);
+                              setSelectedFriendNamesForList(lst.memberUsernames);
+                            }}
+                            className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 text-[10px] font-bold cursor-pointer"
+                          >
+                            تعديل القائمة
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!currentUser || !onUpdateUserAccount) return;
+                              const nextLists = (
+                                currentUser.profile?.customFriendLists || []
+                              ).filter((x) => x.id !== lst.id);
+                              onUpdateUserAccount({
+                                ...currentUser,
+                                profile: {
+                                  ...(currentUser.profile || {
+                                    governorate: '',
+                                    governoratePrivacy: 'public',
+                                    birthDate: '',
+                                    birthDatePrivacy: 'public',
+                                    maritalStatus: '',
+                                    maritalStatusPrivacy: 'public',
+                                    jobs: [],
+                                    jobsPrivacy: 'public',
+                                    followingUsernames: [],
+                                    customFriendLists: [],
+                                  }),
+                                  customFriendLists: nextLists,
+                                },
+                                updatedAt: Date.now(),
+                              });
+                            }}
+                            className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px] font-bold cursor-pointer"
+                          >
+                            حذف
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* أسماء الأشخاص داخل القائمة مع إمكانية حذف أي شخص من القائمة مباشرة */}
+                      <div className="flex flex-wrap gap-1">
+                        {lst.memberUsernames.map((uName: string) => (
+                          <span
+                            key={uName}
+                            className="px-2 py-0.5 rounded-lg bg-[#0A192F] border border-[#334155] text-[10px] font-bold text-[#E2E8F0] flex items-center gap-1"
+                          >
+                            <span>{uName}</span>
+                            <button
+                              type="button"
+                              title="حذف هذا الشخص من القائمة"
+                              onClick={() => {
+                                if (!currentUser || !onUpdateUserAccount) return;
+                                const updatedUsernames =
+                                  lst.memberUsernames.filter(
+                                    (n: string) => n !== uName
+                                  );
+                                const nextLists = (
+                                  currentUser.profile?.customFriendLists || []
+                                ).map((x) =>
+                                  x.id === lst.id
+                                    ? {
+                                        ...x,
+                                        memberUsernames: updatedUsernames,
+                                      }
+                                    : x
+                                );
+                                onUpdateUserAccount({
+                                  ...currentUser,
+                                  profile: {
+                                    ...(currentUser.profile || {
+                                      governorate: '',
+                                      governoratePrivacy: 'public',
+                                      birthDate: '',
+                                      birthDatePrivacy: 'public',
+                                      maritalStatus: '',
+                                      maritalStatusPrivacy: 'public',
+                                      jobs: [],
+                                      jobsPrivacy: 'public',
+                                      followingUsernames: [],
+                                      customFriendLists: [],
+                                    }),
+                                    customFriendLists: nextLists,
+                                  },
+                                  updatedAt: Date.now(),
+                                });
+                                setSelectedFriendNamesForList(updatedUsernames);
+                              }}
+                              className="text-rose-400 hover:text-rose-300 font-extrabold cursor-pointer"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* حفظ أو تعديل قائمة بعنوان */}
+              <div className="flex items-center gap-2 pt-1 border-t border-[#334155]">
+                <input
+                  type="text"
+                  value={customListTitleInput}
+                  onChange={(e) => setCustomListTitleInput(e.target.value)}
+                  placeholder="اكتب عنوان القائمة (مثال: أصدقاء العمل)..."
+                  className="flex-1 rounded-xl bg-[#112240] border border-[#334155] focus:border-sky-400 px-3 py-1.5 text-xs text-[#F8FAFC] outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!currentUser || !onUpdateUserAccount) return;
+                    const cleanTitle = customListTitleInput.trim();
+                    if (!cleanTitle) return;
+                    const existingLists =
+                      currentUser.profile?.customFriendLists || [];
+                    let nextLists: CustomFriendList[];
+                    if (editingCustomListId) {
+                      nextLists = existingLists.map((item) =>
+                        item.id === editingCustomListId
+                          ? {
+                              ...item,
+                              title: cleanTitle,
+                              memberUsernames: selectedFriendNamesForList,
+                            }
+                          : item
+                      );
+                    } else {
+                      const newList: CustomFriendList = {
+                        id: `flist-${Date.now()}`,
+                        title: cleanTitle,
+                        memberUsernames: selectedFriendNamesForList,
+                      };
+                      nextLists = [...existingLists, newList];
+                      setComposerCustomListId(newList.id);
+                    }
+                    onUpdateUserAccount({
+                      ...currentUser,
+                      profile: {
+                        ...(currentUser.profile || {
+                          governorate: '',
+                          governoratePrivacy: 'public',
+                          birthDate: '',
+                          birthDatePrivacy: 'public',
+                          maritalStatus: '',
+                          maritalStatusPrivacy: 'public',
+                          jobs: [],
+                          jobsPrivacy: 'public',
+                          followingUsernames: [],
+                          customFriendLists: [],
+                        }),
+                        customFriendLists: nextLists,
+                      },
+                      updatedAt: Date.now(),
+                    });
+                    setEditingCustomListId(null);
+                    setCustomListTitleInput('');
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold cursor-pointer shrink-0"
+                >
+                  {editingCustomListId ? 'حفظ تعديل القائمة' : 'حفظ كقائمة جديدة'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 2. خانة بحث بالاسم لاختيار الشخص سريعاً */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-[#94A3B8] absolute right-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={customFriendSearch}
+              onChange={(e) => setCustomFriendSearch(e.target.value)}
+              placeholder="بحث بالاسم لاختيار الشخص سريعاً..."
+              className="w-full rounded-xl bg-[#0A192F] border border-[#334155] focus:border-sky-400 pr-9 pl-3 py-2 text-xs text-[#F8FAFC] outline-none"
+            />
+          </div>
+
+          {/* 3. قائمة الأصدقاء والحسابات مع علامة صح أمام كل شخص */}
+          <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+            {mentionableAndFriendAccounts
+              .filter((u) =>
+                !customFriendSearch.trim()
+                  ? true
+                  : u.username
+                      .toLowerCase()
+                      .includes(customFriendSearch.trim().toLowerCase())
+              )
+              .map((u) => {
+                const isChecked = selectedFriendNamesForList.some(
+                  (n) => n.trim().toLowerCase() === u.username.trim().toLowerCase()
+                );
+                const isMyFriend = (
+                  currentUser?.profile?.followingUsernames || []
+                ).some(
+                  (n) => n.trim().toLowerCase() === u.username.trim().toLowerCase()
+                );
+                return (
+                  <label
+                    key={u.id}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition-all ${
+                      isChecked
+                        ? 'bg-sky-500/15 border-sky-400'
+                        : 'bg-[#0A192F] border-[#334155] hover:border-sky-400/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setSelectedFriendNamesForList((prev) =>
+                            isChecked
+                              ? prev.filter(
+                                  (n) =>
+                                    n.trim().toLowerCase() !==
+                                    u.username.trim().toLowerCase()
+                                )
+                              : [...prev, u.username]
+                          );
+                        }}
+                        className="w-4 h-4 accent-sky-500 rounded cursor-pointer"
+                      />
+                      <img
+                        src={getUserAvatarDataUri(u)}
+                        alt={u.username}
+                        className="w-8 h-8 rounded-xl object-cover border border-sky-400/40 shrink-0"
+                      />
+                      <span className="text-xs font-extrabold text-[#F8FAFC] truncate">
+                        {u.username}
+                      </span>
+                    </div>
+                    {isMyFriend && (
+                      <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 text-[10px] font-bold shrink-0">
+                        صديق ✓
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+          </div>
+
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#334155]">
+            <span className="text-xs font-extrabold text-sky-300">
+              تم اختيار: {selectedFriendNamesForList.length} شخص
+            </span>
+            <div className="flex items-center gap-2">
+              <FluentButton
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsCustomFriendsModalOpen(false)}
+              >
+                إلغاء
+              </FluentButton>
+              <FluentButton
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  if (customFriendsModalTargetPostId && onUpdatePostPrivacy) {
+                    onUpdatePostPrivacy(
+                      customFriendsModalTargetPostId,
+                      'custom_list',
+                      selectedFriendNamesForList,
+                      composerCustomListId || undefined
+                    );
+                  } else {
+                    setComposerPrivacy('custom_list');
+                    setComposerAllowedUsernames(selectedFriendNamesForList);
+                  }
+                  setIsCustomFriendsModalOpen(false);
+                }}
+              >
+                اعتماد القائمة للمنشور ({selectedFriendNamesForList.length})
+              </FluentButton>
+            </div>
+          </div>
+        </div>
+      </FluentModal>
 
       {/* Live Chat Modal ("محادثة لايف") */}
       <LiveCommunityChatModal

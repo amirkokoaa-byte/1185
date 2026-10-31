@@ -377,6 +377,13 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
     ) {
       return '';
     }
+    if (!isAdmin) {
+      const stripped = desc
+        .replace(/إعلان نشط لمدة\s*\d+\s*(يوم|أيام)/g, '')
+        .replace(/لمدة\s*\d+\s*(يوم|أيام)/g, '')
+        .trim();
+      return stripped;
+    }
     return desc;
   };
 
@@ -711,16 +718,7 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
           theme="light"
         >
           <div className="space-y-4 text-black">
-            {/* عداد المشاهدات اللحظي لمن ضغطوا على الإعلان وفتحوه */}
-            <div className="px-3.5 py-2 rounded-xl bg-sky-50 border border-sky-300 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-xs font-extrabold text-sky-900">
-                <Eye className="w-4 h-4 text-sky-600 shrink-0" />
-                <span>عدد المشاهدات (الذين ضغطوا على الإعلان وفتحوه لحظياً):</span>
-              </div>
-              <span className="px-3 py-0.5 rounded-full bg-sky-600 text-white text-xs font-mono-tabular font-extrabold">
-                {liveSelectedTopBanner.viewsCount || 1} مشاهدة
-              </span>
-            </div>
+            {/* تم إخفاء جملة عدد المشاهدات في الشاشة المنبثقة للاكتفاء بالملخص في الإعدادات */}
 
             <div
               onClick={() => setFullImagePreviewUrl(liveSelectedTopBanner.imageUrl)}
@@ -824,20 +822,6 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                 </div>
               )}
 
-            {liveSelectedTopBanner.targetSection && (
-              <div className="flex justify-end">
-                <FluentButton
-                  variant="primary"
-                  onClick={() => {
-                    handleNavigateInternalSection(liveSelectedTopBanner.targetSection);
-                    setSelectedTopBanner(null);
-                  }}
-                >
-                  <Compass className="w-4 h-4" />
-                  <span>التوجه إلى القسم المحدد بالموقع</span>
-                </FluentButton>
-              </div>
-            )}
           </div>
         </FluentModal>
       )}
@@ -857,16 +841,18 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
           theme="light"
         >
           <div className="space-y-4 text-black">
-            {/* عداد المشاهدات اللحظي لمن ضغطوا على الإعلان وفتحوه */}
-            <div className="px-3.5 py-2 rounded-xl bg-sky-50 border border-sky-300 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-xs font-extrabold text-sky-900">
-                <Eye className="w-4 h-4 text-sky-600 shrink-0" />
-                <span>عدد المشاهدات (الذين ضغطوا على الإعلان وفتحوه لحظياً):</span>
+            {/* في لوحة الإعلانات والخصومات المتحركة: المشاهدات تظهر لـ admin فقط */}
+            {isAdmin && (
+              <div className="flex items-center justify-end">
+                <span
+                  title="عدد المشاهدات"
+                  className="px-3 py-1 rounded-full bg-sky-600 text-white text-xs font-mono-tabular font-extrabold inline-flex items-center gap-1.5 shadow-sm"
+                >
+                  <Eye className="w-3.5 h-3.5 shrink-0" />
+                  <span>{liveSelectedSquareAd.viewsCount || 1}</span>
+                </span>
               </div>
-              <span className="px-3 py-0.5 rounded-full bg-sky-600 text-white text-xs font-mono-tabular font-extrabold">
-                {liveSelectedSquareAd.viewsCount || 1} مشاهدة
-              </span>
-            </div>
+            )}
 
             <div
               onClick={() => setFullImagePreviewUrl(liveSelectedSquareAd.imageUrl)}
@@ -990,25 +976,11 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
                 </div>
               )}
 
-            {liveSelectedSquareAd.targetSection && (
-              <div className="flex justify-end">
-                <FluentButton
-                  variant="primary"
-                  onClick={() => {
-                    handleNavigateInternalSection(liveSelectedSquareAd.targetSection);
-                    setSelectedSquareAd(null);
-                  }}
-                >
-                  <Compass className="w-4 h-4" />
-                  <span>التوجه إلى القسم المحدد بالموقع</span>
-                </FluentButton>
-              </div>
-            )}
           </div>
         </FluentModal>
       )}
 
-      {/* 3. Entry Pop-up Ad Modal (Each uploaded image appears as a separate sequential popup with an X close button on the left + Live Views Counter when clicked) */}
+      {/* 3. Entry Pop-up Ad Modal (Each uploaded image appears as a separate sequential popup with an X close button on the left) */}
       <FluentModal
         isOpen={
           showEntryPopup &&
@@ -1025,16 +997,6 @@ export const TopBannersAndSquareAds: React.FC<TopBannersAndSquareAdsProps> = ({
         maxWidth="lg"
       >
         <div key={`popup-seq-${currentPopupImageIndex}`} className="space-y-4">
-          {/* عداد المشاهدات اللحظي لمن ضغطوا على الإعلان وفتحوه (مرتبط بسجل المحل في الأقسام) */}
-          <div className="px-3.5 py-2 rounded-xl bg-[#0A192F] border border-sky-400/50 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs font-extrabold text-sky-300">
-              <Eye className="w-4 h-4 text-sky-400 shrink-0" />
-              <span>عدد المشاهدات الفعلي (مرتبط بسجل المحل في الأقسام لحظياً):</span>
-            </div>
-            <span className="px-3 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-200 text-xs font-mono-tabular font-extrabold">
-              {livePopupViewsCount || 1} مشاهدة
-            </span>
-          </div>
 
           {popupAdImagesList[currentPopupImageIndex] && (
             <div className="relative w-full rounded-xl overflow-hidden bg-[#0A192F] border border-sky-400/40 flex items-center justify-center p-2">

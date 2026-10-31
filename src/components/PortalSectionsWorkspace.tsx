@@ -31,7 +31,10 @@ import { CommunityHubView } from './CommunityHubView';
 import { UtilitiesSubmissionsView } from './UtilitiesSubmissionsView';
 import { AdminSettingsHubView } from './AdminSettingsHubView';
 import { PersonalProfileHeaderSection } from './SocialBottomBarAndProfile';
-import { RealOnlinePresenceStats } from '../services/storageService';
+import {
+  RealOnlinePresenceStats,
+  resolveUnifiedProfileUser,
+} from '../services/storageService';
 
 interface PortalSectionsWorkspaceProps {
   activeSection: MainSectionId;
@@ -829,29 +832,11 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
 
   // ================= 0B. PERSONAL PROFILE (ملف شخصي) =================
   if (activeSection === 'profile') {
-    const targetUsername = (
-      viewedProfileUsername ||
-      currentUser?.username ||
-      ''
-    ).trim();
-    const lowerTarget = targetUsername.toLowerCase();
-    const matchedInState = lowerTarget
-      ? state.users.find(
-          (u) =>
-            u.username.trim().toLowerCase() === lowerTarget ||
-            (u.accountName && u.accountName.trim().toLowerCase() === lowerTarget)
-        )
-      : undefined;
-    const targetUser =
-      matchedInState ||
-      (currentUser
-        ? state.users.find(
-            (u) =>
-              u.id === currentUser.id ||
-              u.username.trim().toLowerCase() ===
-                currentUser.username.trim().toLowerCase()
-          ) || currentUser
-        : undefined);
+    const targetUser = resolveUnifiedProfileUser(
+      viewedProfileUsername,
+      currentUser,
+      state.users
+    );
 
     if (!targetUser) {
       return (

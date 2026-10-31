@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useRegisterSW } from 'virtual:pwa-register/react';
 import {
   Store,
   PhoneCall,
@@ -15,6 +16,7 @@ import {
   Radio,
   FileText,
   ShoppingBag,
+  RefreshCw,
 } from 'lucide-react';
 import {
   AdminActivityLogItem,
@@ -55,6 +57,7 @@ import {
   getOrCreateVisitorId,
   isAdLinkedToStore,
   isPermanentDreamPlazaStore,
+  manageUnifiedUserSession,
   mergeViewsByHourMaps,
   RealOnlinePresenceStats,
   removeCurrentTabPresence,
@@ -76,13 +79,14 @@ export default function App() {
   // Activate Windows 10 Fluent Reveal Highlight & Glowing Borders on Mouse Hover & Mobile Touch
   useGlobalFluentReveal();
 
-  const [dbState, setDbState] = useState<PlatformDatabaseState>(() =>
-    storageEngine.loadLocalState()
-  );
+  const [dbState, setDbState] = useState<PlatformDatabaseState>(() => {
+    const boot = manageUnifiedUserSession({ action: 'bootstrap' });
+    return boot.state;
+  });
 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
-    const initialDb = storageEngine.loadLocalState();
-    return storageEngine.loadAuthenticatedUser(initialDb.users);
+    const boot = manageUnifiedUserSession({ action: 'bootstrap' });
+    return boot.user;
   });
 
   const [activeSection, setActiveSection] = useState<MainSectionId>(() => {
@@ -152,6 +156,89 @@ export default function App() {
   } | null>(null);
   const [loginWelcomeToast, setLoginWelcomeToast] = useState<string>('');
   const [cloudWriteErrorToast, setCloudWriteErrorToast] = useState<string>('');
+  const [pwaUpdateToast, setPwaUpdateToast] = useState<string>('');
+  const swRefreshingRef = useRef<boolean>(false);
+
+  const {
+    needRefresh: [needRefresh, setNeedRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    immediate: true,
+    onRegisteredSW(_swUrl, registration) {
+      if (!registration) return;
+      registration.update().catch(() => {});
+      const checkSwUpdate = () => {
+        registration.update().catch(() => {});
+      };
+      const intervalId = window.setInterval(checkSwUpdate, 30 * 1000);
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          checkSwUpdate();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      window.addEventListener('online', checkSwUpdate);
+      return () => {
+        window.clearInterval(intervalId);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('online', checkSwUpdate);
+      };
+    },
+    onNeedRefresh() {
+      setPwaUpdateToast('تم إطلاق تحديث جديد للموقع، جاري التحديث...');
+    },
+    onRegisterError(error) {
+      console.warn('SW registration error:', error);
+    },
+  });
+
+  useEffect(() => {
+    if (!needRefresh && !pwaUpdateToast) return;
+    setPwaUpdateToast('تم إطلاق تحديث جديد للموقع، جاري التحديث...');
+    const timer = window.setTimeout(async () => {
+      try {
+        if ('caches' in window) {
+          const keys = await window.caches.keys();
+          await Promise.all(
+            keys
+              .filter((k) => k.includes('live-app-shell') || k.includes('workbox-precache'))
+              .map((k) => window.caches.delete(k))
+          );
+        }
+      } catch {
+        // ignore cache delete errors
+      }
+      try {
+        await updateServiceWorker(true);
+      } catch {
+        // ignore
+      }
+      setNeedRefresh(false);
+      if (!swRefreshingRef.current) {
+        swRefreshingRef.current = true;
+        window.location.reload();
+      }
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [needRefresh, pwaUpdateToast, updateServiceWorker, setNeedRefresh]);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const hadControllerOnMount = Boolean(navigator.serviceWorker.controller);
+    const handleControllerChange = () => {
+      if (!hadControllerOnMount) return;
+      if (swRefreshingRef.current) return;
+      swRefreshingRef.current = true;
+      setPwaUpdateToast('تم إطلاق تحديث جديد للموقع، جاري التحديث...');
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 900);
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -304,18 +391,32 @@ export default function App() {
     };
   }, []);
 
-  // Keep currentUser synced with latest profile/role updates, and log out only if explicitly banned by Admin
+  // Unified session sync: secures user in MemoryStorage & LocalStorage and prevents logout during Firebase delays
   useEffect(() => {
-    if (!currentUser) return;
-    const matchedInDb = dbState.users.find(
-      (u) =>
-        u.id === currentUser.id ||
-        u.username.trim().toLowerCase() ===
-          currentUser.username.trim().toLowerCase()
-    );
-    if (matchedInDb && matchedInDb.isBanned) {
+    const synced = manageUnifiedUserSession({
+      action: 'sync',
+      user: currentUser,
+      candidateUsers: dbState.users,
+    });
+    if (!synced.user && currentUser) {
       setCurrentUser(null);
-      storageEngine.saveAuthenticatedUser(null, false);
+    } else if (synced.user && !currentUser) {
+      setCurrentUser(synced.user);
+    } else if (
+      synced.user &&
+      currentUser &&
+      !dbState.users.some(
+        (u) =>
+          u.id === synced.user?.id ||
+          u.username.trim().toLowerCase() ===
+            synced.user?.username.trim().toLowerCase()
+      )
+    ) {
+      // Heal dbState.users from MemoryStorage if Firebase response was delayed or partial
+      setDbState((prev) => ({
+        ...prev,
+        users: synced.securedUsers,
+      }));
     }
   }, [dbState.users, currentUser]);
 
@@ -481,7 +582,7 @@ export default function App() {
     });
   }, [currentUser?.id]);
 
-  // --- Authentication Handlers (with Instant Browser Cache & Instant Online Presence Broadcast on Login/Logout) ---
+  // --- Authentication Handlers (with Unified Session Manager, MemoryStorage Lock & Instant Online Presence Broadcast) ---
   const handleAuthenticate = (user: UserAccount, rememberMe: boolean) => {
     const nowTs = Date.now();
     const onlineUser: UserAccount = {
@@ -495,33 +596,39 @@ export default function App() {
     } catch {
       // ignore
     }
-    // Save authenticated user in memory & storage FIRST so background sync never drops it
-    storageEngine.saveAuthenticatedUser(onlineUser, rememberMe);
-    setCurrentUser(onlineUser);
-    setViewedProfileUsername(onlineUser.username);
+    // Secure user immediately in MemoryStorage + LocalStorage via Unified Session Manager
+    const securedSession = manageUnifiedUserSession({
+      action: 'login',
+      user: onlineUser,
+      rememberMe,
+      candidateUsers: dbState.users,
+    });
+    const activeLoggedUser = securedSession.user || onlineUser;
+    setCurrentUser(activeLoggedUser);
+    setViewedProfileUsername(activeLoggedUser.username);
     setDbState((prev) => {
       const exists = prev.users.some(
         (u) =>
-          u.id === onlineUser.id ||
+          u.id === activeLoggedUser.id ||
           u.username.trim().toLowerCase() ===
-            onlineUser.username.trim().toLowerCase()
+            activeLoggedUser.username.trim().toLowerCase()
       );
       const nextUsers = exists
         ? prev.users.map((u) =>
-            u.id === onlineUser.id ||
+            u.id === activeLoggedUser.id ||
             u.username.trim().toLowerCase() ===
-              onlineUser.username.trim().toLowerCase()
-              ? { ...u, ...onlineUser, isOnline: true, updatedAt: nowTs }
+              activeLoggedUser.username.trim().toLowerCase()
+              ? { ...u, ...activeLoggedUser, isOnline: true, updatedAt: nowTs }
               : u
           )
-        : [...prev.users, onlineUser];
-      const uNameKey = `user:${onlineUser.username.trim().toLowerCase()}`;
-      const accKey = onlineUser.accountName
-        ? `acc:${onlineUser.accountName.trim().toLowerCase()}`
+        : [...prev.users, activeLoggedUser];
+      const uNameKey = `user:${activeLoggedUser.username.trim().toLowerCase()}`;
+      const accKey = activeLoggedUser.accountName
+        ? `acc:${activeLoggedUser.accountName.trim().toLowerCase()}`
         : '';
       const cleanedDeletedIds = (prev.deletedRecordIds || []).filter(
         (id) =>
-          id !== onlineUser.id &&
+          id !== activeLoggedUser.id &&
           id !== uNameKey &&
           (!accKey || id !== accKey) &&
           !id.startsWith('user:') &&
@@ -534,16 +641,16 @@ export default function App() {
         deletedRecordIds: cleanedDeletedIds,
         settings: appendAuthSessionAndVisitToSettings(
           prev.settings,
-          onlineUser,
+          activeLoggedUser,
           'login'
         ),
       };
-      storageEngine.saveAuthenticatedUser(onlineUser, rememberMe, next);
-      storageEngine.persistState(next, onlineUser.id);
+      storageEngine.saveAuthenticatedUser(activeLoggedUser, rememberMe, next);
+      storageEngine.persistState(next, activeLoggedUser.id);
       return next;
     });
-    setOnlineStats(syncRealOnlinePresence(onlineUser, false));
-    triggerLoginExternalNotification(onlineUser);
+    setOnlineStats(syncRealOnlinePresence(activeLoggedUser, false));
+    triggerLoginExternalNotification(activeLoggedUser);
   };
 
   const handleRegisterNewUser = (newUser: UserAccount, rememberMe: boolean) => {
@@ -559,33 +666,39 @@ export default function App() {
     } catch {
       // ignore
     }
-    // Save authenticated user in memory & storage FIRST so background sync never drops it
-    storageEngine.saveAuthenticatedUser(onlineNewUser, rememberMe);
-    setCurrentUser(onlineNewUser);
-    setViewedProfileUsername(onlineNewUser.username);
+    // Secure newly registered user immediately in MemoryStorage + LocalStorage via Unified Session Manager
+    const securedSession = manageUnifiedUserSession({
+      action: 'register',
+      user: onlineNewUser,
+      rememberMe,
+      candidateUsers: dbState.users,
+    });
+    const activeRegUser = securedSession.user || onlineNewUser;
+    setCurrentUser(activeRegUser);
+    setViewedProfileUsername(activeRegUser.username);
     setDbState((prev) => {
       const exists = prev.users.some(
         (u) =>
-          u.id === onlineNewUser.id ||
+          u.id === activeRegUser.id ||
           u.username.trim().toLowerCase() ===
-            onlineNewUser.username.trim().toLowerCase()
+            activeRegUser.username.trim().toLowerCase()
       );
       const nextUsers = exists
         ? prev.users.map((u) =>
-            u.id === onlineNewUser.id ||
+            u.id === activeRegUser.id ||
             u.username.trim().toLowerCase() ===
-              onlineNewUser.username.trim().toLowerCase()
-              ? onlineNewUser
+              activeRegUser.username.trim().toLowerCase()
+              ? activeRegUser
               : u
           )
-        : [...prev.users, onlineNewUser];
-      const uNameKey = `user:${onlineNewUser.username.trim().toLowerCase()}`;
-      const accKey = onlineNewUser.accountName
-        ? `acc:${onlineNewUser.accountName.trim().toLowerCase()}`
+        : [...prev.users, activeRegUser];
+      const uNameKey = `user:${activeRegUser.username.trim().toLowerCase()}`;
+      const accKey = activeRegUser.accountName
+        ? `acc:${activeRegUser.accountName.trim().toLowerCase()}`
         : '';
       const cleanedDeletedIds = (prev.deletedRecordIds || []).filter(
         (id) =>
-          id !== onlineNewUser.id &&
+          id !== activeRegUser.id &&
           id !== uNameKey &&
           (!accKey || id !== accKey) &&
           !id.startsWith('user:') &&
@@ -598,16 +711,16 @@ export default function App() {
         deletedRecordIds: cleanedDeletedIds,
         settings: appendAuthSessionAndVisitToSettings(
           prev.settings,
-          onlineNewUser,
+          activeRegUser,
           'login'
         ),
       };
-      storageEngine.saveAuthenticatedUser(onlineNewUser, rememberMe, next);
-      storageEngine.persistState(next, onlineNewUser.id);
+      storageEngine.saveAuthenticatedUser(activeRegUser, rememberMe, next);
+      storageEngine.persistState(next, activeRegUser.id);
       return next;
     });
-    setOnlineStats(syncRealOnlinePresence(onlineNewUser, false));
-    triggerLoginExternalNotification(onlineNewUser);
+    setOnlineStats(syncRealOnlinePresence(activeRegUser, false));
+    triggerLoginExternalNotification(activeRegUser);
   };
 
   const handleResetUserPassword = (userId: string, newPassword: string) => {
@@ -623,7 +736,7 @@ export default function App() {
     const loggingOutUser = currentUser;
     const loggingOutUserId = currentUser?.id;
     setCurrentUser(null);
-    storageEngine.saveAuthenticatedUser(null, false);
+    manageUnifiedUserSession({ action: 'logout' });
     // Mark user offline when logging out
     updateAndPersist((prev) => ({
       ...prev,
@@ -5258,6 +5371,28 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-[#0A192F] text-[#F8FAFC] flex flex-col pb-16">
+      {/* PWA Instant Auto-Update Toast Notification */}
+      {(needRefresh || pwaUpdateToast) && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[150] w-[92vw] max-w-md px-4 py-3 rounded-2xl bg-[#112240]/95 border-2 border-sky-400 text-sky-100 shadow-[0_12px_35px_rgba(56,189,248,0.45)] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <RefreshCw className="w-5 h-5 text-sky-400 animate-spin shrink-0" />
+            <span className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] leading-relaxed">
+              {pwaUpdateToast || 'تم إطلاق تحديث جديد للموقع، جاري التحديث...'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              updateServiceWorker(true).catch(() => {});
+              window.location.reload();
+            }}
+            className="px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-[#0A192F] text-xs font-extrabold shrink-0 cursor-pointer"
+          >
+            تحديث الآن
+          </button>
+        </div>
+      )}
+
       {/* Login Welcome Notification Toast (مرحباً بك + اسم صاحب الحساب) */}
       {loginWelcomeToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[120] px-5 py-3 rounded-2xl bg-[#112240] border-2 border-emerald-400 text-emerald-200 shadow-[0_12px_35px_rgba(16,185,129,0.35)] flex items-center gap-3 animate-bounce">

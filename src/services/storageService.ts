@@ -1307,17 +1307,73 @@ function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPos
 const USERS_VAULT_STORAGE_KEY = 'nakhil_1185_users_vault_v1';
 let currentActiveAuthUserMemory: UserAccount | null = null;
 
+/**
+ * MemoryStorage: طبقة تخزين فورية في الذاكرة الحية لتأمين جلسة المستخدم وبيانات البروفايل
+ * قبل تحميل الواجهات وأثناء تأخر استجابة Firebase.
+ */
+interface MemorySessionStorageState {
+  activeUser: UserAccount | null;
+  securedUsersById: Map<string, UserAccount>;
+  securedUsersByKey: Map<string, UserAccount>;
+  isBootstrapped: boolean;
+  lastSecuredAt: number;
+}
+
+const memorySessionStore: MemorySessionStorageState = {
+  activeUser: null,
+  securedUsersById: new Map<string, UserAccount>(),
+  securedUsersByKey: new Map<string, UserAccount>(),
+  isBootstrapped: false,
+  lastSecuredAt: 0,
+};
+
+function cacheUserInMemoryStore(user: UserAccount | null | undefined): void {
+  if (!user || !user.id || !user.username) return;
+  const existing = memorySessionStore.securedUsersById.get(user.id);
+  const merged: UserAccount = existing
+    ? {
+        ...existing,
+        ...user,
+        profile: {
+          ...(existing.profile || {}),
+          ...(user.profile || {}),
+        },
+        updatedAt: Math.max(existing.updatedAt || 0, user.updatedAt || 0),
+      }
+    : user;
+  memorySessionStore.securedUsersById.set(merged.id, merged);
+  memorySessionStore.securedUsersByKey.set(
+    merged.username.trim().toLowerCase(),
+    merged
+  );
+  if (merged.accountName && merged.accountName.trim()) {
+    memorySessionStore.securedUsersByKey.set(
+      merged.accountName.trim().toLowerCase(),
+      merged
+    );
+  }
+}
+
 function getActiveAuthUserSnapshot(): UserAccount | null {
+  if (memorySessionStore.activeUser && memorySessionStore.activeUser.id) {
+    currentActiveAuthUserMemory = memorySessionStore.activeUser;
+    return memorySessionStore.activeUser;
+  }
   if (currentActiveAuthUserMemory && currentActiveAuthUserMemory.id) {
+    memorySessionStore.activeUser = currentActiveAuthUserMemory;
+    cacheUserInMemoryStore(currentActiveAuthUserMemory);
     return currentActiveAuthUserMemory;
   }
   try {
     const raw =
-      sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`) ||
-      localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`);
+      localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`) ||
+      sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`);
     if (raw) {
       const parsed = JSON.parse(raw) as UserAccount;
       if (parsed && parsed.id && parsed.username) {
+        currentActiveAuthUserMemory = parsed;
+        memorySessionStore.activeUser = parsed;
+        cacheUserInMemoryStore(parsed);
         return parsed;
       }
     }
@@ -1328,20 +1384,43 @@ function getActiveAuthUserSnapshot(): UserAccount | null {
 }
 
 function loadUsersVaultBackup(): UserAccount[] {
+  const resultById = new Map<string, UserAccount>();
+  memorySessionStore.securedUsersById.forEach((u) => {
+    if (u && u.id && u.username) {
+      resultById.set(u.id, u);
+    }
+  });
   try {
-    const raw =
-      sessionStorage.getItem(USERS_VAULT_STORAGE_KEY) ||
-      localStorage.getItem(USERS_VAULT_STORAGE_KEY);
-    if (raw) {
+    const rawSources = [
+      localStorage.getItem(USERS_VAULT_STORAGE_KEY),
+      sessionStorage.getItem(USERS_VAULT_STORAGE_KEY),
+    ];
+    for (const raw of rawSources) {
+      if (!raw) continue;
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed.filter((u) => u && u.id && u.username);
+        for (const u of parsed) {
+          if (u && u.id && u.username) {
+            cacheUserInMemoryStore(u);
+            const prev = resultById.get(u.id);
+            resultById.set(
+              u.id,
+              prev
+                ? {
+                    ...prev,
+                    ...u,
+                    profile: { ...(prev.profile || {}), ...(u.profile || {}) },
+                  }
+                : u
+            );
+          }
+        }
       }
     }
   } catch {
     // ignore
   }
-  return [];
+  return Array.from(resultById.values());
 }
 
 function isUserDeleted(u: UserAccount, deletedSet: Set<string>): boolean {
@@ -5891,6 +5970,285 @@ class HybridStorageEngine {
 }
 
 export const storageEngine = new HybridStorageEngine();
+
+export interface UnifiedSessionResult {
+  user: UserAccount | null;
+  securedUsers: UserAccount[];
+  state: PlatformDatabaseState;
+  isCloudHydrated: boolean;
+}
+
+/**
+ * دالة موحدة لإدارة الجلسات (Unified Session Manager):
+ * 1. تتحقق من وجود المستخدم في LocalStorage (و SessionStorage / UsersVault)
+ * 2. تؤمّن حالة المستخدم وجميع بياناته في MemoryStorage قبل تحميل الواجهات
+ * 3. تعالج حالات تأخر استجابة Firebase عند تحميل الموقع أو البروفايل لضمان عدم خروج المستخدم إطلاقاً
+ */
+export function manageUnifiedUserSession(options?: {
+  action?: 'bootstrap' | 'login' | 'register' | 'sync' | 'logout';
+  user?: UserAccount | null;
+  rememberMe?: boolean;
+  candidateUsers?: UserAccount[];
+}): UnifiedSessionResult {
+  const action = options?.action || 'sync';
+
+  if (action === 'logout') {
+    currentActiveAuthUserMemory = null;
+    memorySessionStore.activeUser = null;
+    storageEngine.saveAuthenticatedUser(null, false);
+    const currentState = storageEngine.loadLocalState();
+    return {
+      user: null,
+      securedUsers: currentState.users,
+      state: currentState,
+      isCloudHydrated: storageEngine.isHydratedFromCloud(),
+    };
+  }
+
+  // 1. Seed MemoryStorage with all known local users from LocalStorage & Vault before resolving session
+  const baseState = storageEngine.loadLocalState();
+  const vaultUsers = loadUsersVaultBackup();
+  const allCandidateUsers: UserAccount[] = [
+    ...INITIAL_USERS,
+    ...vaultUsers,
+    ...(baseState.users || []),
+    ...(options?.candidateUsers || []),
+  ];
+  allCandidateUsers.forEach((u) => cacheUserInMemoryStore(u));
+
+  // 2. If explicitly logging in or registering, lock user into MemoryStorage + LocalStorage immediately
+  if ((action === 'login' || action === 'register') && options?.user) {
+    const nowTs = Date.now();
+    const stampedUser: UserAccount = {
+      ...options.user,
+      isOnline: true,
+      updatedAt: Math.max(options.user.updatedAt || 0, nowTs),
+    };
+    currentActiveAuthUserMemory = stampedUser;
+    memorySessionStore.activeUser = stampedUser;
+    memorySessionStore.isBootstrapped = true;
+    memorySessionStore.lastSecuredAt = nowTs;
+    cacheUserInMemoryStore(stampedUser);
+
+    const mergedUsers = mergeUsersLists(
+      allCandidateUsers,
+      [stampedUser],
+      baseState.deletedRecordIds
+    );
+    const nextState: PlatformDatabaseState = {
+      ...baseState,
+      users: mergedUsers,
+    };
+    storageEngine.saveAuthenticatedUser(
+      stampedUser,
+      options.rememberMe ?? true,
+      nextState
+    );
+    storageEngine.saveLocalState(nextState, stampedUser.id);
+    return {
+      user: stampedUser,
+      securedUsers: mergedUsers,
+      state: nextState,
+      isCloudHydrated: storageEngine.isHydratedFromCloud(),
+    };
+  }
+
+  // 3. Verify user existence across MemoryStorage -> LocalStorage -> SessionStorage -> UsersVault
+  let resolvedUser: UserAccount | null =
+    options?.user ||
+    memorySessionStore.activeUser ||
+    currentActiveAuthUserMemory ||
+    null;
+
+  if (!resolvedUser) {
+    try {
+      const localObjRaw =
+        localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`) ||
+        sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`);
+      if (localObjRaw) {
+        const parsed = JSON.parse(localObjRaw) as UserAccount;
+        if (parsed && parsed.id && parsed.username && !parsed.isBanned) {
+          resolvedUser = parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!resolvedUser) {
+    try {
+      const storedId =
+        localStorage.getItem(AUTH_PERSIST_KEY) ||
+        sessionStorage.getItem(AUTH_SESSION_KEY);
+      if (storedId) {
+        const fromMemoryOrList =
+          memorySessionStore.securedUsersById.get(storedId) ||
+          allCandidateUsers.find((u) => u && u.id === storedId);
+        if (fromMemoryOrList && !fromMemoryOrList.isBanned) {
+          resolvedUser = fromMemoryOrList;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 4. Enrich resolvedUser with the latest profile fields from MemoryStorage / candidateUsers
+  // while protecting the user from being dropped if Firebase response is delayed
+  if (resolvedUser) {
+    const lowerUname = resolvedUser.username.trim().toLowerCase();
+    const lowerAcc = resolvedUser.accountName
+      ? resolvedUser.accountName.trim().toLowerCase()
+      : '';
+    const latestMatch =
+      allCandidateUsers.find(
+        (u) =>
+          u &&
+          (u.id === resolvedUser?.id ||
+            u.username.trim().toLowerCase() === lowerUname ||
+            (lowerAcc &&
+              u.accountName &&
+              u.accountName.trim().toLowerCase() === lowerAcc))
+      ) ||
+      memorySessionStore.securedUsersById.get(resolvedUser.id) ||
+      memorySessionStore.securedUsersByKey.get(lowerUname);
+
+    if (latestMatch && latestMatch.isBanned) {
+      // Only log out if explicitly banned by Admin
+      currentActiveAuthUserMemory = null;
+      memorySessionStore.activeUser = null;
+      storageEngine.saveAuthenticatedUser(null, false);
+      return {
+        user: null,
+        securedUsers: baseState.users,
+        state: baseState,
+        isCloudHydrated: storageEngine.isHydratedFromCloud(),
+      };
+    }
+
+    const mergedActiveUser: UserAccount = latestMatch
+      ? {
+          ...resolvedUser,
+          ...latestMatch,
+          profile: {
+            ...(resolvedUser.profile || {}),
+            ...(latestMatch.profile || {}),
+          },
+          isOnline: true,
+        }
+      : {
+          ...resolvedUser,
+          isOnline: true,
+        };
+
+    // Secure state in MemoryStorage & mirror to LocalStorage so Firebase delay never logs user out
+    currentActiveAuthUserMemory = mergedActiveUser;
+    memorySessionStore.activeUser = mergedActiveUser;
+    memorySessionStore.isBootstrapped = true;
+    memorySessionStore.lastSecuredAt = Date.now();
+    cacheUserInMemoryStore(mergedActiveUser);
+
+    const securedUsers = mergeUsersLists(
+      allCandidateUsers,
+      [mergedActiveUser],
+      baseState.deletedRecordIds
+    );
+    const securedState: PlatformDatabaseState = {
+      ...baseState,
+      users: securedUsers,
+    };
+    storageEngine.saveAuthenticatedUser(mergedActiveUser, true, securedState);
+
+    return {
+      user: mergedActiveUser,
+      securedUsers,
+      state: securedState,
+      isCloudHydrated: storageEngine.isHydratedFromCloud(),
+    };
+  }
+
+  memorySessionStore.isBootstrapped = true;
+  return {
+    user: null,
+    securedUsers: baseState.users,
+    state: baseState,
+    isCloudHydrated: storageEngine.isHydratedFromCloud(),
+  };
+}
+
+/**
+ * دالة موحدة لاسترجاع حساب البروفايل (ملف شخصي) مع الحماية الكاملة ضد تأخر استجابة Firebase:
+ * تعتمد على MemoryStorage و LocalStorage فوراً في حال تأخر وصول بيانات Firebase لمنع خروج المستخدم.
+ */
+export function resolveUnifiedProfileUser(
+  viewedProfileUsername: string | null | undefined,
+  currentUser: UserAccount | null,
+  stateUsers: UserAccount[]
+): UserAccount | null {
+  const sessionSnap = manageUnifiedUserSession({
+    action: 'sync',
+    user: currentUser,
+    candidateUsers: stateUsers,
+  });
+  const activeUser = currentUser || sessionSnap.user;
+  const combinedUsers = sessionSnap.securedUsers;
+
+  const rawTarget = (viewedProfileUsername || activeUser?.username || '').trim();
+  const lowerTarget = rawTarget.toLowerCase();
+
+  if (lowerTarget) {
+    const matched =
+      combinedUsers.find(
+        (u) =>
+          u.username.trim().toLowerCase() === lowerTarget ||
+          (u.accountName && u.accountName.trim().toLowerCase() === lowerTarget)
+      ) || memorySessionStore.securedUsersByKey.get(lowerTarget);
+    if (matched) {
+      if (
+        activeUser &&
+        (matched.id === activeUser.id ||
+          matched.username.trim().toLowerCase() ===
+            activeUser.username.trim().toLowerCase())
+      ) {
+        return {
+          ...activeUser,
+          ...matched,
+          profile: {
+            ...(activeUser.profile || {}),
+            ...(matched.profile || {}),
+          },
+        };
+      }
+      return matched;
+    }
+  }
+
+  // Fallback directly to activeUser secured in MemoryStorage/LocalStorage if Firebase response is delayed
+  if (activeUser) {
+    return (
+      combinedUsers.find(
+        (u) =>
+          u.id === activeUser.id ||
+          u.username.trim().toLowerCase() ===
+            activeUser.username.trim().toLowerCase()
+      ) ||
+      memorySessionStore.securedUsersById.get(activeUser.id) ||
+      activeUser
+    );
+  }
+
+  return null;
+}
+
+// Pre-render bootstrap: التحقق من وجود المستخدم في LocalStorage وتأمين الحالة في MemoryStorage قبل تحميل الواجهات
+if (typeof window !== 'undefined') {
+  try {
+    manageUnifiedUserSession({ action: 'bootstrap' });
+  } catch {
+    // ignore
+  }
+}
 
 export async function migrateLocalDataToFirebase(activeUserId?: string) {
   return storageEngine.migrateLocalDataToFirebase(activeUserId);

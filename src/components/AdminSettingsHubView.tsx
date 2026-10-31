@@ -58,16 +58,21 @@ import {
 } from '../types';
 import { FluentButton, FluentCard, FluentModal } from './FluentUI';
 import {
+  clearAllSystemErrorLogs,
   createBannerSvg,
   createSquareAdSvg,
   createSuggestedStoreSvgPair,
   findLinkedStoreForAd,
   getEffectiveOnlineDisplayCount,
+  getLocalSystemErrorLogs,
   isPermanentDreamPlazaStore,
   mergeViewsByHourMaps,
   RealOnlinePresenceStats,
+  recordSystemErrorLog,
+  runSystemHealthDiagnostics,
   setGlobalDefaultStoreSvgStyle,
   storageEngine,
+  SystemHealthCheckReport,
   uploadImageDynamic,
 } from '../services/storageService';
 import {
@@ -1167,6 +1172,40 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
   const [isAuthSessionLogsOpen, setIsAuthSessionLogsOpen] = useState<boolean>(false);
   const [showAllAuthSessionLogs, setShowAllAuthSessionLogs] = useState<boolean>(false);
   const [isTopVisitorsModalOpen, setIsTopVisitorsModalOpen] = useState<boolean>(false);
+  const [isSiteHealthModalOpen, setIsSiteHealthModalOpen] = useState<boolean>(false);
+  const [healthReport, setHealthReport] = useState<SystemHealthCheckReport | null>(null);
+  const [isRunningHealthCheck, setIsRunningHealthCheck] = useState<boolean>(false);
+  const [errorLogsRefreshTick, setErrorLogsRefreshTick] = useState<number>(0);
+
+  const handleRunSiteDiagnostics = async () => {
+    setIsRunningHealthCheck(true);
+    try {
+      const report = await runSystemHealthDiagnostics(connStatus);
+      setHealthReport(report);
+      setErrorLogsRefreshTick((t) => t + 1);
+    } catch (err) {
+      recordSystemErrorLog(err, 'AdminSettingsHubView.handleRunSiteDiagnostics');
+    } finally {
+      setIsRunningHealthCheck(false);
+    }
+  };
+
+  const mergedSystemErrorLogs = React.useMemo(() => {
+    void errorLogsRefreshTick;
+    const map = new Map<
+      string,
+      { id: string; reason: string; componentName: string; createdAt: string }
+    >();
+    (state.settings.systemErrorLogs || []).forEach((item) => {
+      if (item && item.id) map.set(item.id, item);
+    });
+    getLocalSystemErrorLogs().forEach((item) => {
+      if (item && item.id && !map.has(item.id)) map.set(item.id, item);
+    });
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [state.settings.systemErrorLogs, errorLogsRefreshTick]);
 
   const formatActivityDayTimeDate = (iso: string): string => {
     try {
@@ -4700,19 +4739,300 @@ export const AdminSettingsHubView: React.FC<AdminSettingsHubViewProps> = ({
                   </p>
                 </div>
 
-                {/* زر سجل تسجيلات الدخول والخروج في أعلى سجل الأحداث */}
-                <FluentButton
-                  variant={isAuthSessionLogsOpen ? 'emerald' : 'primary'}
-                  size="sm"
-                  onClick={() => setIsAuthSessionLogsOpen((prev) => !prev)}
-                  className="font-extrabold whitespace-nowrap self-start sm:self-auto"
-                >
-                  <Clock className="w-4 h-4" />
-                  <span>
-                    سجل تسجيلات الدخول والخروج ({(state.settings.authSessionLogs || []).length})
-                  </span>
-                </FluentButton>
+                {/* أزرار سجل تسجيلات الدخول والخروج + فحص الموقع بجانب بعضهما في أعلى سجل الأحداث */}
+                <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                  <FluentButton
+                    variant={isAuthSessionLogsOpen ? 'emerald' : 'primary'}
+                    size="sm"
+                    onClick={() => setIsAuthSessionLogsOpen((prev) => !prev)}
+                    className="font-extrabold whitespace-nowrap"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span>
+                      سجل تسجيلات الدخول والخروج ({(state.settings.authSessionLogs || []).length})
+                    </span>
+                  </FluentButton>
+
+                  <FluentButton
+                    variant={isSiteHealthModalOpen ? 'emerald' : 'secondary'}
+                    size="sm"
+                    onClick={() => {
+                      setIsSiteHealthModalOpen(true);
+                      handleRunSiteDiagnostics();
+                    }}
+                    className="font-extrabold whitespace-nowrap border-sky-400/70 text-sky-300 hover:text-white"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>فحص الموقع</span>
+                    {mergedSystemErrorLogs.length > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-mono-tabular">
+                        {mergedSystemErrorLogs.length}
+                      </span>
+                    )}
+                  </FluentButton>
+                </div>
               </div>
+
+              {/* شاشة فحص الموقع المنبثقة (لوحة فحص النظام + صائد الأخطاء + سجل الأخطاء اللحظي) */}
+              {isSiteHealthModalOpen && (
+                <FluentModal
+                  isOpen={isSiteHealthModalOpen}
+                  onClose={() => setIsSiteHealthModalOpen(false)}
+                  title="فحص الموقع الشامل وسجل الأخطاء الذكي"
+                  subtitle="لوحة فحص النظام (Health Dashboard) · صائد الأخطاء (Global Error Boundary) · سجل الأخطاء اللحظي (Error Logs Analyzer)"
+                  maxWidth="2xl"
+                >
+                  <div className="space-y-4">
+                    {/* 1. لوحة فحص النظام (Health Dashboard) */}
+                    <div className="p-3.5 rounded-2xl bg-[#0A192F] border border-emerald-400/50 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#334155]">
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                          <div>
+                            <h4 className="text-xs sm:text-sm font-extrabold text-[#F8FAFC]">
+                              1. لوحة فحص النظام (Health Dashboard)
+                            </h4>
+                            <p className="text-[11px] text-[#94A3B8]">
+                              فحص مباشر لحالة اتصال Firebase، سلامة التخزين المحلي، والمزامنة اللحظية
+                            </p>
+                          </div>
+                        </div>
+
+                        <FluentButton
+                          variant="emerald"
+                          size="sm"
+                          disabled={isRunningHealthCheck}
+                          onClick={handleRunSiteDiagnostics}
+                        >
+                          <RotateCcw
+                            className={`w-3.5 h-3.5 ${
+                              isRunningHealthCheck ? 'animate-spin' : ''
+                            }`}
+                          />
+                          <span>
+                            {isRunningHealthCheck
+                              ? 'جاري الفحص...'
+                              : 'إعادة فحص الخدمات الآن'}
+                          </span>
+                        </FluentButton>
+                      </div>
+
+                      {healthReport ? (
+                        <div className="space-y-2.5">
+                          <div
+                            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                              healthReport.overallHealthy
+                                ? 'bg-emerald-500/15 border-emerald-400 text-emerald-200'
+                                : 'bg-amber-500/15 border-amber-400 text-amber-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 text-xs sm:text-sm font-extrabold">
+                              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                              <span>
+                                الحالة العامة للنظام:{' '}
+                                {healthReport.overallHealthy
+                                  ? 'Healthy (جميع الخدمات تعمل بكفاءة 100%)'
+                                  : 'توجد ملاحظات في بعض الخدمات'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono-tabular text-[#94A3B8]">
+                              {formatActivityDayTimeDate(healthReport.checkedAt)}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            <div className="p-2.5 rounded-xl bg-[#112240] border border-[#334155] space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-[#F8FAFC]">
+                                  قاعدة بيانات Firebase
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                    healthReport.firebaseStatus.healthy
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                                      : 'bg-rose-500/20 text-rose-300 border border-rose-400/40'
+                                  }`}
+                                >
+                                  {healthReport.firebaseStatus.healthy ? 'Healthy' : 'Error'}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-[#94A3B8]">
+                                {healthReport.firebaseStatus.details}
+                              </p>
+                            </div>
+
+                            <div className="p-2.5 rounded-xl bg-[#112240] border border-[#334155] space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-[#F8FAFC]">
+                                  التخزين المحلي والذاكرة (LocalStorage)
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                    healthReport.localStorageStatus.healthy
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                                      : 'bg-rose-500/20 text-rose-300 border border-rose-400/40'
+                                  }`}
+                                >
+                                  {healthReport.localStorageStatus.healthy
+                                    ? 'Healthy'
+                                    : 'Warning'}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-[#94A3B8]">
+                                {healthReport.localStorageStatus.details}
+                              </p>
+                            </div>
+
+                            <div className="p-2.5 rounded-xl bg-[#112240] border border-[#334155] space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-[#F8FAFC]">
+                                  محرك الوسائط الضخمة (IndexedDB)
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                    healthReport.indexedDbStatus.healthy
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                                      : 'bg-rose-500/20 text-rose-300 border border-rose-400/40'
+                                  }`}
+                                >
+                                  {healthReport.indexedDbStatus.healthy ? 'Healthy' : 'Warning'}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-[#94A3B8]">
+                                {healthReport.indexedDbStatus.details}
+                              </p>
+                            </div>
+
+                            <div className="p-2.5 rounded-xl bg-[#112240] border border-[#334155] space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-[#F8FAFC]">
+                                  خادم المزامنة اللحظية (Realtime Sync)
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                    healthReport.realtimeServerStatus.healthy
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                                      : 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                                  }`}
+                                >
+                                  {healthReport.realtimeServerStatus.healthy
+                                    ? 'Healthy'
+                                    : 'Standby'}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-[#94A3B8]">
+                                {healthReport.realtimeServerStatus.details}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 text-center text-xs text-[#94A3B8]">
+                          جاري فحص جميع خدمات الموقع...
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 2. صائد الأخطاء الشامل (Global Error Boundary) */}
+                    <div className="p-3.5 rounded-2xl bg-[#0A192F] border border-sky-400/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="space-y-0.5">
+                        <div className="text-xs sm:text-sm font-extrabold text-sky-300 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>
+                            2. صائد الأخطاء الشامل (Global & Section Error Boundary): مفعل ونشط
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#94A3B8]">
+                          يحمي جميع أقسام التطبيق من الشاشة البيضاء، ويلتقط أي خطأ برمجي غير متوقع ويسجله تلقائياً في الجدول أدناه.
+                        </p>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-extrabold shrink-0 self-start sm:self-auto">
+                        حماية نشطة ✓
+                      </span>
+                    </div>
+
+                    {/* 3. سجل الأخطاء اللحظي (Error Logs Analyzer) */}
+                    <div className="p-3.5 rounded-2xl bg-[#0A192F] border border-amber-400/50 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#334155]">
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-extrabold text-amber-300">
+                            3. سجل الأخطاء اللحظي (Error Logs Analyzer) ({mergedSystemErrorLogs.length})
+                          </h4>
+                          <p className="text-[11px] text-[#94A3B8]">
+                            يرصد أي خطأ برمجي (Runtime / Try-Catch / Sync / UI Boundary) مع سبب الخطأ والمكون المتعطل وتوقيت الحدوث
+                          </p>
+                        </div>
+
+                        {mergedSystemErrorLogs.length > 0 && (
+                          <FluentButton
+                            variant="danger"
+                            size="sm"
+                            onClick={() => {
+                              clearAllSystemErrorLogs();
+                              onUpdateSettings({
+                                ...state.settings,
+                                systemErrorLogs: [],
+                                updatedAt: Date.now(),
+                              });
+                              setErrorLogsRefreshTick((t) => t + 1);
+                              showToast('تم مسح سجل الأخطاء بنجاح.');
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>مسح سجل الأخطاء</span>
+                          </FluentButton>
+                        )}
+                      </div>
+
+                      {mergedSystemErrorLogs.length === 0 ? (
+                        <div className="p-6 rounded-xl bg-[#112240]/70 border border-emerald-500/30 text-center space-y-1">
+                          <CheckCircle2 className="w-7 h-7 text-emerald-400 mx-auto" />
+                          <div className="text-xs sm:text-sm font-extrabold text-emerald-300">
+                            لا توجد أي أخطاء مسجلة — التطبيق يعمل بكفاءة تامة
+                          </div>
+                          <p className="text-[11px] text-[#94A3B8]">
+                            سيظهر هنا فوراً أي خطأ برمجي في حال حدوثه مع اسم المكون وتوقيته الدقيق.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-xl border border-[#334155] max-h-64 overflow-y-auto">
+                          <table className="w-full text-right text-xs border-collapse">
+                            <thead className="bg-[#112240] text-sky-300 border-b border-[#334155] sticky top-0">
+                              <tr>
+                                <th className="p-2.5 font-extrabold">سبب الخطأ</th>
+                                <th className="p-2.5 font-extrabold whitespace-nowrap">
+                                  المكون المتعطل
+                                </th>
+                                <th className="p-2.5 font-extrabold whitespace-nowrap">
+                                  توقيت الحدوث
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#334155]/70">
+                              {mergedSystemErrorLogs.map((errItem) => (
+                                <tr
+                                  key={errItem.id}
+                                  className="hover:bg-[#112240]/60 transition-colors"
+                                >
+                                  <td className="p-2.5 font-bold text-rose-300 break-words max-w-xs">
+                                    {errItem.reason}
+                                  </td>
+                                  <td className="p-2.5 font-mono-tabular font-bold text-amber-300 whitespace-nowrap">
+                                    {errItem.componentName}
+                                  </td>
+                                  <td className="p-2.5 font-mono-tabular text-[11px] text-[#94A3B8] whitespace-nowrap">
+                                    {formatActivityDayTimeDate(errItem.createdAt)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </FluentModal>
+              )}
 
               {/* قسم سجل تسجيلات الدخول والخروج (عند فتحه) */}
               {isAuthSessionLogsOpen && (

@@ -31,6 +31,7 @@ import {
   FileText,
   Type,
   Ban,
+  Menu,
 } from 'lucide-react';
 import {
   MainSectionId,
@@ -656,16 +657,26 @@ export const VerifiedBlueBadge: React.FC<{
   const [isPopupOpen, setIsPopupOpen] = useState(false);
 
   return (
-    <span className={`relative inline-flex items-center align-middle ${className}`}>
-      <button
-        type="button"
+    <span
+      className={`relative inline-flex items-center align-middle ${className}`}
+      onMouseEnter={() => setIsPopupOpen(true)}
+      onMouseLeave={() => setIsPopupOpen(false)}
+    >
+      <span
+        role="button"
+        tabIndex={0}
         onClick={(e) => {
           e.stopPropagation();
           setIsPopupOpen((prev) => !prev);
         }}
-        onMouseEnter={() => setIsPopupOpen(true)}
-        title="حساب موثق"
-        className="inline-flex items-center justify-center rounded-full focus:outline-none transition hover:scale-110"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsPopupOpen((prev) => !prev);
+          }
+        }}
+        className="inline-flex items-center justify-center rounded-full focus:outline-none transition hover:scale-110 cursor-pointer"
       >
         <svg
           width={size}
@@ -684,40 +695,18 @@ export const VerifiedBlueBadge: React.FC<{
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </span>
 
       {isPopupOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-[9998]"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsPopupOpen(false);
-            }}
-          />
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="fixed sm:absolute z-[9999] left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 sm:top-full sm:translate-y-1.5 w-52 rounded-2xl bg-slate-900 border border-sky-500/50 p-3 shadow-2xl text-center animate-fadeIn"
-          >
-            <div className="flex items-center justify-center gap-1.5 text-sky-400 font-black text-xs mb-1">
-              <BadgeCheck className="w-4 h-4 fill-sky-500 text-white shrink-0" />
-              <span>حساب موثق</span>
-            </div>
-            <p className="text-[10px] text-slate-300 font-bold mb-2">
-              تم توثيق هذا الحساب بالعلامة الزرقاء من إدارة الموقع
-            </p>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsPopupOpen(false);
-              }}
-              className="w-full py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-black transition"
-            >
-              إغلاق
-            </button>
-          </div>
-        </>
+        <span
+          onClick={(e) => e.stopPropagation()}
+          className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-[9999] whitespace-nowrap rounded-xl bg-slate-900/95 border border-sky-500/60 px-2.5 py-1 shadow-xl text-center animate-fadeIn block"
+        >
+          <span className="flex items-center justify-center gap-1 text-sky-400 font-black text-[11px]">
+            <BadgeCheck className="w-3.5 h-3.5 fill-sky-500 text-white shrink-0" />
+            <span>حساب موثق</span>
+          </span>
+        </span>
       )}
     </span>
   );
@@ -727,6 +716,7 @@ interface FacebookMobileBottomBarProps {
   activeSection?: MainSectionId | string;
   activeTab?: MainSectionId | string;
   isChatHistoryOpen?: boolean;
+  isMobileMenuOpen?: boolean;
   unreadPrivateMessagesCount?: number;
   unreadChatCount?: number;
   onSelectHomeFeed: () => void;
@@ -736,12 +726,14 @@ interface FacebookMobileBottomBarProps {
   onSelectMessages: () => void;
   onSelectPersonalProfile?: () => void;
   onSelectProfile?: () => void;
+  onOpenMobileMenu?: () => void;
 }
 
 export const FacebookMobileBottomBar: React.FC<FacebookMobileBottomBarProps> = ({
   activeSection,
   activeTab,
   isChatHistoryOpen = false,
+  isMobileMenuOpen = false,
   unreadPrivateMessagesCount,
   unreadChatCount,
   onSelectHomeFeed,
@@ -751,30 +743,67 @@ export const FacebookMobileBottomBar: React.FC<FacebookMobileBottomBarProps> = (
   onSelectMessages,
   onSelectPersonalProfile,
   onSelectProfile,
+  onOpenMobileMenu,
 }) => {
   const currentSec = activeSection || activeTab || 'directory';
   const badgeCount = unreadPrivateMessagesCount ?? unreadChatCount ?? 0;
+  const [isBarVisible, setIsBarVisible] = useState(true);
+  const lastScrollYRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    lastScrollYRef.current = window.scrollY || 0;
+
+    const handleScroll = () => {
+      const currentY = window.scrollY || 0;
+      const delta = currentY - lastScrollYRef.current;
+      if (delta > 8 && currentY > 60) {
+        setIsBarVisible(false);
+      } else if (delta < -4 || currentY <= 40) {
+        setIsBarVisible(true);
+      }
+      lastScrollYRef.current = currentY;
+    };
+
+    const handlePageClick = () => {
+      setIsBarVisible(true);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('click', handlePageClick, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('click', handlePageClick);
+    };
+  }, []);
+
+  const showBar = isBarVisible || isMobileMenuOpen || isChatHistoryOpen;
+
   return (
     <nav
       aria-label="شريط التنقل السفلي"
-      className="lg:hidden fixed bottom-0 inset-x-0 z-[95] bg-[#18191A]/98 backdrop-blur-xl border-t border-slate-700/80 shadow-[0_-6px_25px_rgba(0,0,0,0.65)] px-1 py-1"
+      className={`fixed bottom-0 inset-x-0 z-[95] bg-[#18191A]/98 backdrop-blur-xl border-t border-slate-700/80 shadow-[0_-6px_25px_rgba(0,0,0,0.65)] px-1 py-1 transition-all duration-300 ${
+        showBar
+          ? 'translate-y-0 opacity-100'
+          : 'translate-y-full opacity-0 pointer-events-none'
+      }`}
     >
-      <div className="grid grid-cols-5 items-center max-w-md mx-auto">
+      <div className="grid grid-cols-6 lg:grid-cols-5 items-center max-w-md lg:max-w-3xl mx-auto">
         {/* 1. الصفحة الرئيسية */}
         <button
           type="button"
           onClick={onSelectHomeFeed}
           className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition relative cursor-pointer ${
-            currentSec === 'home_feed' && !isChatHistoryOpen
+            currentSec === 'home_feed' && !isChatHistoryOpen && !isMobileMenuOpen
               ? 'text-[#1877F2]'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          {currentSec === 'home_feed' && !isChatHistoryOpen && (
+          {currentSec === 'home_feed' && !isChatHistoryOpen && !isMobileMenuOpen && (
             <span className="absolute top-0 inset-x-3 h-0.5 bg-[#1877F2] rounded-full" />
           )}
           <Home className="w-5 h-5 stroke-[2.2]" />
-          <span className="text-[10px] font-black mt-0.5 whitespace-nowrap leading-tight">
+          <span className="text-[9.5px] sm:text-[10px] lg:text-xs font-black mt-0.5 whitespace-nowrap leading-tight">
             الصفحة الرئيسية
           </span>
         </button>
@@ -788,17 +817,19 @@ export const FacebookMobileBottomBar: React.FC<FacebookMobileBottomBarProps> = (
           }}
           className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition relative cursor-pointer ${
             (currentSec === 'directory' || currentSec === 'stores_guide') &&
-            !isChatHistoryOpen
+            !isChatHistoryOpen &&
+            !isMobileMenuOpen
               ? 'text-[#1877F2]'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           {(currentSec === 'directory' || currentSec === 'stores_guide') &&
-            !isChatHistoryOpen && (
+            !isChatHistoryOpen &&
+            !isMobileMenuOpen && (
               <span className="absolute top-0 inset-x-3 h-0.5 bg-[#1877F2] rounded-full" />
             )}
           <Store className="w-5 h-5 stroke-[2.2]" />
-          <span className="text-[10px] font-black mt-0.5 whitespace-nowrap leading-tight">
+          <span className="text-[9.5px] sm:text-[10px] lg:text-xs font-black mt-0.5 whitespace-nowrap leading-tight">
             الدليل
           </span>
         </button>
@@ -808,16 +839,16 @@ export const FacebookMobileBottomBar: React.FC<FacebookMobileBottomBarProps> = (
           type="button"
           onClick={onSelectMarketplace}
           className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition relative cursor-pointer ${
-            currentSec === 'buy_sell' && !isChatHistoryOpen
+            currentSec === 'buy_sell' && !isChatHistoryOpen && !isMobileMenuOpen
               ? 'text-[#1877F2]'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          {currentSec === 'buy_sell' && !isChatHistoryOpen && (
+          {currentSec === 'buy_sell' && !isChatHistoryOpen && !isMobileMenuOpen && (
             <span className="absolute top-0 inset-x-3 h-0.5 bg-[#1877F2] rounded-full" />
           )}
           <ShoppingBag className="w-5 h-5 stroke-[2.2]" />
-          <span className="text-[10px] font-black mt-0.5 whitespace-nowrap leading-tight">
+          <span className="text-[9.5px] sm:text-[10px] lg:text-xs font-black mt-0.5 whitespace-nowrap leading-tight">
             Marketplace
           </span>
         </button>
@@ -827,12 +858,12 @@ export const FacebookMobileBottomBar: React.FC<FacebookMobileBottomBarProps> = (
           type="button"
           onClick={onSelectMessages}
           className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition relative cursor-pointer ${
-            isChatHistoryOpen
+            isChatHistoryOpen && !isMobileMenuOpen
               ? 'text-[#1877F2]'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          {isChatHistoryOpen && (
+          {isChatHistoryOpen && !isMobileMenuOpen && (
             <span className="absolute top-0 inset-x-3 h-0.5 bg-[#1877F2] rounded-full" />
           )}
           <div className="relative">
@@ -843,7 +874,7 @@ export const FacebookMobileBottomBar: React.FC<FacebookMobileBottomBarProps> = (
               </span>
             )}
           </div>
-          <span className="text-[10px] font-black mt-0.5 whitespace-nowrap leading-tight">
+          <span className="text-[9.5px] sm:text-[10px] lg:text-xs font-black mt-0.5 whitespace-nowrap leading-tight">
             مراسلات
           </span>
         </button>
@@ -857,18 +888,39 @@ export const FacebookMobileBottomBar: React.FC<FacebookMobileBottomBarProps> = (
           }}
           className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition relative cursor-pointer ${
             (currentSec === 'profile' || currentSec === 'personal_profile') &&
-            !isChatHistoryOpen
+            !isChatHistoryOpen &&
+            !isMobileMenuOpen
               ? 'text-[#1877F2]'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           {(currentSec === 'profile' || currentSec === 'personal_profile') &&
-            !isChatHistoryOpen && (
+            !isChatHistoryOpen &&
+            !isMobileMenuOpen && (
               <span className="absolute top-0 inset-x-3 h-0.5 bg-[#1877F2] rounded-full" />
             )}
           <UserCheck className="w-5 h-5 stroke-[2.2]" />
-          <span className="text-[10px] font-black mt-0.5 whitespace-nowrap leading-tight">
+          <span className="text-[9.5px] sm:text-[10px] lg:text-xs font-black mt-0.5 whitespace-nowrap leading-tight">
             ملف شخصي
+          </span>
+        </button>
+
+        {/* 6. القائمه (في نسخة الهاتف فقط بعد زر ملف شخصي لفتح القائمة الجانبية) */}
+        <button
+          type="button"
+          onClick={() => onOpenMobileMenu?.()}
+          className={`lg:hidden flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition relative cursor-pointer ${
+            isMobileMenuOpen
+              ? 'text-[#1877F2]'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          {isMobileMenuOpen && (
+            <span className="absolute top-0 inset-x-3 h-0.5 bg-[#1877F2] rounded-full" />
+          )}
+          <Menu className="w-5 h-5 stroke-[2.2]" />
+          <span className="text-[9.5px] sm:text-[10px] font-black mt-0.5 whitespace-nowrap leading-tight">
+            القائمه
           </span>
         </button>
       </div>
@@ -1238,8 +1290,10 @@ export const PersonalProfileHeaderSection: React.FC<
     });
   };
 
+  const isStrictAdmin = Boolean(isAdmin && currentUser?.role === 'admin');
+
   const handleAdminToggleVerified = () => {
-    if (!isAdmin) return;
+    if (!isStrictAdmin) return;
     onUpdateUserAccount({
       ...targetUser,
       isVerified: !targetUser.isVerified,
@@ -1339,16 +1393,16 @@ export const PersonalProfileHeaderSection: React.FC<
       : profileOnlyPosts;
 
   return (
-    <div className="rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border border-slate-700/80 shadow-2xl overflow-hidden mb-4">
+    <div className="rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border border-slate-700/80 shadow-2xl overflow-visible relative z-30 mb-4">
       {/* Cover Banner */}
-      <div className="h-20 sm:h-28 bg-gradient-to-r from-[#1877F2] via-indigo-600 to-purple-700 relative">
+      <div className="h-20 sm:h-28 rounded-t-3xl overflow-hidden bg-gradient-to-r from-[#1877F2] via-indigo-600 to-purple-700 relative">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.22),transparent_60%)]" />
-        {/* Admin Blue Badge Grant/Revoke Button on top-left of banner */}
-        {isAdmin && (
+        {/* Admin Blue Badge Grant/Revoke Button on top-left of banner (Strictly Admin Only) */}
+        {isStrictAdmin && (
           <button
             type="button"
             onClick={handleAdminToggleVerified}
-            className={`absolute top-2.5 left-2.5 z-10 flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-black shadow-lg border transition ${
+            className={`absolute top-2.5 left-2.5 z-10 flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-black shadow-lg border transition cursor-pointer ${
               targetUser.isVerified
                 ? 'bg-sky-500 text-white border-white/40 hover:bg-rose-600'
                 : 'bg-slate-900/90 text-sky-300 border-sky-500/40 hover:bg-sky-600 hover:text-white'
@@ -1515,14 +1569,17 @@ export const PersonalProfileHeaderSection: React.FC<
             {!isOwnProfile && (
               <div
                 ref={friendMenuRef}
-                className="relative flex items-center gap-1 shrink-0"
+                className="relative flex items-center gap-1 shrink-0 z-40"
               >
                 {isFriendWithTarget ? (
                   <>
                     <button
                       type="button"
-                      onClick={() => setIsFriendDropdownOpen((prev) => !prev)}
-                      className="px-2 sm:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-black bg-emerald-600/25 border border-emerald-500/50 text-emerald-300 flex items-center gap-1 whitespace-nowrap transition"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsFriendDropdownOpen((prev) => !prev);
+                      }}
+                      className="px-2.5 sm:px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-black bg-emerald-600/25 hover:bg-emerald-600/35 border border-emerald-500/50 text-emerald-300 flex items-center gap-1 whitespace-nowrap transition cursor-pointer"
                     >
                       <UserCheck className="w-3.5 h-3.5 shrink-0" />
                       <span>صديق</span>
@@ -1531,21 +1588,28 @@ export const PersonalProfileHeaderSection: React.FC<
                     {isFriendDropdownOpen && (
                       <>
                         <div
-                          className="fixed inset-0 z-[120]"
-                          onClick={() => setIsFriendDropdownOpen(false)}
+                          className="fixed inset-0 z-[210]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsFriendDropdownOpen(false);
+                          }}
                         />
-                        <div className="absolute right-0 top-full mt-1 z-[130] w-36 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl p-1">
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute right-0 top-full mt-1.5 z-[220] w-40 rounded-xl bg-slate-900 border border-slate-600 shadow-2xl p-1.5 animate-fadeIn"
+                        >
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setIsFriendDropdownOpen(false);
                               if (onUnfriendUser) {
                                 onUnfriendUser(targetUser.username);
                               }
                             }}
-                            className="w-full px-2.5 py-2 rounded-lg text-right text-[11px] font-black text-rose-400 hover:bg-rose-500/15 flex items-center gap-1.5 transition"
+                            className="w-full px-2.5 py-2 rounded-lg text-right text-xs font-black text-rose-400 hover:bg-rose-500/15 flex items-center gap-1.5 transition cursor-pointer"
                           >
-                            <UserMinus className="w-3.5 h-3.5 shrink-0" />
+                            <UserMinus className="w-4 h-4 shrink-0" />
                             <span>إلغاء الصداقة</span>
                           </button>
                         </div>
@@ -1759,13 +1823,13 @@ export const PersonalProfileHeaderSection: React.FC<
               </div>
             )}
 
-          {/* Owner Controls Row Below: تفاصيل شخصية بجانب تغيير الشخصية + الترس ⚙️ + فلترة المنشورات */}
+          {/* Owner Controls Row Below: تفاصيل شخصية + قوائم الأصدقاء + الترس ⚙️ + فلترة المنشورات (تم إخفاء زر تغيير الشخصية الكبير والاكتفاء بزر تغيير أسفل الصورة) */}
           {isOwnProfile && (
-            <div className="w-full flex items-center gap-1.5 flex-wrap mt-1">
+            <div className="w-full flex items-center gap-1.5 flex-wrap mt-1 relative z-40">
               <button
                 type="button"
                 onClick={() => setIsDetailsEditorOpen((prev) => !prev)}
-                className="flex-1 min-w-[105px] px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-[11px] font-black border border-slate-700 flex items-center justify-center gap-1 whitespace-nowrap transition"
+                className="flex-1 min-w-[95px] px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-[11px] font-black border border-slate-700 flex items-center justify-center gap-1 whitespace-nowrap transition cursor-pointer"
               >
                 <Edit3 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                 <span>تفاصيل شخصية</span>
@@ -1773,24 +1837,27 @@ export const PersonalProfileHeaderSection: React.FC<
 
               <button
                 type="button"
-                onClick={() => setIsAvatarPickerOpen((prev) => !prev)}
-                className="flex-1 min-w-[105px] px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-[11px] font-black border border-slate-700 flex items-center justify-center gap-1 whitespace-nowrap transition"
+                onClick={() => setIsCustomListsModalOpen(true)}
+                className="flex-1 min-w-[95px] px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-[11px] font-black border border-slate-700 flex items-center justify-center gap-1 whitespace-nowrap transition cursor-pointer"
               >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>تغيير الشخصية</span>
+                <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>قوائم الأصدقاء</span>
               </button>
 
               {/* Gear Settings Button (الترس ⚙️ في الصفحة الشخصية) */}
-              <div ref={gearRef} className="relative">
+              <div ref={gearRef} className="relative z-50">
                 <button
                   type="button"
-                  onClick={() => setIsGearMenuOpen((prev) => !prev)}
-                  title="إعدادات قفل الصفحة وطلبات الصداقة"
-                  className={`p-2 rounded-xl border transition flex items-center justify-center ${
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsGearMenuOpen((prev) => !prev);
+                  }}
+                  title="إعدادات الملف الشخصي والخصوصية"
+                  className={`p-2 rounded-xl border transition flex items-center justify-center cursor-pointer ${
                     isGearMenuOpen ||
                     targetProfile.isProfileLocked ||
                     targetProfile.disableFriendRequests
-                      ? 'bg-sky-600/20 border-sky-500/50 text-sky-300'
+                      ? 'bg-sky-600/25 border-sky-500/60 text-sky-300'
                       : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
                   }`}
                 >
@@ -1800,29 +1867,70 @@ export const PersonalProfileHeaderSection: React.FC<
                 {isGearMenuOpen && (
                   <>
                     <div
-                      className="fixed inset-0 z-[135]"
-                      onClick={() => setIsGearMenuOpen(false)}
+                      className="fixed inset-0 z-[210]"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsGearMenuOpen(false);
+                      }}
                     />
-                    <div className="absolute left-0 top-full mt-1.5 z-[140] w-64 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-3 space-y-2.5">
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-1.5 z-[220] w-64 max-w-[88vw] rounded-2xl bg-slate-900 border border-slate-600 shadow-2xl p-3 space-y-2 animate-fadeIn"
+                    >
                       <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                         <span className="text-xs font-black text-white flex items-center gap-1.5">
                           <Settings className="w-3.5 h-3.5 text-sky-400" />
-                          <span>إعدادات الخصوصية</span>
+                          <span>إعدادات الملف الشخصي</span>
                         </span>
                         <button
                           type="button"
                           onClick={() => setIsGearMenuOpen(false)}
-                          className="text-slate-400 hover:text-white"
+                          className="text-slate-400 hover:text-white cursor-pointer"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
 
+                      {/* Quick Options inside Gear Menu: تفاصيل شخصية & قوائم الأصدقاء */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsGearMenuOpen(false);
+                          setIsDetailsEditorOpen((prev) => !prev);
+                        }}
+                        className="w-full p-2 rounded-xl border bg-slate-800/80 border-slate-700 text-slate-100 hover:bg-slate-800 text-right transition flex items-center justify-between gap-2 cursor-pointer"
+                      >
+                        <span className="text-[11px] font-black flex items-center gap-1.5">
+                          <Edit3 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <span>تفاصيل شخصية</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 text-[9px] font-black">
+                          فتح
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsGearMenuOpen(false);
+                          setIsCustomListsModalOpen(true);
+                        }}
+                        className="w-full p-2 rounded-xl border bg-slate-800/80 border-slate-700 text-slate-100 hover:bg-slate-800 text-right transition flex items-center justify-between gap-2 cursor-pointer"
+                      >
+                        <span className="text-[11px] font-black flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>قوائم الأصدقاء</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[9px] font-black">
+                          إدارة
+                        </span>
+                      </button>
+
                       {/* Option 1: Lock Personal Profile */}
                       <button
                         type="button"
                         onClick={handleToggleProfileLock}
-                        className={`w-full p-2 rounded-xl border text-right transition flex items-center justify-between gap-2 ${
+                        className={`w-full p-2 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
                           targetProfile.isProfileLocked
                             ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
                             : 'bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-800'
@@ -1852,7 +1960,7 @@ export const PersonalProfileHeaderSection: React.FC<
                       <button
                         type="button"
                         onClick={handleToggleDisableFriendRequests}
-                        className={`w-full p-2 rounded-xl border text-right transition flex items-center justify-between gap-2 ${
+                        className={`w-full p-2 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
                           targetProfile.disableFriendRequests
                             ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
                             : 'bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-800'
@@ -1883,15 +1991,6 @@ export const PersonalProfileHeaderSection: React.FC<
                   </>
                 )}
               </div>
-
-              <button
-                type="button"
-                onClick={() => setIsCustomListsModalOpen(true)}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-[11px] font-black border border-slate-700 flex items-center gap-1 whitespace-nowrap transition"
-              >
-                <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>قوائم الأصدقاء</span>
-              </button>
 
               <button
                 type="button"

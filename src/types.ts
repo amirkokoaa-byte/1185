@@ -487,6 +487,13 @@ export interface UserDailyVisitEntry {
   lastVisitAt: string;
 }
 
+export interface SystemErrorLogItem {
+  id: string;
+  reason: string; // سبب الخطأ
+  componentName: string; // المكون المتعطل
+  createdAt: string; // توقيت الحدوث
+}
+
 export interface PlatformSettings {
   siteName: string;
   marqueeText: string;
@@ -515,6 +522,7 @@ export interface PlatformSettings {
   defaultStoreSvgStyle?: 1 | 2; // الشكل الموحد لصورة المحلات (1 = الأساسي الكلاسيكي، 2 = الثاني الملكي الداكن) لتعميم جميع المحلات بنفس الشكل
   adminActivityLogs?: AdminActivityLogItem[]; // سجل أحداث الـ Admin والمشرف
   authSessionLogs?: AuthSessionLogItem[]; // سجل تسجيلات الدخول والخروج
+  systemErrorLogs?: SystemErrorLogItem[]; // سجل الأخطاء اللحظي لفحص الموقع
   userDailyVisitsMap?: Record<string, UserDailyVisitEntry>; // عدد الزيارات اليومية للحسابات
   mentionNotifications?: MentionNotificationItem[]; // إشعارات المنشن في زر الجرس بالأعلى
   friendRequests?: FriendRequestNotificationItem[]; // طلبات الصداقة في زر الجرس بالأعلى

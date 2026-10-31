@@ -172,3 +172,91 @@
   animation-play-state: paused;
 }
 
+/* ============================================================================
+   المظهر النهاري (Light Theme) — خلفية بيضاء بالكامل وجميع البيانات والكلام باللون الأسود
+   ============================================================================ */
+html.theme-light,
+html.theme-light body,
+html.theme-light #root {
+  background-color: #FFFFFF !important;
+  color: #000000 !important;
+}
+
+html.theme-light .fluent-acrylic {
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: #000000 !important;
+}
+
+/* تحويل جميع الخلفيات الداكنة إلى اللون الأبيض / الفاتح النقي */
+html.theme-light [class*="bg-[#0A192F]"],
+html.theme-light [class*="bg-[#071120]"],
+html.theme-light [class*="bg-[#0F172A]"] {
+  background-color: #FFFFFF !important;
+}
+
+html.theme-light [class*="bg-[#112240]"],
+html.theme-light [class*="bg-[#1E293B]"] {
+  background-color: #F8FAFC !important;
+}
+
+html.theme-light [class*="border-[#334155]"] {
+  border-color: #CBD5E1 !important;
+}
+
+/* تحويل جميع النصوص والبيانات المكتوبة إلى اللون الأسود الواضح */
+html.theme-light [class*="text-[#F8FAFC]"],
+html.theme-light [class*="text-[#E2E8F0]"],
+html.theme-light [class*="text-[#94A3B8]"],
+html.theme-light [class*="text-slate-"],
+html.theme-light [class*="text-sky-100"],
+html.theme-light [class*="text-sky-200"],
+html.theme-light [class*="text-sky-300"],
+html.theme-light [class*="text-sky-400"],
+html.theme-light [class*="text-emerald-200"],
+html.theme-light [class*="text-emerald-300"],
+html.theme-light [class*="text-amber-200"],
+html.theme-light [class*="text-amber-300"],
+html.theme-light [class*="text-rose-200"],
+html.theme-light [class*="text-rose-300"],
+html.theme-light [class*="text-purple-200"],
+html.theme-light [class*="text-purple-300"],
+html.theme-light p,
+html.theme-light span,
+html.theme-light h1,
+html.theme-light h2,
+html.theme-light h3,
+html.theme-light h4,
+html.theme-light h5,
+html.theme-light h6,
+html.theme-light label,
+html.theme-light strong,
+html.theme-light td,
+html.theme-light th,
+html.theme-light input,
+html.theme-light select,
+html.theme-light textarea,
+html.theme-light option {
+  color: #000000 !important;
+}
+
+html.theme-light input,
+html.theme-light select,
+html.theme-light textarea {
+  background-color: #FFFFFF !important;
+  border-color: #94A3B8 !important;
+}
+
+html.theme-light input::placeholder,
+html.theme-light textarea::placeholder {
+  color: #475569 !important;
+}
+
+html.theme-light ::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+html.theme-light ::-webkit-scrollbar-thumb {
+  background: #94A3B8;
+}
+
+

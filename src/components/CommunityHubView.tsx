@@ -3567,8 +3567,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                   {(() => {
                     const rawContent = post.content || '';
                     const lineCount = rawContent.split(/\r?\n/).length;
-                    const isOverThreeLines =
-                      lineCount > 3 || rawContent.length > 180;
+                    const isOverTwoLines =
+                      lineCount > 2 || rawContent.length > 100;
                     const isPostExpanded = Boolean(
                       expandedPostContentMap[post.id]
                     );
@@ -3577,14 +3577,14 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                         <p
                           style={{ color: post.textColor || '#F8FAFC' }}
                           className={`text-xs sm:text-sm font-bold leading-relaxed whitespace-pre-line ${
-                            isOverThreeLines && !isPostExpanded
-                              ? 'line-clamp-3'
+                            isOverTwoLines && !isPostExpanded
+                              ? 'line-clamp-2'
                               : ''
                           }`}
                         >
                           {post.content}
                         </p>
-                        {isOverThreeLines && (
+                        {isOverTwoLines && (
                           <button
                             type="button"
                             onClick={() =>
@@ -3609,7 +3609,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
               {/* أزرار التفاعل الـ 4 بحجم صغير وفي سطر واحد على الهاتف والكمبيوتر بدون شريط تمرير: لايك + ديس لايك + تعليق + مشاركة */}
               <div className="pt-2 border-t border-[#334155]/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 overflow-visible relative">
                 <div className="grid grid-cols-4 sm:flex items-center gap-1 sm:gap-1.5 w-full sm:w-auto">
-                  {/* 1. زر لايك بحجم صغير */}
+                  {/* 1. زر أعجبني بحجم صغير */}
                   <button
                     type="button"
                     onClick={() => onTogglePostLike(post.id)}
@@ -3620,33 +3620,33 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                     }`}
                   >
                     <ThumbsUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                    <span>لايك ({post.likes.length})</span>
+                    <span>أعجبني ({post.likes.length})</span>
                   </button>
 
-                  {/* 2. زر ديس لايك بحجم صغير */}
+                  {/* 2. زر عدم الإعجاب (علامة اليد فقط بدون كلمة ديس لايك) */}
                   <button
                     type="button"
                     onClick={() => onTogglePostDislike(post.id)}
+                    title="عدم إعجاب"
                     className={`fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 border cursor-pointer transition-all whitespace-nowrap ${
                       isPostDisliked
                         ? 'bg-rose-600 text-white border-rose-500 shadow-[0_0_10px_rgba(225,29,72,0.4)]'
                         : 'bg-[#0A192F] text-[#94A3B8] hover:bg-rose-600/20 border-[#334155]'
                     }`}
                   >
-                    <ThumbsDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                    <span>ديس لايك ({post.dislikes.length})</span>
+                    <ThumbsDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                    {post.dislikes.length > 0 && (
+                      <span>({post.dislikes.length})</span>
+                    )}
                   </button>
 
-                  {/* 3. زر "تعليق" (أو إشعار إيقاف التعليقات) */}
+                  {/* 3. زر "تعليق" يفتح الشاشة المنبثقة فقط */}
                   <button
                     type="button"
                     disabled={Boolean(post.commentsDisabled)}
                     onClick={() => {
                       if (post.commentsDisabled) return;
-                      setOpenCommentInputForPost((prev) => ({
-                        ...prev,
-                        [post.id]: !prev[post.id],
-                      }));
+                      setActiveCommentsModalPostId(post.id);
                     }}
                     className={`fluent-reveal w-full sm:w-auto justify-center px-1 sm:px-2.5 py-1 rounded-lg border text-[10px] sm:text-xs font-extrabold flex items-center gap-0.5 sm:gap-1 whitespace-nowrap ${
                       post.commentsDisabled
@@ -3815,8 +3815,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                 )}
               </div>
 
-              {/* Add Comment Input Row (Reply to Post) — Blocked when commentsDisabled is true */}
-              {!post.commentsDisabled && openCommentInputForPost[post.id] && (
+              {/* Add Comment Input Row (Reply to Post) — Hidden inline; comments & adding comments open strictly in popup modal */}
+              {false && !post.commentsDisabled && openCommentInputForPost[post.id] && (
                 <div className="space-y-1.5 pt-1">
                   {activeCommentMentionPostId === post.id && (
                     <div className="p-2 rounded-xl bg-[#0A192F] border border-sky-400/50 space-y-1.5">
@@ -3957,8 +3957,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                 </div>
               )}
 
-              {/* Comments Section: Shows First/Pinned Comment immediately below Post; clicking it opens the smooth popup modal with all comments */}
-              {commentsToRender.length > 0 && (
+              {/* Comments Section: Hidden inline; comments appear strictly inside the popup modal when clicking "تعليق" */}
+              {false && commentsToRender.length > 0 && (
                 <div className="space-y-2 pt-1.5">
                   {commentsToRender.map((cmt) => {
                     const canManageThisComment = Boolean(
@@ -4803,7 +4803,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
                                 }`}
                               >
                                 <ThumbsUp className="w-3 h-3" />
-                                <span>لايك ({cmt.likes.length})</span>
+                                <span>أعجبني ({cmt.likes.length})</span>
                               </button>
 
                               <button

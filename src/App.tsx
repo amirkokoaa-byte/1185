@@ -17,6 +17,8 @@ import {
   FileText,
   ShoppingBag,
   RefreshCw,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import {
   AdminActivityLogItem,
@@ -60,6 +62,7 @@ import {
   manageUnifiedUserSession,
   mergeViewsByHourMaps,
   RealOnlinePresenceStats,
+  recordSystemErrorLog,
   removeCurrentTabPresence,
   storageEngine,
   subscribePresenceBroadcast,
@@ -75,9 +78,130 @@ import { PortalSectionsWorkspace } from './components/PortalSectionsWorkspace';
 import { CommunityHubView } from './components/CommunityHubView';
 import { FacebookBottomNavBar } from './components/SocialBottomBarAndProfile';
 
+interface SectionErrorBoundaryProps {
+  sectionName: string;
+  children: React.ReactNode;
+}
+
+interface SectionErrorBoundaryState {
+  hasError: boolean;
+  errorMessage: string;
+}
+
+class SectionErrorBoundary extends React.Component<
+  SectionErrorBoundaryProps,
+  SectionErrorBoundaryState
+> {
+  declare props: Readonly<SectionErrorBoundaryProps>;
+  state: SectionErrorBoundaryState = {
+    hasError: false,
+    errorMessage: '',
+  };
+
+  static getDerivedStateFromError(error: unknown): SectionErrorBoundaryState {
+    const msg =
+      error instanceof Error ? error.message : String(error || 'Render Error');
+    return {
+      hasError: true,
+      errorMessage: msg,
+    };
+  }
+
+  componentDidCatch(error: unknown, errorInfo: React.ErrorInfo) {
+    const compStack =
+      errorInfo?.componentStack
+        ?.split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)[0] || this.props.sectionName;
+    recordSystemErrorLog(error, `SectionErrorBoundary (${compStack})`);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 rounded-2xl bg-[#112240] border-2 border-amber-400/70 text-center space-y-3 my-4">
+          <div className="text-sm sm:text-base font-extrabold text-amber-300">
+            تم احتواء خطأ عارض في هذا القسم دون توقف التطبيق
+          </div>
+          <p className="text-xs text-[#94A3B8] font-mono-tabular break-words max-w-lg mx-auto">
+            {this.state.errorMessage}
+          </p>
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, errorMessage: '' })}
+              className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold cursor-pointer shadow"
+            >
+              إعادة تنشيط القسم فوراً
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   // Activate Windows 10 Fluent Reveal Highlight & Glowing Borders on Mouse Hover & Mobile Touch
   useGlobalFluentReveal();
+
+  const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
+    try {
+      const saved = localStorage.getItem('nakhil_1185_theme_mode_v1');
+      return saved === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('nakhil_1185_theme_mode_v1', themeMode);
+    } catch {
+      // ignore
+    }
+    document.documentElement.classList.toggle('theme-light', themeMode === 'light');
+  }, [themeMode]);
+
+  useEffect(() => {
+    const handleGlobalWindowError = (event: ErrorEvent) => {
+      const msg = String(event.message || '');
+      if (
+        !msg ||
+        msg.includes('ResizeObserver') ||
+        msg.includes('WebSocket') ||
+        msg.includes('vite')
+      ) {
+        return;
+      }
+      recordSystemErrorLog(
+        event.error || msg,
+        event.filename ? `Window (${event.filename.split('/').pop()})` : 'Window.onerror'
+      );
+    };
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reasonStr =
+        event.reason instanceof Error
+          ? event.reason.message
+          : String(event.reason || '');
+      if (
+        !reasonStr ||
+        reasonStr.includes('WebSocket') ||
+        reasonStr.includes('vite') ||
+        reasonStr.includes('AbortError')
+      ) {
+        return;
+      }
+      recordSystemErrorLog(event.reason || reasonStr, 'UnhandledPromiseRejection');
+    };
+    window.addEventListener('error', handleGlobalWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleGlobalWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
 
   const [dbState, setDbState] = useState<PlatformDatabaseState>(() => {
     const boot = manageUnifiedUserSession({ action: 'bootstrap' });
@@ -425,7 +549,11 @@ export default function App() {
   ) => {
     setDbState((prev) => {
       const next = updater(prev);
+      if (next !== prev) {
+        storageEngine.persistChatFast(next, currentUser?.id);
+      }
       storageEngine.persistState(next, currentUser?.id).catch((err: unknown) => {
+        recordSystemErrorLog(err, 'App.updateAndPersist');
         const msg =
           err instanceof Error
             ? err.message
@@ -2015,6 +2143,7 @@ export default function App() {
   };
 
   const handleTogglePostLike = (postId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
@@ -2022,6 +2151,7 @@ export default function App() {
         const alreadyLiked = p.likes.includes(visitorId);
         return {
           ...p,
+          updatedAt: nowTs,
           likes: alreadyLiked
             ? p.likes.filter((id) => id !== visitorId)
             : [...p.likes, visitorId],
@@ -2032,6 +2162,7 @@ export default function App() {
   };
 
   const handleTogglePostDislike = (postId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       communityPosts: prev.communityPosts.map((p) => {
@@ -2039,6 +2170,7 @@ export default function App() {
         const alreadyDisliked = p.dislikes.includes(visitorId);
         return {
           ...p,
+          updatedAt: nowTs,
           dislikes: alreadyDisliked
             ? p.dislikes.filter((id) => id !== visitorId)
             : [...p.dislikes, visitorId],
@@ -3519,6 +3651,7 @@ export default function App() {
   };
 
   const handleToggleUtilityPostLike = (postId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
@@ -3526,6 +3659,7 @@ export default function App() {
         const alreadyLiked = p.likes.includes(visitorId);
         return {
           ...p,
+          updatedAt: nowTs,
           likes: alreadyLiked
             ? p.likes.filter((id) => id !== visitorId)
             : [...p.likes, visitorId],
@@ -3536,6 +3670,7 @@ export default function App() {
   };
 
   const handleToggleUtilityPostDislike = (postId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       utilityPosts: (prev.utilityPosts || []).map((p) => {
@@ -3543,6 +3678,7 @@ export default function App() {
         const alreadyDisliked = p.dislikes.includes(visitorId);
         return {
           ...p,
+          updatedAt: nowTs,
           dislikes: alreadyDisliked
             ? p.dislikes.filter((id) => id !== visitorId)
             : [...p.dislikes, visitorId],
@@ -4078,6 +4214,7 @@ export default function App() {
   };
 
   const handleToggleBuySellPostLike = (postId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
@@ -4085,6 +4222,7 @@ export default function App() {
         const alreadyLiked = p.likes.includes(visitorId);
         return {
           ...p,
+          updatedAt: nowTs,
           likes: alreadyLiked
             ? p.likes.filter((id) => id !== visitorId)
             : [...p.likes, visitorId],
@@ -4095,6 +4233,7 @@ export default function App() {
   };
 
   const handleToggleBuySellPostDislike = (postId: string) => {
+    const nowTs = Date.now();
     updateAndPersist((prev) => ({
       ...prev,
       buySellPosts: (prev.buySellPosts || []).map((p) => {
@@ -4102,6 +4241,7 @@ export default function App() {
         const alreadyDisliked = p.dislikes.includes(visitorId);
         return {
           ...p,
+          updatedAt: nowTs,
           dislikes: alreadyDisliked
             ? p.dislikes.filter((id) => id !== visitorId)
             : [...p.dislikes, visitorId],
@@ -5511,6 +5651,41 @@ export default function App() {
               );
             })}
 
+            {/* تبديل المظهر الليلي / المظهر النهاري في القائمة الجانبية */}
+            <div className="pt-2 border-t border-[#334155]">
+              <div className="p-2.5 rounded-xl bg-[#0A192F]/95 border border-sky-400/40 space-y-1.5">
+                <div className="text-[11px] font-extrabold text-sky-400 px-1">
+                  مظهر التطبيق:
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('dark')}
+                    className={`fluent-reveal px-2.5 py-2 rounded-lg border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                      themeMode === 'dark'
+                        ? 'bg-sky-600 text-white border-sky-300 shadow'
+                        : 'bg-[#112240] text-[#94A3B8] border-[#334155]'
+                    }`}
+                  >
+                    <Moon className="w-3.5 h-3.5 shrink-0" />
+                    <span>المظهر الليلي</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('light')}
+                    className={`fluent-reveal px-2.5 py-2 rounded-lg border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                      themeMode === 'light'
+                        ? 'bg-amber-500 text-black border-amber-400 shadow'
+                        : 'bg-[#112240] text-[#94A3B8] border-[#334155]'
+                    }`}
+                  >
+                    <Sun className="w-3.5 h-3.5 shrink-0" />
+                    <span>المظهر النهاري</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* بوكس عدد المتصلين الآن يظهر دائماً مباشرة بعد آخر خيار في القائمة الجانبية ولا ينزل لأسفل الصفحة الطويلة */}
             <div className="pt-2 border-t border-[#334155]">
               <div className="fluent-reveal p-3.5 rounded-xl bg-[#0A192F]/95 border border-emerald-500/40 space-y-2">
@@ -5629,36 +5804,77 @@ export default function App() {
                     );
                   })}
 
-                  {/* بوكس عدد المتصلين الآن يظهر دائماً مباشرة بعد آخر خيار في القائمة الجانبية */}
-                  <div className="pt-2 border-t border-[#334155] text-xs text-[#94A3B8]">
-                    <div className="p-3 rounded-xl bg-[#0A192F] border border-emerald-500/40 space-y-2">
+                  {/* تبديل المظهر الليلي / المظهر النهاري في القائمة الجانبية للهاتف */}
+                  <div className="pt-1.5 border-t border-[#334155]">
+                    <div className="p-2 rounded-xl bg-[#0A192F] border border-sky-400/40 space-y-1.5">
+                      <div className="text-[10.5px] font-extrabold text-sky-400 px-1">
+                        مظهر التطبيق:
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setThemeMode('dark')}
+                          className={`fluent-reveal px-2 py-1.5 rounded-lg border text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition-all ${
+                            themeMode === 'dark'
+                              ? 'bg-sky-600 text-white border-sky-300 shadow'
+                              : 'bg-[#112240] text-[#94A3B8] border-[#334155]'
+                          }`}
+                        >
+                          <Moon className="w-3.5 h-3.5 shrink-0" />
+                          <span>المظهر الليلي</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setThemeMode('light')}
+                          className={`fluent-reveal px-2 py-1.5 rounded-lg border text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition-all ${
+                            themeMode === 'light'
+                              ? 'bg-amber-500 text-black border-amber-400 shadow'
+                              : 'bg-[#112240] text-[#94A3B8] border-[#334155]'
+                          }`}
+                        >
+                          <Sun className="w-3.5 h-3.5 shrink-0" />
+                          <span>المظهر النهاري</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* بوكس عدد المتصلين الآن بحجم مناسب لجميع المستخدمين وأسفله مع تحيات المطور Amir Lamay */}
+                  <div className="pt-1.5 border-t border-[#334155] text-xs text-[#94A3B8] space-y-1.5">
+                    <div className="p-2.5 rounded-xl bg-[#0A192F] border border-emerald-500/40 space-y-1.5">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                          <Radio className="w-4 h-4 text-emerald-400" />
-                          <span className="text-xs font-extrabold text-[#F8FAFC]">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-[11px] font-extrabold text-[#F8FAFC]">
                             عدد المتصلين الآن
                           </span>
                         </div>
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-mono-tabular font-extrabold">
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[11px] font-mono-tabular font-extrabold">
                           {effectiveOnlineCount}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-[#334155]/80 text-[11px]">
-                        <div className="p-1.5 rounded-lg bg-[#112240] border border-sky-400/30 flex items-center justify-between">
+                      <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-[#334155]/80 text-[10px]">
+                        <div className="px-2 py-1 rounded-lg bg-[#112240] border border-sky-400/30 flex items-center justify-between">
                           <span className="text-[#94A3B8] font-bold">المسجلين:</span>
                           <strong className="text-sky-300 font-mono-tabular font-extrabold">
                             {onlineStats.registeredCount}
                           </strong>
                         </div>
-                        <div className="p-1.5 rounded-lg bg-[#112240] border border-amber-400/30 flex items-center justify-between">
+                        <div className="px-2 py-1 rounded-lg bg-[#112240] border border-amber-400/30 flex items-center justify-between">
                           <span className="text-[#94A3B8] font-bold">الزائرين:</span>
                           <strong className="text-amber-300 font-mono-tabular font-extrabold">
                             {onlineStats.guestsCount}
                           </strong>
                         </div>
                       </div>
+                    </div>
+
+                    <div className="text-center pt-0.5">
+                      <span className="inline-block text-[11px] font-extrabold text-sky-400 tracking-wide select-all">
+                        مع تحيات المطور Amir Lamay
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -5725,10 +5941,11 @@ export default function App() {
             }}
           />
 
-          <PortalSectionsWorkspace
-            activeSection={activeSection}
-            state={dbState}
-            currentUser={currentUser}
+          <SectionErrorBoundary sectionName={`PortalSectionsWorkspace:${activeSection}`}>
+            <PortalSectionsWorkspace
+              activeSection={activeSection}
+              state={dbState}
+              currentUser={currentUser}
             onlineCount={effectiveOnlineCount}
             onlineStats={onlineStats}
             connStatus={connStatus}
@@ -5896,8 +6113,9 @@ export default function App() {
             onCancelFriendRequest={handleCancelFriendRequest}
             onUnfriendUser={handleUnfriendUser}
             onToggleFollowUser={handleToggleFollowUser}
-            onSharePostToBuySell={handleSharePostToBuySell}
-          />
+              onSharePostToBuySell={handleSharePostToBuySell}
+            />
+          </SectionErrorBoundary>
 
           {/* Global Private Chat Popup & External Login Notification when outside Buy/Sell section */}
           {activeSection !== 'buy_sell' && (
@@ -6023,29 +6241,38 @@ export default function App() {
 
       <FacebookBottomNavBar
         activeTab={activeSection}
+        isMobileMenuOpen={mobileSidebarOpen}
         unreadChatCount={unreadPrivateMessagesCount}
         onSelectHomeFeed={() => {
+          setMobileSidebarOpen(false);
           setExternalOpenHistoryModalTick(0);
           setActiveSection('home_feed');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         onSelectDirectory={() => {
+          setMobileSidebarOpen(false);
           setExternalOpenHistoryModalTick(0);
           setActiveSection('directory');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         onSelectMarketplace={() => {
+          setMobileSidebarOpen(false);
           setExternalOpenHistoryModalTick(0);
           setActiveSection('buy_sell');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
-        onSelectMessages={() => setExternalOpenHistoryModalTick(Date.now())}
+        onSelectMessages={() => {
+          setMobileSidebarOpen(false);
+          setExternalOpenHistoryModalTick(Date.now());
+        }}
         onSelectProfile={() => {
+          setMobileSidebarOpen(false);
           setExternalOpenHistoryModalTick(0);
           setViewedProfileUsername(currentUser?.username || null);
           setActiveSection('profile');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
+        onOpenMobileMenu={() => setMobileSidebarOpen(true)}
       />
 
       <OfflineIndicator />

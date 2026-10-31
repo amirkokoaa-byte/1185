@@ -37,6 +37,7 @@ import {
   AdminMessage,
   LiveChatMessageItem,
   UtilitySubmissionItem,
+  SystemErrorLogItem,
 } from '../types';
 
 const DB_STORAGE_KEY = 'fluent_portal_db_v1185';
@@ -1330,15 +1331,19 @@ const memorySessionStore: MemorySessionStorageState = {
 function cacheUserInMemoryStore(user: UserAccount | null | undefined): void {
   if (!user || !user.id || !user.username) return;
   const existing = memorySessionStore.securedUsersById.get(user.id);
+  const prevTs = typeof existing?.updatedAt === 'number' ? existing.updatedAt : 0;
+  const incTs = typeof user.updatedAt === 'number' ? user.updatedAt : 0;
+  const newer = !existing || incTs >= prevTs ? user : existing;
+  const older = !existing || incTs >= prevTs ? existing || {} : user;
   const merged: UserAccount = existing
     ? {
-        ...existing,
-        ...user,
+        ...(older as UserAccount),
+        ...newer,
         profile: {
-          ...(existing.profile || {}),
-          ...(user.profile || {}),
+          ...((older as UserAccount).profile || {}),
+          ...(newer.profile || {}),
         },
-        updatedAt: Math.max(existing.updatedAt || 0, user.updatedAt || 0),
+        updatedAt: Math.max(prevTs, incTs),
       }
     : user;
   memorySessionStore.securedUsersById.set(merged.id, merged);
@@ -1402,17 +1407,8 @@ function loadUsersVaultBackup(): UserAccount[] {
         for (const u of parsed) {
           if (u && u.id && u.username) {
             cacheUserInMemoryStore(u);
-            const prev = resultById.get(u.id);
-            resultById.set(
-              u.id,
-              prev
-                ? {
-                    ...prev,
-                    ...u,
-                    profile: { ...(prev.profile || {}), ...(u.profile || {}) },
-                  }
-                : u
-            );
+            const latestFromMem = memorySessionStore.securedUsersById.get(u.id) || u;
+            resultById.set(u.id, latestFromMem);
           }
         }
       }
@@ -1517,6 +1513,7 @@ function mergeUsersLists(
   const merged = Array.from(byKey.values()).filter(
     (u) => !isUserDeleted(u, deletedSet)
   );
+  merged.forEach((u) => cacheUserInMemoryStore(u));
   return merged.length > 0 ? merged : INITIAL_USERS;
 }
 
@@ -2012,6 +2009,25 @@ function mergePlatformSettings(
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       )
       .slice(0, 200),
+    systemErrorLogs: (() => {
+      if (
+        preferIncoming &&
+        Array.isArray(incomingSettings.systemErrorLogs) &&
+        incomingSettings.systemErrorLogs.length === 0
+      ) {
+        return [];
+      }
+      return mergeCollectionById(
+        baseSettings.systemErrorLogs || [],
+        incomingSettings.systemErrorLogs || [],
+        []
+      )
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+        .slice(0, 150);
+    })(),
     userDailyVisitsMap: (() => {
       const mergedMap: NonNullable<PlatformSettings['userDailyVisitsMap']> = {
         ...(baseSettings.userDailyVisitsMap || {}),
@@ -4187,35 +4203,93 @@ class HybridStorageEngine {
             )
           )
         : base.utilitySubmissions || [],
-      utilityPosts: Array.isArray(chatPatch.utilityPosts)
-        ? mergeCommunityPostsWithInteractions(
-            base.utilityPosts || [],
-            chatPatch.utilityPosts as CommunityPostItem[],
-            mergedDeletedIds,
-            true
-          )
-        : base.utilityPosts || [],
-      buySellPosts: Array.isArray(chatPatch.buySellPosts)
-        ? mergeCommunityPostsWithInteractions(
-            base.buySellPosts || [],
-            chatPatch.buySellPosts as CommunityPostItem[],
-            mergedDeletedIds,
-            true
-          )
-        : base.buySellPosts || [],
-      communityPosts: Array.isArray(chatPatch.communityPosts)
-        ? mergeCommunityPostsWithInteractions(
-            base.communityPosts || [],
-            chatPatch.communityPosts as CommunityPostItem[],
-            mergedDeletedIds,
-            true
-          )
-        : base.communityPosts,
+      utilityPosts: (() => {
+        const baseUtil = Array.isArray(chatPatch.utilityPosts)
+          ? mergeCommunityPostsWithInteractions(
+              base.utilityPosts || [],
+              chatPatch.utilityPosts as CommunityPostItem[],
+              mergedDeletedIds,
+              true
+            )
+          : base.utilityPosts || [];
+        return this.applyPostInteractionsDelta(
+          baseUtil,
+          chatPatch.postInteractionsMap as Record<string, unknown> | undefined,
+          mergedDeletedIds
+        );
+      })(),
+      buySellPosts: (() => {
+        const baseBs = Array.isArray(chatPatch.buySellPosts)
+          ? mergeCommunityPostsWithInteractions(
+              base.buySellPosts || [],
+              chatPatch.buySellPosts as CommunityPostItem[],
+              mergedDeletedIds,
+              true
+            )
+          : base.buySellPosts || [];
+        return this.applyPostInteractionsDelta(
+          baseBs,
+          chatPatch.postInteractionsMap as Record<string, unknown> | undefined,
+          mergedDeletedIds
+        );
+      })(),
+      communityPosts: (() => {
+        const baseComm = Array.isArray(chatPatch.communityPosts)
+          ? mergeCommunityPostsWithInteractions(
+              base.communityPosts || [],
+              chatPatch.communityPosts as CommunityPostItem[],
+              mergedDeletedIds,
+              true
+            )
+          : base.communityPosts;
+        return this.applyPostInteractionsDelta(
+          baseComm,
+          chatPatch.postInteractionsMap as Record<string, unknown> | undefined,
+          mergedDeletedIds
+        );
+      })(),
       deletedRecordIds: mergedDeletedIds,
       settings: mergePlatformSettings(base.settings, patchSettings),
     };
     this.notifyData(mergedState);
     this.scheduleDeferredLocalSave(mergedState);
+  }
+
+  private applyPostInteractionsDelta(
+    posts: CommunityPostItem[],
+    postInteractionsMap: Record<string, unknown> | undefined,
+    deletedIds: string[]
+  ): CommunityPostItem[] {
+    if (!postInteractionsMap || typeof postInteractionsMap !== 'object') {
+      return posts;
+    }
+    return posts.map((p) => {
+      const delta = postInteractionsMap[p.id] as
+        | {
+            likes?: string[];
+            dislikes?: string[];
+            comments?: CommunityPostItem['comments'];
+            updatedAt?: number | string;
+          }
+        | undefined;
+      if (!delta) return p;
+      const pTs = parseItemTimestampMs(p.updatedAt || p.createdAt);
+      const dTs = parseItemTimestampMs(delta.updatedAt);
+      const preferDelta = dTs >= pTs || pTs === 0;
+      return {
+        ...p,
+        likes:
+          preferDelta && Array.isArray(delta.likes) ? delta.likes : p.likes,
+        dislikes:
+          preferDelta && Array.isArray(delta.dislikes)
+            ? delta.dislikes
+            : p.dislikes,
+        comments: Array.isArray(delta.comments)
+          ? mergeCollectionById(p.comments || [], delta.comments, deletedIds)
+          : p.comments,
+        updatedAt: Math.max(pTs, dTs) || p.updatedAt,
+      };
+    });
   }
 
   private scheduleDeferredLocalSave(state: PlatformDatabaseState, activeUserId?: string) {
@@ -5887,6 +5961,33 @@ class HybridStorageEngine {
    * Dedicated ultra-fast (< 3KB payload) sync for Live Chat messages, Private Chat messages,
    * Read Receipts (✓✓), Typing Indicators ("يكتب الآن..."), and Store Likes/Dislikes without serializing the heavy database.
    */
+  private buildPostInteractionsMap(state: PlatformDatabaseState) {
+    const map: Record<
+      string,
+      {
+        likes: string[];
+        dislikes: string[];
+        comments: CommunityPostItem['comments'];
+        updatedAt?: number | string;
+      }
+    > = {};
+    const allPosts = [
+      ...(state.communityPosts || []),
+      ...(state.buySellPosts || []),
+      ...(state.utilityPosts || []),
+    ];
+    for (const p of allPosts) {
+      if (!p || !p.id) continue;
+      map[p.id] = {
+        likes: Array.isArray(p.likes) ? p.likes : [],
+        dislikes: Array.isArray(p.dislikes) ? p.dislikes : [],
+        comments: Array.isArray(p.comments) ? p.comments : [],
+        updatedAt: p.updatedAt || p.createdAt,
+      };
+    }
+    return map;
+  }
+
   public async persistChatFast(nextState: PlatformDatabaseState, activeUserId?: string) {
     const tabId = getOrCreateTabSessionId();
     // 1. Update local React state and localStorage in 0ms for instant cross-tab and same-tab sync
@@ -5895,6 +5996,11 @@ class HybridStorageEngine {
 
     const ultraLightChatPatch = sanitizeForFirebase({
       storeInteractionsMap: this.buildStoreInteractionsMap(nextState.stores),
+      postInteractionsMap: this.buildPostInteractionsMap(nextState),
+      users: (nextState.users || []).map((u) => ({
+        ...u,
+        profile: u.profile || {},
+      })),
       liveChatMessages: normalizeLiveChatList(nextState.liveChatMessages),
       chatPenalties: nextState.chatPenalties || [],
       privateChatMessages: (nextState.privateChatMessages || []).slice(-200),
@@ -6752,3 +6858,220 @@ function compressImageToBase64(
     reader.readAsDataURL(file);
   });
 }
+
+const SYSTEM_ERROR_LOGS_LOCAL_KEY = 'nakhil_1185_system_error_logs_v1';
+
+export function getLocalSystemErrorLogs(): SystemErrorLogItem[] {
+  try {
+    if (typeof window === 'undefined') return [];
+    const raw = localStorage.getItem(SYSTEM_ERROR_LOGS_LOCAL_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * سجل الأخطاء اللحظي (Error Logs Analyzer):
+ * دالة خفيفة جداً لتسجيل أي أخطاء برمجية غير متوقعة في المتصفح وقاعدة البيانات دون استهلاك موارد السيرفر
+ */
+export function recordSystemErrorLog(
+  reason: unknown,
+  componentName: string
+): SystemErrorLogItem {
+  const reasonText =
+    reason instanceof Error
+      ? reason.message
+      : String(reason || 'خطأ برمجي غير معروف');
+  const entry: SystemErrorLogItem = {
+    id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    reason: reasonText.slice(0, 500),
+    componentName: String(componentName || 'النظام العام').slice(0, 140),
+    createdAt: new Date().toISOString(),
+  };
+  try {
+    if (typeof window !== 'undefined') {
+      const existing = getLocalSystemErrorLogs();
+      const updated = [entry, ...existing].slice(0, 150);
+      localStorage.setItem(SYSTEM_ERROR_LOGS_LOCAL_KEY, JSON.stringify(updated));
+    }
+    const currentState = storageEngine.loadLocalState();
+    const nextLogs = [
+      entry,
+      ...(currentState.settings.systemErrorLogs || []),
+    ].slice(0, 150);
+    const nextState: PlatformDatabaseState = {
+      ...currentState,
+      settings: {
+        ...currentState.settings,
+        systemErrorLogs: nextLogs,
+        updatedAt: Date.now(),
+      },
+    };
+    storageEngine.persistState(nextState).catch(() => {});
+  } catch {
+    // ignore secondary logging failure
+  }
+  return entry;
+}
+
+export function clearAllSystemErrorLogs(): void {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(SYSTEM_ERROR_LOGS_LOCAL_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export interface SystemHealthCheckReport {
+  overallHealthy: boolean;
+  checkedAt: string;
+  firebaseStatus: {
+    healthy: boolean;
+    latencyMs: number;
+    details: string;
+  };
+  localStorageStatus: {
+    healthy: boolean;
+    usedKb: number;
+    details: string;
+  };
+  indexedDbStatus: {
+    healthy: boolean;
+    details: string;
+  };
+  realtimeServerStatus: {
+    healthy: boolean;
+    latencyMs: number;
+    details: string;
+  };
+}
+
+/**
+ * لوحة فحص النظام (Health Dashboard):
+ * فحص سريع وخفيف لحالة الاتصال بـ Firebase وحالة التخزين المحلي وسيرفر المزامنة اللحظية
+ */
+export async function runSystemHealthDiagnostics(
+  connStatus: 'local' | 'firebase_connected' | 'firebase_error'
+): Promise<SystemHealthCheckReport> {
+  const checkedAt = new Date().toISOString();
+
+  // 1. LocalStorage & MemoryStorage Check
+  let lsHealthy = false;
+  let lsUsedKb = 0;
+  let lsDetails = '';
+  try {
+    const testKey = '__nakhil_health_probe__';
+    localStorage.setItem(testKey, 'ok');
+    const val = localStorage.getItem(testKey);
+    localStorage.removeItem(testKey);
+    lsHealthy = val === 'ok';
+    let totalChars = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k) {
+        totalChars += k.length + (localStorage.getItem(k)?.length || 0);
+      }
+    }
+    lsUsedKb = Math.round((totalChars * 2) / 1024);
+    lsDetails = `يعمل بكفاءة (المستخدم: ${lsUsedKb} KB) + MemoryStorage مؤمّن`;
+  } catch (err) {
+    lsHealthy = false;
+    lsDetails = err instanceof Error ? err.message : 'تعذر الوصول إلى LocalStorage';
+    recordSystemErrorLog(lsDetails, 'LocalStorage Probe');
+  }
+
+  // 2. IndexedDB Check
+  let idbHealthy = false;
+  let idbDetails = '';
+  try {
+    const snap = await fastBrowserCache.getSnapshotByKeyFromIDB('latest_state');
+    idbHealthy = true;
+    idbDetails = snap
+      ? 'قاعدة IndexedDB تعمل بكفاءة وتحتفظ بنسخة الكاش الفوري'
+      : 'قاعدة IndexedDB متصلة وجاهزة للتخزين';
+  } catch (err) {
+    idbHealthy = false;
+    idbDetails = err instanceof Error ? err.message : 'تعذر فحص IndexedDB';
+    recordSystemErrorLog(idbDetails, 'IndexedDB Probe');
+  }
+
+  // 3. Realtime Server API Check
+  let rtHealthy = false;
+  let rtLatency = 0;
+  let rtDetails = '';
+  const rtStart = performance.now();
+  try {
+    const res = await fetch('/api/realtime/chat-fast?since=0', { cache: 'no-store' });
+    rtLatency = Math.max(1, Math.round(performance.now() - rtStart));
+    if (res.ok) {
+      rtHealthy = true;
+      rtDetails = `خادم المزامنة اللحظية متصل (${rtLatency} ms)`;
+    } else {
+      rtHealthy = false;
+      rtDetails = `استجابة غير متوقعة من الخادم (${res.status})`;
+    }
+  } catch {
+    rtLatency = Math.max(1, Math.round(performance.now() - rtStart));
+    // On static serverless hosting (e.g. Vercel without Express), Firebase handles realtime sync directly
+    rtHealthy = connStatus === 'firebase_connected';
+    rtDetails =
+      connStatus === 'firebase_connected'
+        ? 'يعمل عبر سحابة Firebase مباشرة (Serverless Mode)'
+        : 'الخادم المحلي غير متصل حالياً';
+  }
+
+  // 4. Firebase Cloud Connection Check
+  const fbStart = performance.now();
+  let fbHealthy = false;
+  let fbLatency = 0;
+  let fbDetails = '';
+  try {
+    await storageEngine.pullFromFirebaseCloudNow();
+    fbLatency = Math.max(1, Math.round(performance.now() - fbStart));
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    if (isOnline && connStatus !== 'firebase_error') {
+      fbHealthy = true;
+      fbDetails = `متصل بـ Firebase Firestore بنجاح (${fbLatency} ms)`;
+    } else {
+      fbHealthy = false;
+      fbDetails = !isOnline
+        ? 'لا يوجد اتصال بالإنترنت حالياً'
+        : 'يوجد تنبيه في الاتصال بـ Firebase Firestore';
+    }
+  } catch (err) {
+    fbLatency = Math.max(1, Math.round(performance.now() - fbStart));
+    fbHealthy = false;
+    fbDetails = err instanceof Error ? err.message : 'تعذر الاتصال بـ Firebase';
+    recordSystemErrorLog(fbDetails, 'Firebase Health Probe');
+  }
+
+  return {
+    overallHealthy: fbHealthy && lsHealthy && idbHealthy,
+    checkedAt,
+    firebaseStatus: {
+      healthy: fbHealthy,
+      latencyMs: fbLatency,
+      details: fbDetails,
+    },
+    localStorageStatus: {
+      healthy: lsHealthy,
+      usedKb: lsUsedKb,
+      details: lsDetails,
+    },
+    indexedDbStatus: {
+      healthy: idbHealthy,
+      details: idbDetails,
+    },
+    realtimeServerStatus: {
+      healthy: rtHealthy,
+      latencyMs: rtLatency,
+      details: rtDetails,
+    },
+  };
+}
+

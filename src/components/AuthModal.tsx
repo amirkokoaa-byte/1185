@@ -88,6 +88,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const hasRegisteredLockedAccount = Boolean(lockedAccountName.trim() && lockedUserInDb);
 
   React.useEffect(() => {
+    if (!isOpen) return;
     if (lockedAccountName && users.length > 0 && !lockedUserInDb) {
       // Account was permanently deleted from database
       try {
@@ -96,18 +97,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         // ignore
       }
       setLockedAccountName('');
-      setAccountName('');
-    } else if (hasRegisteredLockedAccount && lockedUserInDb && !isCreatingNewAccount) {
+    } else if (
+      hasRegisteredLockedAccount &&
+      lockedUserInDb &&
+      !isCreatingNewAccount
+    ) {
       const fixedAcc = lockedUserInDb.accountName || lockedUserInDb.username;
-      setAccountName(fixedAcc);
+      setAccountName((prev) => (prev.trim() ? prev : fixedAcc));
     }
   }, [
+    isOpen,
     lockedAccountName,
     lockedUserInDb,
     hasRegisteredLockedAccount,
     isCreatingNewAccount,
     users.length,
-    isOpen,
   ]);
 
   // Whenever modal opens after the first time, default to login-only fields (اسم الحساب + الباسورد فقط)
@@ -146,10 +150,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // 1. Login Handler
   const handleLogin = () => {
     resetMessages();
+    const typedAccount = accountName.trim() || displayName.trim();
     const effectiveAccount = (
-      hasRegisteredLockedAccount && !isCreatingNewAccount
-        ? accountName.trim() || lockedUserInDb?.accountName || lockedAccountName
-        : accountName
+      typedAccount ||
+      (hasRegisteredLockedAccount && !isCreatingNewAccount
+        ? lockedUserInDb?.accountName || lockedAccountName
+        : '')
     ).trim();
 
     if (!effectiveAccount || !password) {
@@ -161,15 +167,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     const lowerAccount = effectiveAccount.toLowerCase();
+    const lowerDisplayFallback = displayName.trim().toLowerCase();
 
     // Match by accountName or username
-    const foundUser = users.find(
-      (u) =>
-        (u.accountName && u.accountName.trim().toLowerCase() === lowerAccount) ||
-        u.username.trim().toLowerCase() === lowerAccount
-    );
+    const foundUser = users.find((u) => {
+      const uAcc = u.accountName ? u.accountName.trim().toLowerCase() : '';
+      const uName = u.username.trim().toLowerCase();
+      return (
+        uAcc === lowerAccount ||
+        uName === lowerAccount ||
+        (lowerDisplayFallback.length > 0 &&
+          (uAcc === lowerDisplayFallback || uName === lowerDisplayFallback))
+      );
+    });
 
-    if (!foundUser || foundUser.password !== password) {
+    const passwordMatches =
+      foundUser &&
+      (foundUser.password === password ||
+        foundUser.password.trim() === password.trim());
+
+    if (!foundUser || !passwordMatches) {
       setFeedback({
         type: 'error',
         message: 'اسم الحساب أو الباسورد غير صحيح، يرجى التأكد والمحاولة مجدداً.',

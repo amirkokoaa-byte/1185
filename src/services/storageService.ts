@@ -1304,18 +1304,70 @@ function normalizeCommunityPostsList(rawList: CommunityPostItem[]): CommunityPos
   }));
 }
 
+const USERS_VAULT_STORAGE_KEY = 'nakhil_1185_users_vault_v1';
+let currentActiveAuthUserMemory: UserAccount | null = null;
+
+function getActiveAuthUserSnapshot(): UserAccount | null {
+  if (currentActiveAuthUserMemory && currentActiveAuthUserMemory.id) {
+    return currentActiveAuthUserMemory;
+  }
+  try {
+    const raw =
+      sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`) ||
+      localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as UserAccount;
+      if (parsed && parsed.id && parsed.username) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function loadUsersVaultBackup(): UserAccount[] {
+  try {
+    const raw =
+      sessionStorage.getItem(USERS_VAULT_STORAGE_KEY) ||
+      localStorage.getItem(USERS_VAULT_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((u) => u && u.id && u.username);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
 function isUserDeleted(u: UserAccount, deletedSet: Set<string>): boolean {
   if (!u) return true;
-  if (u.id && deletedSet.has(u.id)) return true;
-  if (u.username && deletedSet.has(`acct:${u.username.trim().toLowerCase()}`)) {
-    return true;
+  const activeUser = getActiveAuthUserSnapshot();
+  if (
+    activeUser &&
+    (u.id === activeUser.id ||
+      (u.username &&
+        activeUser.username &&
+        u.username.trim().toLowerCase() ===
+          activeUser.username.trim().toLowerCase()) ||
+      (u.accountName &&
+        activeUser.accountName &&
+        u.accountName.trim().toLowerCase() ===
+          activeUser.accountName.trim().toLowerCase()))
+  ) {
+    return false;
   }
   if (
-    u.accountName &&
-    deletedSet.has(`acct:${u.accountName.trim().toLowerCase()}`)
+    u.id === 'usr-admin-1' ||
+    (u.username && u.username.trim().toLowerCase() === 'admin')
   ) {
-    return true;
+    return false;
   }
+  if (u.id && deletedSet.has(u.id)) return true;
   return false;
 }
 
@@ -1324,19 +1376,28 @@ function mergeUsersLists(
   incomingUsers?: UserAccount[],
   deletedIds?: string[]
 ): UserAccount[] {
-  const deletedSet = new Set(deletedIds || []);
-  const filteredBase = (baseUsers || []).filter(
+  const deletedSet = new Set(
+    (deletedIds || []).filter(
+      (id) =>
+        typeof id === 'string' &&
+        !id.startsWith('user:') &&
+        !id.startsWith('acc:') &&
+        !id.startsWith('acct:')
+    )
+  );
+  const vaultUsers = loadUsersVaultBackup();
+  const activeUser = getActiveAuthUserSnapshot();
+  const combinedBase = [
+    ...INITIAL_USERS,
+    ...vaultUsers,
+    ...(baseUsers || []),
+    ...(activeUser ? [activeUser] : []),
+  ];
+  const filteredBase = combinedBase.filter(
     (u) => u && u.username && !isUserDeleted(u, deletedSet)
   );
-  if (!Array.isArray(incomingUsers) || incomingUsers.length === 0) {
-    return filteredBase.length > 0 ? filteredBase : INITIAL_USERS;
-  }
   const byKey = new Map<string, UserAccount>();
-  filteredBase.forEach((u) => {
-    const k = (u.accountName || u.username).trim().toLowerCase();
-    byKey.set(k, u);
-  });
-  incomingUsers.forEach((u) => {
+  const upsertUser = (u: UserAccount) => {
     if (!u || !u.username || isUserDeleted(u, deletedSet)) return;
     const k = (u.accountName || u.username).trim().toLowerCase();
     const prev =
@@ -1364,7 +1425,16 @@ function mergeUsersLists(
         typeof u.isOnline === 'boolean' ? u.isOnline : prev?.isOnline,
       updatedAt: Math.max(prevTs, incTs),
     });
-  });
+  };
+
+  filteredBase.forEach(upsertUser);
+  if (Array.isArray(incomingUsers)) {
+    incomingUsers.forEach(upsertUser);
+  }
+  if (activeUser && !isUserDeleted(activeUser, deletedSet)) {
+    upsertUser(activeUser);
+  }
+
   const merged = Array.from(byKey.values()).filter(
     (u) => !isUserDeleted(u, deletedSet)
   );
@@ -2853,6 +2923,7 @@ class HybridStorageEngine {
           // ignore
         }
 
+        const activeAuthSnap = getActiveAuthUserSnapshot();
         const deletedRecordIds: string[] = Array.from(
           new Set([
             ...(Array.isArray(parsed.deletedRecordIds) ? parsed.deletedRecordIds : []),
@@ -2860,6 +2931,13 @@ class HybridStorageEngine {
               ? savedAdCampaigns.deletedRecordIds
               : []),
           ])
+        ).filter(
+          (id) =>
+            typeof id === 'string' &&
+            !id.startsWith('user:') &&
+            !id.startsWith('acc:') &&
+            !id.startsWith('acct:') &&
+            (!activeAuthSnap || id !== activeAuthSnap.id)
         );
 
         const hydratedTopBanners = mergeAdCampaignsById(
@@ -2888,7 +2966,7 @@ class HybridStorageEngine {
             Array.isArray(parsed.users) && parsed.users.length > 0
               ? parsed.users
               : INITIAL_USERS,
-            undefined,
+            loadUsersVaultBackup(),
             deletedRecordIds
           ),
           topBanners: hydratedTopBanners,
@@ -2999,6 +3077,25 @@ class HybridStorageEngine {
 
   public saveLocalState(state: PlatformDatabaseState, activeUserId?: string) {
     this.latestState = state;
+    if (Array.isArray(state.users) && state.users.length > 0) {
+      const usersJson = JSON.stringify(state.users);
+      try {
+        sessionStorage.setItem(USERS_VAULT_STORAGE_KEY, usersJson);
+      } catch {
+        // ignore
+      }
+      try {
+        localStorage.setItem(USERS_VAULT_STORAGE_KEY, usersJson);
+      } catch {
+        try {
+          localStorage.removeItem(STORE_IMAGES_VAULT_KEY);
+          localStorage.removeItem(CUMULATIVE_VAULT_STORAGE_KEY);
+          localStorage.setItem(USERS_VAULT_STORAGE_KEY, usersJson);
+        } catch {
+          // ignore
+        }
+      }
+    }
     if (Array.isArray(state.stores)) {
       saveStoreImagesVault(state.stores);
     }
@@ -3062,6 +3159,8 @@ class HybridStorageEngine {
     } catch (e) {
       console.error('LocalStorage save error (falling back to compact DB_STORAGE_KEY + IndexedDB):', e);
       try {
+        localStorage.removeItem(STORE_IMAGES_VAULT_KEY);
+        localStorage.removeItem(CUMULATIVE_VAULT_STORAGE_KEY);
         localStorage.setItem(
           DB_STORAGE_KEY,
           JSON.stringify({
@@ -3069,20 +3168,29 @@ class HybridStorageEngine {
             topBanners: state.topBanners,
             squareAds: state.squareAds,
             popupAd: state.popupAd,
-            messages: (state.messages || []).slice(0, 100),
+            messages: (state.messages || []).slice(0, 50),
             stores: (state.stores || []).map((st) => ({
               ...st,
-              menuImages: (st.menuImages || []).slice(0, 1),
+              menuImages: [],
             })),
             serviceNumbers: state.serviceNumbers,
             tawsilaRides: state.tawsilaRides,
-            communityPosts: (state.communityPosts || []).slice(0, 60),
+            communityPosts: (state.communityPosts || []).slice(0, 30).map((p) => ({
+              ...p,
+              imageUrl: p.imageUrl && p.imageUrl.startsWith('data:') ? undefined : p.imageUrl,
+            })),
             utilitySubmissions: normalizeUtilitySubmissionsList(state.utilitySubmissions),
-            utilityPosts: (state.utilityPosts || []).slice(0, 60),
-            buySellPosts: (state.buySellPosts || []).slice(0, 60),
+            utilityPosts: (state.utilityPosts || []).slice(0, 30).map((p) => ({
+              ...p,
+              imageUrl: p.imageUrl && p.imageUrl.startsWith('data:') ? undefined : p.imageUrl,
+            })),
+            buySellPosts: (state.buySellPosts || []).slice(0, 30).map((p) => ({
+              ...p,
+              imageUrl: p.imageUrl && p.imageUrl.startsWith('data:') ? undefined : p.imageUrl,
+            })),
             liveChatMessages: normalizeLiveChatList(state.liveChatMessages),
             chatPenalties: state.chatPenalties || [],
-            privateChatMessages: (state.privateChatMessages || []).slice(-100),
+            privateChatMessages: (state.privateChatMessages || []).slice(-60),
             privateChatStatuses: state.privateChatStatuses || {},
             chatTypingMap: state.chatTypingMap || {},
             userBlockedMap: state.userBlockedMap || {},
@@ -3091,54 +3199,70 @@ class HybridStorageEngine {
           })
         );
       } catch {
-        // Full state is preserved in IndexedDB
+        // Full state is preserved in IndexedDB and USERS_VAULT_STORAGE_KEY
       }
     }
   }
 
   public loadAuthenticatedUser(users: UserAccount[]): UserAccount | null {
     try {
-      const state = this.latestState;
-      const deletedSet = new Set(state?.deletedRecordIds || []);
+      if (currentActiveAuthUserMemory && currentActiveAuthUserMemory.id) {
+        const matchedMem = users.find(
+          (u) =>
+            u.id === currentActiveAuthUserMemory?.id ||
+            u.username.trim().toLowerCase() ===
+              currentActiveAuthUserMemory?.username.trim().toLowerCase()
+        );
+        if (matchedMem && !matchedMem.isBanned) {
+          return matchedMem;
+        }
+        if (!currentActiveAuthUserMemory.isBanned) {
+          return currentActiveAuthUserMemory;
+        }
+      }
 
-      const rememberedId = localStorage.getItem(AUTH_PERSIST_KEY);
-      if (rememberedId && !deletedSet.has(rememberedId)) {
-        const found = users.find((u) => u.id === rememberedId);
-        if (found && !found.isBanned && !isUserDeleted(found, deletedSet)) {
-          return found;
-        }
-      }
-      const sessionId = sessionStorage.getItem(AUTH_SESSION_KEY);
-      if (sessionId && !deletedSet.has(sessionId)) {
-        const found = users.find((u) => u.id === sessionId);
-        if (found && !found.isBanned && !isUserDeleted(found, deletedSet)) {
-          return found;
-        }
-      }
       const cachedUserRaw =
-        localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`) ||
-        sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`);
+        sessionStorage.getItem(`${AUTH_SESSION_KEY}_obj`) ||
+        localStorage.getItem(`${AUTH_PERSIST_KEY}_obj`);
       if (cachedUserRaw) {
         const parsedUser = JSON.parse(cachedUserRaw) as UserAccount;
         if (
           parsedUser &&
           parsedUser.id &&
           parsedUser.username &&
-          !parsedUser.isBanned &&
-          !isUserDeleted(parsedUser, deletedSet)
+          !parsedUser.isBanned
         ) {
+          currentActiveAuthUserMemory = parsedUser;
           const matchedInList = users.find(
             (u) =>
               u.id === parsedUser.id ||
               u.username.trim().toLowerCase() === parsedUser.username.trim().toLowerCase()
           );
           if (matchedInList) {
-            if (matchedInList.isBanned || isUserDeleted(matchedInList, deletedSet)) {
+            if (matchedInList.isBanned) {
               return null;
             }
             return matchedInList;
           }
           return parsedUser;
+        }
+      }
+
+      const sessionId = sessionStorage.getItem(AUTH_SESSION_KEY);
+      if (sessionId) {
+        const found = users.find((u) => u.id === sessionId);
+        if (found && !found.isBanned) {
+          currentActiveAuthUserMemory = found;
+          return found;
+        }
+      }
+
+      const rememberedId = localStorage.getItem(AUTH_PERSIST_KEY);
+      if (rememberedId) {
+        const found = users.find((u) => u.id === rememberedId);
+        if (found && !found.isBanned) {
+          currentActiveAuthUserMemory = found;
+          return found;
         }
       }
     } catch {
@@ -3152,24 +3276,49 @@ class HybridStorageEngine {
     _rememberMe: boolean,
     currentState?: PlatformDatabaseState
   ) {
-    try {
-      if (!user) {
-        localStorage.removeItem(AUTH_PERSIST_KEY);
-        localStorage.removeItem(`${AUTH_PERSIST_KEY}_obj`);
+    currentActiveAuthUserMemory = user;
+    if (!user) {
+      try {
         sessionStorage.removeItem(AUTH_SESSION_KEY);
         sessionStorage.removeItem(`${AUTH_SESSION_KEY}_obj`);
-        return;
+      } catch {
+        // ignore
       }
-      if (currentState) {
-        fastBrowserCache.setMemoryAndDiskCache(currentState, user.id);
+      try {
+        localStorage.removeItem(AUTH_PERSIST_KEY);
+        localStorage.removeItem(`${AUTH_PERSIST_KEY}_obj`);
+      } catch {
+        // ignore
       }
-      // Always persist login permanently in localStorage + sessionStorage until manual logout only
-      localStorage.setItem(AUTH_PERSIST_KEY, user.id);
-      localStorage.setItem(`${AUTH_PERSIST_KEY}_obj`, JSON.stringify(user));
+      return;
+    }
+
+    if (currentState) {
+      fastBrowserCache.setMemoryAndDiskCache(currentState, user.id);
+    }
+
+    const serializedUser = JSON.stringify(user);
+    // 1. Always save to sessionStorage first (isolated try/catch so localStorage quota never blocks it)
+    try {
       sessionStorage.setItem(AUTH_SESSION_KEY, user.id);
-      sessionStorage.setItem(`${AUTH_SESSION_KEY}_obj`, JSON.stringify(user));
+      sessionStorage.setItem(`${AUTH_SESSION_KEY}_obj`, serializedUser);
     } catch {
       // ignore
+    }
+
+    // 2. Always persist login permanently in localStorage until manual logout only
+    try {
+      localStorage.setItem(AUTH_PERSIST_KEY, user.id);
+      localStorage.setItem(`${AUTH_PERSIST_KEY}_obj`, serializedUser);
+    } catch {
+      try {
+        localStorage.removeItem(STORE_IMAGES_VAULT_KEY);
+        localStorage.removeItem(CUMULATIVE_VAULT_STORAGE_KEY);
+        localStorage.setItem(AUTH_PERSIST_KEY, user.id);
+        localStorage.setItem(`${AUTH_PERSIST_KEY}_obj`, serializedUser);
+      } catch {
+        // ignore
+      }
     }
   }
 

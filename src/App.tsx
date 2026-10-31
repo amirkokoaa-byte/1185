@@ -304,23 +304,20 @@ export default function App() {
     };
   }, []);
 
-  // If the current logged-in account was permanently deleted from the database, log out
+  // Keep currentUser synced with latest profile/role updates, and log out only if explicitly banned by Admin
   useEffect(() => {
     if (!currentUser) return;
-    const deletedSet = new Set(dbState.deletedRecordIds || []);
-    const uNameKey = `user:${currentUser.username.trim().toLowerCase()}`;
-    const accKey = currentUser.accountName
-      ? `acc:${currentUser.accountName.trim().toLowerCase()}`
-      : '';
-    if (
-      deletedSet.has(currentUser.id) ||
-      deletedSet.has(uNameKey) ||
-      (accKey && deletedSet.has(accKey))
-    ) {
+    const matchedInDb = dbState.users.find(
+      (u) =>
+        u.id === currentUser.id ||
+        u.username.trim().toLowerCase() ===
+          currentUser.username.trim().toLowerCase()
+    );
+    if (matchedInDb && matchedInDb.isBanned) {
       setCurrentUser(null);
       storageEngine.saveAuthenticatedUser(null, false);
     }
-  }, [dbState.deletedRecordIds, currentUser]);
+  }, [dbState.users, currentUser]);
 
   const updateAndPersist = (
     updater: (prev: PlatformDatabaseState) => PlatformDatabaseState
@@ -486,61 +483,129 @@ export default function App() {
 
   // --- Authentication Handlers (with Instant Browser Cache & Instant Online Presence Broadcast on Login/Logout) ---
   const handleAuthenticate = (user: UserAccount, rememberMe: boolean) => {
-    const onlineUser: UserAccount = { ...user, isOnline: true };
+    const nowTs = Date.now();
+    const onlineUser: UserAccount = {
+      ...user,
+      isOnline: true,
+      updatedAt: nowTs,
+    };
     const todayKey = new Date().toISOString().slice(0, 10);
     try {
       sessionStorage.setItem(`nakhil_daily_visit_${onlineUser.id}_${todayKey}`, '1');
     } catch {
       // ignore
     }
+    // Save authenticated user in memory & storage FIRST so background sync never drops it
+    storageEngine.saveAuthenticatedUser(onlineUser, rememberMe);
+    setCurrentUser(onlineUser);
+    setViewedProfileUsername(onlineUser.username);
     setDbState((prev) => {
-      const exists = prev.users.some((u) => u.id === onlineUser.id);
+      const exists = prev.users.some(
+        (u) =>
+          u.id === onlineUser.id ||
+          u.username.trim().toLowerCase() ===
+            onlineUser.username.trim().toLowerCase()
+      );
       const nextUsers = exists
         ? prev.users.map((u) =>
-            u.id === onlineUser.id ? { ...u, isOnline: true } : u
+            u.id === onlineUser.id ||
+            u.username.trim().toLowerCase() ===
+              onlineUser.username.trim().toLowerCase()
+              ? { ...u, ...onlineUser, isOnline: true, updatedAt: nowTs }
+              : u
           )
         : [...prev.users, onlineUser];
+      const uNameKey = `user:${onlineUser.username.trim().toLowerCase()}`;
+      const accKey = onlineUser.accountName
+        ? `acc:${onlineUser.accountName.trim().toLowerCase()}`
+        : '';
+      const cleanedDeletedIds = (prev.deletedRecordIds || []).filter(
+        (id) =>
+          id !== onlineUser.id &&
+          id !== uNameKey &&
+          (!accKey || id !== accKey) &&
+          !id.startsWith('user:') &&
+          !id.startsWith('acc:') &&
+          !id.startsWith('acct:')
+      );
       const next: PlatformDatabaseState = {
         ...prev,
         users: nextUsers,
+        deletedRecordIds: cleanedDeletedIds,
         settings: appendAuthSessionAndVisitToSettings(
           prev.settings,
           onlineUser,
           'login'
         ),
       };
-      storageEngine.persistState(next, onlineUser.id);
       storageEngine.saveAuthenticatedUser(onlineUser, rememberMe, next);
+      storageEngine.persistState(next, onlineUser.id);
       return next;
     });
-    setCurrentUser(onlineUser);
     setOnlineStats(syncRealOnlinePresence(onlineUser, false));
     triggerLoginExternalNotification(onlineUser);
   };
 
   const handleRegisterNewUser = (newUser: UserAccount, rememberMe: boolean) => {
-    const onlineNewUser: UserAccount = { ...newUser, isOnline: true };
+    const nowTs = Date.now();
+    const onlineNewUser: UserAccount = {
+      ...newUser,
+      isOnline: true,
+      updatedAt: nowTs,
+    };
     const todayKey = new Date().toISOString().slice(0, 10);
     try {
       sessionStorage.setItem(`nakhil_daily_visit_${onlineNewUser.id}_${todayKey}`, '1');
     } catch {
       // ignore
     }
+    // Save authenticated user in memory & storage FIRST so background sync never drops it
+    storageEngine.saveAuthenticatedUser(onlineNewUser, rememberMe);
+    setCurrentUser(onlineNewUser);
+    setViewedProfileUsername(onlineNewUser.username);
     setDbState((prev) => {
+      const exists = prev.users.some(
+        (u) =>
+          u.id === onlineNewUser.id ||
+          u.username.trim().toLowerCase() ===
+            onlineNewUser.username.trim().toLowerCase()
+      );
+      const nextUsers = exists
+        ? prev.users.map((u) =>
+            u.id === onlineNewUser.id ||
+            u.username.trim().toLowerCase() ===
+              onlineNewUser.username.trim().toLowerCase()
+              ? onlineNewUser
+              : u
+          )
+        : [...prev.users, onlineNewUser];
+      const uNameKey = `user:${onlineNewUser.username.trim().toLowerCase()}`;
+      const accKey = onlineNewUser.accountName
+        ? `acc:${onlineNewUser.accountName.trim().toLowerCase()}`
+        : '';
+      const cleanedDeletedIds = (prev.deletedRecordIds || []).filter(
+        (id) =>
+          id !== onlineNewUser.id &&
+          id !== uNameKey &&
+          (!accKey || id !== accKey) &&
+          !id.startsWith('user:') &&
+          !id.startsWith('acc:') &&
+          !id.startsWith('acct:')
+      );
       const next: PlatformDatabaseState = {
         ...prev,
-        users: [...prev.users, onlineNewUser],
+        users: nextUsers,
+        deletedRecordIds: cleanedDeletedIds,
         settings: appendAuthSessionAndVisitToSettings(
           prev.settings,
           onlineNewUser,
           'login'
         ),
       };
-      storageEngine.persistState(next, onlineNewUser.id);
       storageEngine.saveAuthenticatedUser(onlineNewUser, rememberMe, next);
+      storageEngine.persistState(next, onlineNewUser.id);
       return next;
     });
-    setCurrentUser(onlineNewUser);
     setOnlineStats(syncRealOnlinePresence(onlineNewUser, false));
     triggerLoginExternalNotification(onlineNewUser);
   };

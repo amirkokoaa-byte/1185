@@ -834,9 +834,24 @@ export const PortalSectionsWorkspace: React.FC<PortalSectionsWorkspaceProps> = (
       currentUser?.username ||
       ''
     ).trim();
-    const targetUser = state.users.find(
-      (u) => u.username.trim().toLowerCase() === targetUsername.toLowerCase()
-    );
+    const lowerTarget = targetUsername.toLowerCase();
+    const matchedInState = lowerTarget
+      ? state.users.find(
+          (u) =>
+            u.username.trim().toLowerCase() === lowerTarget ||
+            (u.accountName && u.accountName.trim().toLowerCase() === lowerTarget)
+        )
+      : undefined;
+    const targetUser =
+      matchedInState ||
+      (currentUser
+        ? state.users.find(
+            (u) =>
+              u.id === currentUser.id ||
+              u.username.trim().toLowerCase() ===
+                currentUser.username.trim().toLowerCase()
+          ) || currentUser
+        : undefined);
 
     if (!targetUser) {
       return (

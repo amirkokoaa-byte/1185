@@ -223,11 +223,11 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
     });
   };
 
-  // Deduplicate stores by Name AND Real Phone Numbers so duplicate stores never appear in public view, and collect duplicates for Admin modal
+  // Never hide or delete any store automatically; collect potential duplicates for Admin manual review only
   const { uniqueStores, duplicateStoresEntries } = React.useMemo(() => {
     const seenNames = new Map<string, StoreListingItem>();
     const seenPhones = new Map<string, StoreListingItem>();
-    const unique: StoreListingItem[] = [];
+    const allValidStores: StoreListingItem[] = [];
     const duplicates: Array<{
       duplicate: StoreListingItem;
       original: StoreListingItem;
@@ -236,6 +236,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
 
     for (const st of stores) {
       if (!st) continue;
+      allValidStores.push(st);
       const normName = normalizeStoreNameForComparison(st.name);
       const phoneTokens = extractRealPhoneTokens(st.phone);
 
@@ -250,18 +251,14 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
           original: matchedByName,
           reason: 'تشابه في اسم المحل',
         });
-        continue;
-      }
-      if (matchedByPhone && matchedByPhone.id !== st.id) {
+      } else if (matchedByPhone && matchedByPhone.id !== st.id) {
         duplicates.push({
           duplicate: st,
           original: matchedByPhone,
           reason: `تشابه في رقم الهاتف (${st.phone})`,
         });
-        continue;
       }
 
-      unique.push(st);
       if (normName && !seenNames.has(normName)) {
         seenNames.set(normName, st);
       }
@@ -272,7 +269,7 @@ export const DirectoryStoresView: React.FC<DirectoryStoresViewProps> = ({
       });
     }
 
-    return { uniqueStores: unique, duplicateStoresEntries: duplicates };
+    return { uniqueStores: allValidStores, duplicateStoresEntries: duplicates };
   }, [stores]);
 
   // Ensure 'مول دريم بلازا' is always FIRST in storeCategories

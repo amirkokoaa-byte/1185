@@ -915,12 +915,12 @@ function ensureValidStoreId(
   fallbackIndex = 0
 ): string {
   if (!store) return `store-fallback-${fallbackIndex}`;
+  if (typeof store.id === 'string' && store.id.trim().length > 0) {
+    return store.id.trim();
+  }
   const rawNameKey = normalizeStoreNameKey(store.name);
   if (rawNameKey && PERMANENT_DREAM_PLAZA_NAME_TO_SEED.has(rawNameKey)) {
     return PERMANENT_DREAM_PLAZA_NAME_TO_SEED.get(rawNameKey)!.id;
-  }
-  if (typeof store.id === 'string' && store.id.trim().length > 0) {
-    return store.id.trim();
   }
   if (rawNameKey) {
     const phoneDigits = String(store.phone || '').replace(/[^0-9]/g, '');
@@ -983,16 +983,34 @@ export function mergeStoresWithImages(
   deletedIds?: string[],
   authoritativeCloud = false
 ): StoreListingItem[] {
-  const safeBaseList = ensureStoreListHasIds(baseList);
-  const safeIncomingList = ensureStoreListHasIds(incomingList);
   const nonPermanentDeletedIds = (deletedIds || []).filter(
     (id) => !PERMANENT_DREAM_PLAZA_IDS.has(id)
   );
+  let vaultStoresList: StoreListingItem[] = [];
+  try {
+    if (typeof window !== 'undefined') {
+      const rawVault = localStorage.getItem(CUMULATIVE_VAULT_STORAGE_KEY);
+      if (rawVault) {
+        const parsedVault = JSON.parse(rawVault);
+        if (parsedVault && Array.isArray(parsedVault.stores)) {
+          vaultStoresList = parsedVault.stores;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  const safeBaseList = ensureStoreListHasIds([
+    ...(baseList || []),
+    ...vaultStoresList,
+  ]);
+  const safeIncomingList = ensureStoreListHasIds(incomingList);
+  // Never drop stores automatically via authoritativeCloud; stores are ONLY removed when manually deleted (nonPermanentDeletedIds)
   const merged = mergeCollectionById(
     safeBaseList,
     safeIncomingList,
     nonPermanentDeletedIds,
-    authoritativeCloud
+    false
   );
   const vault = loadStoreImagesVault();
   return normalizeStoresList(
@@ -2765,12 +2783,6 @@ class HybridStorageEngine {
         }
       }
 
-      // Role of IndexedDB/LocalStorage is strictly offline caching when internet is absent or when unsynced offline changes exist
-      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-      if (!isOffline && !this.hasPendingOfflineChanges()) {
-        return;
-      }
-
       const idbCandidate = pendingOffline || latestIdb;
       if (!idbCandidate) return;
 
@@ -2781,6 +2793,29 @@ class HybridStorageEngine {
           ...(idbCandidate.deletedRecordIds || []),
         ])
       );
+
+      // Always union stores from IndexedDB immediately on startup so store count never starts lower and jumps later
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      if (!isOffline && !this.hasPendingOfflineChanges()) {
+        if (Array.isArray(idbCandidate.stores) && idbCandidate.stores.length > 0) {
+          const unionedStores = mergeStoresWithImages(
+            current.stores,
+            idbCandidate.stores,
+            mergedDeletedIds,
+            false
+          );
+          if (unionedStores.length !== current.stores.length) {
+            const withIdbStores: PlatformDatabaseState = {
+              ...current,
+              stores: unionedStores,
+              deletedRecordIds: mergedDeletedIds,
+            };
+            this.saveLocalState(withIdbStores);
+            this.notifyData(withIdbStores);
+          }
+        }
+        return;
+      }
 
       const enriched: PlatformDatabaseState = {
         ...current,
@@ -3068,9 +3103,12 @@ class HybridStorageEngine {
           squareAds: hydratedSquareAds,
           popupAd: hydratedPopupAd,
           messages: Array.isArray(parsed.messages) ? parsed.messages : INITIAL_MESSAGES,
-          stores: Array.isArray(parsed.stores)
-            ? normalizeStoresList(parsed.stores)
-            : INITIAL_STORES,
+          stores: mergeStoresWithImages(
+            Array.isArray(parsed.stores) ? parsed.stores : INITIAL_STORES,
+            fastBrowserCache.getCumulativeVaultSync()?.stores,
+            deletedRecordIds,
+            false
+          ),
           serviceNumbers: Array.isArray(parsed.serviceNumbers)
             ? normalizeServiceNumbersList(parsed.serviceNumbers)
             : INITIAL_SERVICE_NUMBERS,
@@ -3617,7 +3655,7 @@ class HybridStorageEngine {
         ? (remoteData.stores as StoreListingItem[])
         : undefined,
       mergedDeletedIds,
-      true
+      false
     );
     const mergedServicesRaw = mergeServiceNumbersWithInteractions(
       base.serviceNumbers,
@@ -3826,18 +3864,25 @@ class HybridStorageEngine {
     const mergedDeletedIds = Array.from(
       new Set([...(base.deletedRecordIds || []), ...remoteDeleted])
     );
-    const mergedStores = Array.isArray(data.stores)
+    const remoteStoresList = Array.isArray(data.stores)
+      ? (data.stores as StoreListingItem[])
+      : undefined;
+    const mergedStores = remoteStoresList
       ? normalizeStoresList(
           this.enrichStoresWithOverflowChunks(
             mergeStoresWithImages(
               base.stores,
-              data.stores as StoreListingItem[],
+              remoteStoresList,
               mergedDeletedIds,
-              true
+              false
             )
-          )
+          ),
+          mergedDeletedIds
         )
-      : normalizeStoresList(this.enrichStoresWithOverflowChunks(base.stores));
+      : normalizeStoresList(
+          this.enrichStoresWithOverflowChunks(base.stores),
+          mergedDeletedIds
+        );
     const updatedCategories = Array.isArray(data.storeCategories)
       ? ensureStoreCategoriesWithDreamPlaza(data.storeCategories as string[])
       : base.settings.storeCategories;
@@ -3852,6 +3897,21 @@ class HybridStorageEngine {
     };
     this.notifyData(nextState);
     this.scheduleDeferredLocalSave(nextState);
+
+    // If local/cumulative union has more non-deleted stores than section_stores in Firestore, heal section_stores immediately
+    if (
+      remoteStoresList &&
+      mergedStores.length > remoteStoresList.length &&
+      this.firestoreDb
+    ) {
+      this.writeStoresToFirestoreSafe(
+        mergedStores,
+        updatedCategories,
+        mergedDeletedIds,
+        getOrCreateTabSessionId(),
+        new Date().toISOString()
+      ).catch(() => {});
+    }
   }
 
   private applySectionServicesSnapshot(data: Record<string, unknown>) {
@@ -4051,7 +4111,7 @@ class HybridStorageEngine {
             base.stores,
             chatPatch.stores as StoreListingItem[],
             mergedDeletedIds,
-            true
+            false
           )
         : normalizeStoresList(
             base.stores.filter((st) => !mergedDeletedIds.includes(st.id)),
@@ -5056,15 +5116,6 @@ class HybridStorageEngine {
         const docRef = doc(this.firestoreDb, 'fluent_portal_v3', 'workspace_state');
 
         const writeWorkspaceSafe = async () => {
-          const fullStrLen = JSON.stringify(cleanFullPayload).length;
-          if (fullStrLen < 820000) {
-            try {
-              await setDoc(docRef, cleanFullPayload);
-              return;
-            } catch {
-              // fallback below
-            }
-          }
           const ultraCompactPayload = sanitizeForFirebase({
             ...cleanFullPayload,
             stores: compactCloudStores.map((st) => ({

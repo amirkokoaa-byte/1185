@@ -747,46 +747,11 @@ export const FacebookMobileBottomBar: React.FC<FacebookMobileBottomBarProps> = (
 }) => {
   const currentSec = activeSection || activeTab || 'directory';
   const badgeCount = unreadPrivateMessagesCount ?? unreadChatCount ?? 0;
-  const [isBarVisible, setIsBarVisible] = useState(true);
-  const lastScrollYRef = useRef(0);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    lastScrollYRef.current = window.scrollY || 0;
-
-    const handleScroll = () => {
-      const currentY = window.scrollY || 0;
-      const delta = currentY - lastScrollYRef.current;
-      if (delta > 8 && currentY > 60) {
-        setIsBarVisible(false);
-      } else if (delta < -4 || currentY <= 40) {
-        setIsBarVisible(true);
-      }
-      lastScrollYRef.current = currentY;
-    };
-
-    const handlePageClick = () => {
-      setIsBarVisible(true);
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('click', handlePageClick, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('click', handlePageClick);
-    };
-  }, []);
-
-  const showBar = isBarVisible || isMobileMenuOpen || isChatHistoryOpen;
 
   return (
     <nav
       aria-label="شريط التنقل السفلي"
-      className={`fixed bottom-0 inset-x-0 z-[95] bg-[#18191A]/98 backdrop-blur-xl border-t border-slate-700/80 shadow-[0_-6px_25px_rgba(0,0,0,0.65)] px-1 py-1 transition-all duration-300 ${
-        showBar
-          ? 'translate-y-0 opacity-100'
-          : 'translate-y-full opacity-0 pointer-events-none'
-      }`}
+      className="bottom-fixed-nav fixed bottom-0 inset-x-0 z-[95] bg-[#18191A]/98 backdrop-blur-xl border-t border-slate-700/80 shadow-[0_-6px_25px_rgba(0,0,0,0.65)] px-1 py-1 translate-y-0 opacity-100"
     >
       <div className="grid grid-cols-6 lg:grid-cols-5 items-center max-w-md lg:max-w-3xl mx-auto">
         {/* 1. الصفحة الرئيسية */}
@@ -1393,7 +1358,7 @@ export const PersonalProfileHeaderSection: React.FC<
       : profileOnlyPosts;
 
   return (
-    <div className="rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border border-slate-700/80 shadow-2xl overflow-visible relative z-30 mb-4">
+    <div className="profile-header-card rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border border-slate-700/80 shadow-2xl overflow-visible relative z-30 mb-4">
       {/* Cover Banner */}
       <div className="h-20 sm:h-28 rounded-t-3xl overflow-hidden bg-gradient-to-r from-[#1877F2] via-indigo-600 to-purple-700 relative">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.22),transparent_60%)]" />
@@ -1456,9 +1421,9 @@ export const PersonalProfileHeaderSection: React.FC<
               )}
             </div>
 
-            {/* Account Name & Role */}
-            <div className="flex-1 min-w-0 pt-10 sm:pt-12">
-              <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Account Name & Role + Gear Settings Button on Top-Left Next to Name */}
+            <div className="flex-1 min-w-0 pt-10 sm:pt-12 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                 <h2 className="text-base sm:text-xl font-black text-white truncate">
                   {targetUser.username}
                 </h2>
@@ -1475,6 +1440,174 @@ export const PersonalProfileHeaderSection: React.FC<
                   </span>
                 )}
               </div>
+
+              {/* Gear Settings Button on Top-Left Next to Name (الترس بالأعلى على اليسار بجانب الاسم) */}
+              {isOwnProfile && (
+                <div ref={gearRef} className="relative z-50 shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsGearMenuOpen((prev) => !prev);
+                    }}
+                    title="إعدادات الملف الشخصي والخصوصية"
+                    className={`p-2 rounded-xl border transition flex items-center justify-center cursor-pointer ${
+                      isGearMenuOpen ||
+                      targetProfile.isProfileLocked ||
+                      targetProfile.disableFriendRequests
+                        ? 'bg-sky-600 border-sky-400 text-white'
+                        : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
+                    }`}
+                  >
+                    <Settings className="w-4 h-4 text-white" />
+                  </button>
+
+                  {isGearMenuOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-[210]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsGearMenuOpen(false);
+                        }}
+                      />
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute left-0 top-full mt-1.5 z-[220] w-64 max-w-[88vw] rounded-2xl bg-slate-900 border border-slate-600 shadow-2xl p-3 space-y-2 animate-fadeIn"
+                      >
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                          <span className="text-xs font-black text-white flex items-center gap-1.5">
+                            <Settings className="w-3.5 h-3.5 text-sky-400" />
+                            <span>إعدادات الملف الشخصي</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsGearMenuOpen(false)}
+                            className="p-1 rounded-lg bg-slate-800 text-white hover:bg-slate-700 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Quick Options inside Gear Menu: تفاصيل شخصية & قوائم الأصدقاء & فلترة المنشورات */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsGearMenuOpen(false);
+                            setIsDetailsEditorOpen((prev) => !prev);
+                          }}
+                          className="w-full p-2 rounded-xl border bg-slate-800 border-slate-700 text-white hover:bg-slate-700 text-right transition flex items-center justify-between gap-2 cursor-pointer"
+                        >
+                          <span className="text-[11px] font-black flex items-center gap-1.5">
+                            <Edit3 className="w-3.5 h-3.5 text-white shrink-0" />
+                            <span>تفاصيل شخصية</span>
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-sky-600 text-white text-[9px] font-black">
+                            فتح
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsGearMenuOpen(false);
+                            setIsCustomListsModalOpen(true);
+                          }}
+                          className="w-full p-2 rounded-xl border bg-slate-800 border-slate-700 text-white hover:bg-slate-700 text-right transition flex items-center justify-between gap-2 cursor-pointer"
+                        >
+                          <span className="text-[11px] font-black flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-white shrink-0" />
+                            <span>قوائم الأصدقاء</span>
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[9px] font-black">
+                            إدارة
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsGearMenuOpen(false);
+                            setSelectedPostIdsForDelete([]);
+                            setIsFilterPostsModalOpen(true);
+                          }}
+                          className="w-full p-2 rounded-xl border bg-slate-800 border-slate-700 text-white hover:bg-slate-700 text-right transition flex items-center justify-between gap-2 cursor-pointer"
+                        >
+                          <span className="text-[11px] font-black flex items-center gap-1.5">
+                            <Filter className="w-3.5 h-3.5 text-white shrink-0" />
+                            <span>فلترة المنشورات</span>
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-amber-600 text-white text-[9px] font-black">
+                            عرض
+                          </span>
+                        </button>
+
+                        {/* Option 1: Lock Personal Profile */}
+                        <button
+                          type="button"
+                          onClick={handleToggleProfileLock}
+                          className={`w-full p-2 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
+                            targetProfile.isProfileLocked
+                              ? 'bg-rose-700 border-rose-500 text-white'
+                              : 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-black flex items-center gap-1 text-white">
+                              <Lock className="w-3 h-3 shrink-0" />
+                              <span>قفل الصفحة الشخصية</span>
+                            </p>
+                            <p className="text-[9px] text-slate-300 mt-0.5">
+                              لا يظهر لغير الأصدقاء إلا اسمك وزر أضف صديق فقط
+                            </p>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[9px] font-black shrink-0 ${
+                              targetProfile.isProfileLocked
+                                ? 'bg-rose-600 text-white'
+                                : 'bg-slate-700 text-white'
+                            }`}
+                          >
+                            {targetProfile.isProfileLocked ? 'مفعّل' : 'مغلق'}
+                          </span>
+                        </button>
+
+                        {/* Option 2: Lock Friend Requests */}
+                        <button
+                          type="button"
+                          onClick={handleToggleDisableFriendRequests}
+                          className={`w-full p-2 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
+                            targetProfile.disableFriendRequests
+                              ? 'bg-amber-700 border-amber-500 text-white'
+                              : 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-black flex items-center gap-1 text-white">
+                              <Ban className="w-3 h-3 shrink-0" />
+                              <span>قفل عدم إرسال طلبات صداقة</span>
+                            </p>
+                            <p className="text-[9px] text-slate-300 mt-0.5">
+                              منع الحسابات الأخرى من إرسال طلبات صداقة لك
+                            </p>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[9px] font-black shrink-0 ${
+                              targetProfile.disableFriendRequests
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-slate-700 text-white'
+                            }`}
+                          >
+                            {targetProfile.disableFriendRequests
+                              ? 'مفعّل'
+                              : 'مغلق'}
+                          </span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1686,7 +1819,7 @@ export const PersonalProfileHeaderSection: React.FC<
               onClick={() =>
                 !isLockedForViewer && setIsFollowersModalOpen(true)
               }
-              className="flex-1 min-w-0 px-2 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 text-[10px] sm:text-xs font-black text-white flex items-center justify-center gap-1 whitespace-nowrap transition"
+              className="profile-white-box flex-1 min-w-0 px-2 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 text-[10px] sm:text-xs font-black text-white flex items-center justify-center gap-1 whitespace-nowrap transition"
             >
               <span className="text-slate-300">المتابعين</span>
               <span className="text-sky-400">({followersUsers.length})</span>
@@ -1698,7 +1831,7 @@ export const PersonalProfileHeaderSection: React.FC<
               onClick={() =>
                 !isLockedForViewer && setIsFollowingModalOpen(true)
               }
-              className="flex-1 min-w-0 px-2 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 text-[10px] sm:text-xs font-black text-white flex items-center justify-center gap-1 whitespace-nowrap transition"
+              className="profile-white-box flex-1 min-w-0 px-2 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 text-[10px] sm:text-xs font-black text-white flex items-center justify-center gap-1 whitespace-nowrap transition"
             >
               <span className="text-slate-300">أتابعه</span>
               <span className="text-emerald-400">
@@ -1712,7 +1845,7 @@ export const PersonalProfileHeaderSection: React.FC<
             (targetProfile.noteText || isOwnProfile) && (
               <div className="w-full mt-1">
                 {targetProfile.noteText && !isNoteEditorOpen && (
-                  <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-800/70 border border-slate-700/80">
+                  <div className="profile-white-box flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-800/70 border border-slate-700/80">
                     <p className="text-[11px] sm:text-xs font-bold text-amber-200 line-clamp-2 leading-snug break-words flex-1">
                       💬 {targetProfile.noteText}
                     </p>
@@ -1720,7 +1853,7 @@ export const PersonalProfileHeaderSection: React.FC<
                       <button
                         type="button"
                         onClick={() => setIsNoteEditorOpen(true)}
-                        className="px-2 py-0.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[10px] font-black text-sky-300 shrink-0"
+                        className="px-2 py-0.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[10px] font-black text-white shrink-0"
                       >
                         تعديل الملاحظة
                       </button>
@@ -1732,7 +1865,7 @@ export const PersonalProfileHeaderSection: React.FC<
                   <button
                     type="button"
                     onClick={() => setIsNoteEditorOpen(true)}
-                    className="w-full py-1.5 px-3 rounded-xl bg-slate-800/50 hover:bg-slate-800 border border-dashed border-slate-700 text-[11px] font-bold text-slate-300 flex items-center justify-center gap-1.5 transition"
+                    className="profile-white-box w-full py-1.5 px-3 rounded-xl bg-slate-800/50 hover:bg-slate-800 border border-dashed border-slate-700 text-[11px] font-bold text-slate-300 flex items-center justify-center gap-1.5 transition"
                   >
                     <Smile className="w-3.5 h-3.5 text-amber-400" />
                     <span>+ أضف ملاحظة قصيرة (حتى 100 حرف مع إيموشن)</span>
@@ -1740,7 +1873,7 @@ export const PersonalProfileHeaderSection: React.FC<
                 )}
 
                 {isOwnProfile && isNoteEditorOpen && (
-                  <div className="p-2.5 rounded-2xl bg-slate-950/90 border border-sky-500/40 space-y-2 animate-fadeIn">
+                  <div className="profile-white-box p-2.5 rounded-2xl bg-slate-950/90 border border-sky-500/40 space-y-2 animate-fadeIn">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-black text-sky-300">
                         ملاحظة الحالة (تظهر أسفل الأزرار - بحد أقصى 100 حرف)
@@ -1795,7 +1928,7 @@ export const PersonalProfileHeaderSection: React.FC<
                             });
                             setIsNoteEditorOpen(false);
                           }}
-                          className="px-2.5 py-1 rounded-lg bg-rose-600/20 text-rose-300 text-[10px] font-black"
+                          className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-black"
                         >
                           حذف
                         </button>
@@ -1806,7 +1939,7 @@ export const PersonalProfileHeaderSection: React.FC<
                           setIsNoteEditorOpen(false);
                           setNoteWarning(null);
                         }}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-black"
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 text-white text-[10px] font-black"
                       >
                         إلغاء
                       </button>
@@ -1823,182 +1956,16 @@ export const PersonalProfileHeaderSection: React.FC<
               </div>
             )}
 
-          {/* Owner Controls Row Below: تفاصيل شخصية + قوائم الأصدقاء + الترس ⚙️ + فلترة المنشورات (تم إخفاء زر تغيير الشخصية الكبير والاكتفاء بزر تغيير أسفل الصورة) */}
+          {/* Filter Posts Row Below (تم إخفاء زر تفاصيل شخصية وزر قوائم الأصدقاء وجعلها داخل الترس فقط) */}
           {isOwnProfile && (
             <div className="w-full flex items-center gap-1.5 flex-wrap mt-1 relative z-40">
-              <button
-                type="button"
-                onClick={() => setIsDetailsEditorOpen((prev) => !prev)}
-                className="flex-1 min-w-[95px] px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-[11px] font-black border border-slate-700 flex items-center justify-center gap-1 whitespace-nowrap transition cursor-pointer"
-              >
-                <Edit3 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                <span>تفاصيل شخصية</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsCustomListsModalOpen(true)}
-                className="flex-1 min-w-[95px] px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-[11px] font-black border border-slate-700 flex items-center justify-center gap-1 whitespace-nowrap transition cursor-pointer"
-              >
-                <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>قوائم الأصدقاء</span>
-              </button>
-
-              {/* Gear Settings Button (الترس ⚙️ في الصفحة الشخصية) */}
-              <div ref={gearRef} className="relative z-50">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsGearMenuOpen((prev) => !prev);
-                  }}
-                  title="إعدادات الملف الشخصي والخصوصية"
-                  className={`p-2 rounded-xl border transition flex items-center justify-center cursor-pointer ${
-                    isGearMenuOpen ||
-                    targetProfile.isProfileLocked ||
-                    targetProfile.disableFriendRequests
-                      ? 'bg-sky-600/25 border-sky-500/60 text-sky-300'
-                      : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-                  }`}
-                >
-                  <Settings className="w-4 h-4" />
-                </button>
-
-                {isGearMenuOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-[210]"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsGearMenuOpen(false);
-                      }}
-                    />
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-1.5 z-[220] w-64 max-w-[88vw] rounded-2xl bg-slate-900 border border-slate-600 shadow-2xl p-3 space-y-2 animate-fadeIn"
-                    >
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                        <span className="text-xs font-black text-white flex items-center gap-1.5">
-                          <Settings className="w-3.5 h-3.5 text-sky-400" />
-                          <span>إعدادات الملف الشخصي</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setIsGearMenuOpen(false)}
-                          className="text-slate-400 hover:text-white cursor-pointer"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      {/* Quick Options inside Gear Menu: تفاصيل شخصية & قوائم الأصدقاء */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsGearMenuOpen(false);
-                          setIsDetailsEditorOpen((prev) => !prev);
-                        }}
-                        className="w-full p-2 rounded-xl border bg-slate-800/80 border-slate-700 text-slate-100 hover:bg-slate-800 text-right transition flex items-center justify-between gap-2 cursor-pointer"
-                      >
-                        <span className="text-[11px] font-black flex items-center gap-1.5">
-                          <Edit3 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                          <span>تفاصيل شخصية</span>
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 text-[9px] font-black">
-                          فتح
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsGearMenuOpen(false);
-                          setIsCustomListsModalOpen(true);
-                        }}
-                        className="w-full p-2 rounded-xl border bg-slate-800/80 border-slate-700 text-slate-100 hover:bg-slate-800 text-right transition flex items-center justify-between gap-2 cursor-pointer"
-                      >
-                        <span className="text-[11px] font-black flex items-center gap-1.5">
-                          <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          <span>قوائم الأصدقاء</span>
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[9px] font-black">
-                          إدارة
-                        </span>
-                      </button>
-
-                      {/* Option 1: Lock Personal Profile */}
-                      <button
-                        type="button"
-                        onClick={handleToggleProfileLock}
-                        className={`w-full p-2 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
-                          targetProfile.isProfileLocked
-                            ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
-                            : 'bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-800'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-black flex items-center gap-1">
-                            <Lock className="w-3 h-3 shrink-0" />
-                            <span>قفل الصفحة الشخصية</span>
-                          </p>
-                          <p className="text-[9px] text-slate-400 mt-0.5">
-                            لا يظهر لغير الأصدقاء إلا اسمك وزر أضف صديق فقط
-                          </p>
-                        </div>
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[9px] font-black shrink-0 ${
-                            targetProfile.isProfileLocked
-                              ? 'bg-rose-600 text-white'
-                              : 'bg-slate-700 text-slate-300'
-                          }`}
-                        >
-                          {targetProfile.isProfileLocked ? 'مفعّل' : 'مغلق'}
-                        </span>
-                      </button>
-
-                      {/* Option 2: Lock Friend Requests */}
-                      <button
-                        type="button"
-                        onClick={handleToggleDisableFriendRequests}
-                        className={`w-full p-2 rounded-xl border text-right transition flex items-center justify-between gap-2 cursor-pointer ${
-                          targetProfile.disableFriendRequests
-                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
-                            : 'bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-800'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-black flex items-center gap-1">
-                            <Ban className="w-3 h-3 shrink-0" />
-                            <span>قفل عدم إرسال طلبات صداقة</span>
-                          </p>
-                          <p className="text-[9px] text-slate-400 mt-0.5">
-                            منع الحسابات الأخرى من إرسال طلبات صداقة لك
-                          </p>
-                        </div>
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[9px] font-black shrink-0 ${
-                            targetProfile.disableFriendRequests
-                              ? 'bg-amber-600 text-white'
-                              : 'bg-slate-700 text-slate-300'
-                          }`}
-                        >
-                          {targetProfile.disableFriendRequests
-                            ? 'مفعّل'
-                            : 'مغلق'}
-                        </span>
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-
               <button
                 type="button"
                 onClick={() => {
                   setSelectedPostIdsForDelete([]);
                   setIsFilterPostsModalOpen(true);
                 }}
-                className="px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-[11px] font-black border border-amber-500/40 flex items-center gap-1 whitespace-nowrap transition"
+                className="profile-white-box w-full px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-[11px] font-black border border-amber-500/40 flex items-center justify-center gap-1 whitespace-nowrap transition cursor-pointer"
               >
                 <Filter className="w-3.5 h-3.5 shrink-0" />
                 <span>فلترة المنشورات</span>

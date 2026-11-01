@@ -174,6 +174,7 @@
 
 /* ============================================================================
    المظهر النهاري (Light Theme) — خلفية بيضاء بالكامل وجميع البيانات والكلام باللون الأسود
+   مع جعل الأزرار (الخط والأشكال) باللون الأبيض، وبوكس الملف الشخصي بالكامل خلفية بيضاء
    ============================================================================ */
 html.theme-light,
 html.theme-light body,
@@ -182,28 +183,55 @@ html.theme-light #root {
   color: #000000 !important;
 }
 
-html.theme-light .fluent-acrylic {
-  background: rgba(255, 255, 255, 0.94) !important;
+html.theme-light .fluent-acrylic:not(button):not(.bottom-fixed-nav) {
+  background: rgba(255, 255, 255, 0.96) !important;
   color: #000000 !important;
 }
 
-/* تحويل جميع الخلفيات الداكنة إلى اللون الأبيض / الفاتح النقي */
-html.theme-light [class*="bg-[#0A192F]"],
-html.theme-light [class*="bg-[#071120]"],
-html.theme-light [class*="bg-[#0F172A]"] {
+/* تحويل خلفيات الحاويات والكروت (غير الأزرار) إلى اللون الأبيض النقي */
+html.theme-light div[class*="bg-[#0A192F]"],
+html.theme-light div[class*="bg-[#071120]"],
+html.theme-light div[class*="bg-[#0F172A]"],
+html.theme-light div[class*="bg-[#112240]"],
+html.theme-light div[class*="bg-[#1E293B]"],
+html.theme-light div[class*="bg-slate-900"],
+html.theme-light div[class*="bg-slate-950"],
+html.theme-light section[class*="bg-[#"],
+html.theme-light main[class*="bg-[#"],
+html.theme-light aside[class*="bg-[#"],
+html.theme-light header[class*="bg-[#"],
+html.theme-light footer[class*="bg-[#"],
+html.theme-light article[class*="bg-[#"] {
   background-color: #FFFFFF !important;
+  background-image: none !important;
 }
 
-html.theme-light [class*="bg-[#112240]"],
-html.theme-light [class*="bg-[#1E293B]"] {
-  background-color: #F8FAFC !important;
+/* الملف الشخصي: البوكس بالكامل بالبيانات التي بالأعلى (الاسم، المتابعين، أتابعه، الملاحظة، الفلتر) خلفية بيضاء بالكامل */
+html.theme-light .profile-header-card,
+html.theme-light .profile-header-card .profile-white-box {
+  background: #FFFFFF !important;
+  background-color: #FFFFFF !important;
+  background-image: none !important;
+  border-color: #CBD5E1 !important;
+  color: #000000 !important;
 }
 
-html.theme-light [class*="border-[#334155]"] {
+html.theme-light .profile-header-card h2,
+html.theme-light .profile-header-card p,
+html.theme-light .profile-header-card .profile-white-box,
+html.theme-light .profile-header-card .profile-white-box span,
+html.theme-light .profile-header-card .profile-white-box p,
+html.theme-light .profile-header-card .profile-white-box svg {
+  color: #000000 !important;
+}
+
+html.theme-light [class*="border-[#334155]"],
+html.theme-light [class*="border-slate-700"],
+html.theme-light [class*="border-slate-800"] {
   border-color: #CBD5E1 !important;
 }
 
-/* تحويل جميع النصوص والبيانات المكتوبة إلى اللون الأسود الواضح */
+/* تحويل جميع النصوص والبيانات المكتوبة خارج الأزرار إلى اللون الأسود الواضح */
 html.theme-light [class*="text-[#F8FAFC]"],
 html.theme-light [class*="text-[#E2E8F0]"],
 html.theme-light [class*="text-[#94A3B8]"],
@@ -239,6 +267,26 @@ html.theme-light option {
   color: #000000 !important;
 }
 
+/* في المظهر النهاري: الأزرار يكون الخط والأشكال (الأيقونات) باللون الأبيض */
+html.theme-light button:not(.profile-white-box) {
+  color: #FFFFFF !important;
+}
+
+html.theme-light button:not(.profile-white-box)[class*="bg-white"],
+html.theme-light button:not(.profile-white-box)[class*="bg-slate-50"],
+html.theme-light button:not(.profile-white-box)[class*="bg-slate-100"],
+html.theme-light button:not(.profile-white-box)[class*="bg-slate-200"] {
+  background-color: #1E293B !important;
+}
+
+html.theme-light button:not(.profile-white-box) span,
+html.theme-light button:not(.profile-white-box) p,
+html.theme-light button:not(.profile-white-box) div,
+html.theme-light button:not(.profile-white-box) strong,
+html.theme-light button:not(.profile-white-box) svg {
+  color: #FFFFFF !important;
+}
+
 html.theme-light input,
 html.theme-light select,
 html.theme-light textarea {
@@ -258,5 +306,3 @@ html.theme-light ::-webkit-scrollbar-track {
 html.theme-light ::-webkit-scrollbar-thumb {
   background: #94A3B8;
 }
-
-

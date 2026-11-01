@@ -122,19 +122,19 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
   return (
     <>
       <footer className="w-full bg-[#0A192F] border-t border-[#334155] mt-10 py-5 px-2.5 sm:px-8 overflow-x-hidden">
-        <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-stretch justify-between gap-2.5 sm:gap-6">
-          {/* في الهاتف يظهر بالأعلى: للتواصل (واتس اب + فيس بوك + أرسل رسالة) بالعرض في سطر واحد، وفي الكمبيوتر على اليسار */}
-          <div className="order-1 sm:order-2 flex flex-col justify-between items-start space-y-2 bg-[#112240]/90 border border-[#334155] rounded-2xl p-3 sm:p-4 min-w-0 sm:min-w-[230px]">
+        <div className="max-w-[1600px] mx-auto flex flex-col items-stretch justify-between gap-2.5 sm:gap-3">
+          {/* بالأعلى: للتواصل (واتس اب + فيس بوك + أرسل رسالة) بالعرض في سطر واحد */}
+          <div className="w-full flex flex-col justify-between items-start space-y-2 bg-[#112240]/90 border border-[#334155] rounded-2xl p-3 sm:p-4 min-w-0">
             <h4 className="text-xs font-extrabold text-sky-400 border-b border-[#334155] pb-1.5 w-full text-right">
               للتواصل:
             </h4>
 
-            <div className="w-full grid grid-cols-3 sm:flex sm:flex-col gap-1.5 sm:gap-2">
+            <div className="w-full grid grid-cols-3 gap-1.5 sm:gap-3">
               {/* 1. WhatsApp Sticker + "واتس اب" */}
               <button
                 type="button"
                 onClick={handleOpenWhatsapp}
-                className="fluent-reveal w-full flex items-center justify-center sm:justify-start gap-1.5 sm:gap-3 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] cursor-pointer text-right whitespace-nowrap"
+                className="fluent-reveal w-full flex items-center justify-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] cursor-pointer text-right whitespace-nowrap"
               >
                 <span className="relative z-10 w-5 h-5 sm:w-7 sm:h-7 rounded-lg bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center shrink-0">
                   <svg
@@ -153,7 +153,7 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
               <button
                 type="button"
                 onClick={handleOpenFacebook}
-                className="fluent-reveal w-full flex items-center justify-center sm:justify-start gap-1.5 sm:gap-3 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] cursor-pointer text-right whitespace-nowrap"
+                className="fluent-reveal w-full flex items-center justify-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] cursor-pointer text-right whitespace-nowrap"
               >
                 <span className="relative z-10 w-5 h-5 sm:w-7 sm:h-7 rounded-lg bg-blue-500/20 border border-blue-400/50 flex items-center justify-center shrink-0">
                   <svg
@@ -172,7 +172,7 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsMessageModalOpen(true)}
-                className="fluent-reveal w-full flex items-center justify-center sm:justify-start gap-1.5 sm:gap-3 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] cursor-pointer text-right whitespace-nowrap"
+                className="fluent-reveal w-full flex items-center justify-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#0A192F] hover:bg-[#1E293B] border border-[#334155] cursor-pointer text-right whitespace-nowrap"
               >
                 <span className="relative z-10 w-5 h-5 sm:w-7 sm:h-7 rounded-lg bg-sky-500/20 border border-sky-400/50 flex items-center justify-center shrink-0">
                   <svg
@@ -193,28 +193,26 @@ export const FooterAndContactModal: React.FC<FooterAndContactModalProps> = ({
             </div>
           </div>
 
-          {/* في الهاتف يظهر أسفل أزرار التواصل مباشرة (وفي الكمبيوتر على اليمين): اسم الموقع + عدد المتصلين الآن + مع تحيات المطور Amir Lamay */}
-          <div className="order-2 sm:order-1 flex flex-col justify-between items-center sm:items-start space-y-2 text-center sm:text-right bg-[#112240]/90 border border-[#334155] rounded-2xl p-3 sm:p-4 min-w-0 sm:min-w-[240px]">
-            <div className="text-xs sm:text-sm font-extrabold text-[#F8FAFC] leading-snug">
+          {/* في نسخة الهاتف والكمبيوتر في سطر واحد: (اليمين: موقع خدمات النخيل 1185) + (المنتصف: مع تحيات المطور Amir Lamay) + (اليسار: عدد المتصلين الآن) */}
+          <div className="w-full flex flex-row items-center justify-between gap-1 sm:gap-4 flex-nowrap bg-[#112240]/90 border border-[#334155] rounded-2xl px-2.5 sm:px-5 py-2.5 sm:py-3 min-w-0">
+            {/* اليمين: اسم الموقع */}
+            <div className="text-[9.5px] sm:text-sm font-extrabold text-[#F8FAFC] whitespace-nowrap shrink-0 text-right">
               {settings.siteName || 'موقع خدمات النخيل 1185'}
             </div>
 
-            {/* عدد المتصلين الآن */}
-            <div>
-              <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-[#0A192F] border border-emerald-400/50 text-[11px] sm:text-xs font-extrabold text-emerald-300 shadow">
-                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399] shrink-0" />
-                <Radio className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 shrink-0" />
-                <span>عدد المتصلين الآن:</span>
-                <span className="font-mono-tabular text-xs sm:text-sm text-[#F8FAFC]">
-                  {onlineCount}
-                </span>
-              </div>
+            {/* المنتصف: مع تحيات المطور Amir Lamay */}
+            <div className="text-[9.5px] sm:text-sm font-bold text-sky-400 tracking-wide select-all whitespace-nowrap shrink-0 text-center mx-auto">
+              مع تحيات المطور Amir Lamay
             </div>
 
-            <div>
-              <div className="pt-0.5 inline-block text-[11px] sm:text-sm font-bold text-sky-400 tracking-wide select-all">
-                مع تحيات المطور Amir Lamay
-              </div>
+            {/* اليسار: عدد المتصلين الآن */}
+            <div className="inline-flex items-center gap-1 sm:gap-2 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-[#0A192F] border border-emerald-400/50 text-[9.5px] sm:text-xs font-extrabold text-emerald-300 shadow whitespace-nowrap shrink-0">
+              <span className="w-1.5 h-1.5 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399] shrink-0" />
+              <Radio className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-emerald-400 shrink-0 hidden sm:inline-block" />
+              <span>عدد المتصلين الآن:</span>
+              <span className="font-mono-tabular text-[10px] sm:text-sm text-[#F8FAFC]">
+                {onlineCount}
+              </span>
             </div>
           </div>
         </div>
